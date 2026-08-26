@@ -26,7 +26,16 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const { sender_id, sender_name, recipient_id, chat_id, message_text } = body;
+    const {
+      sender_id,
+      sender_name,
+      recipient_id,
+      chat_id,
+      message_text,
+      title,
+      type,
+      custom_data,
+    } = body;
 
     if (!recipient_id || !sender_id) {
       return new Response(JSON.stringify({ success: false, error: "Missing required fields: sender_id, recipient_id" }), {
@@ -35,7 +44,9 @@ serve(async (req) => {
       });
     }
 
-    const preview = (message_text || "New message").length > 160
+    const notifType = type || "chat";
+    const notifTitle = title || sender_name || "New Notification";
+    const notifBody = (message_text || "New message").length > 160
       ? `${(message_text || "New message").substring(0, 157)}...`
       : (message_text || "New message");
 
@@ -54,6 +65,20 @@ serve(async (req) => {
 
     // Step 3: Send FCM push notification via HTTP v1 API
     const fcmUrl = `https://fcm.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/messages:send`;
+    const dataPayload: Record<string, string> = {
+      type: notifType,
+      chatId: chat_id || "",
+      senderId: sender_id || "",
+      senderName: sender_name || "",
+      title: notifTitle,
+      body: notifBody,
+    };
+    if (custom_data && typeof custom_data === "object") {
+      for (const [key, value] of Object.entries(custom_data)) {
+        dataPayload[key] = String(value);
+      }
+    }
+
     const fcmResponse = await fetch(fcmUrl, {
       method: "POST",
       headers: {
@@ -64,19 +89,14 @@ serve(async (req) => {
         message: {
           token: fcmToken,
           notification: {
-            title: sender_name || "New message",
-            body: preview,
+            title: notifTitle,
+            body: notifBody,
           },
-          data: {
-            type: "chat",
-            chatId: chat_id || "",
-            senderId: sender_id || "",
-            senderName: sender_name || "",
-          },
+          data: dataPayload,
           android: {
             priority: "high",
             notification: {
-              channel_id: "utopia_high_importance",
+              channel_id: "utopia_high_importance_v2",
               priority: "HIGH",
               default_sound: true,
               default_vibrate_timings: true,
@@ -86,8 +106,8 @@ serve(async (req) => {
             payload: {
               aps: {
                 alert: {
-                  title: sender_name || "New message",
-                  body: preview,
+                  title: notifTitle,
+                  body: notifBody,
                 },
                 sound: "default",
                 badge: 1,
@@ -109,6 +129,37 @@ serve(async (req) => {
     }
 
     console.log(`[send-chat-notification] Push sent successfully to ${recipient_id}`);
+
+    // Step 4: Write notification record to Firestore /notifications with admin privileges
+    try {
+      const notifId = crypto.randomUUID();
+      const notifUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/notifications?documentId=${notifId}`;
+      await fetch(notifUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          fields: {
+            id: { stringValue: notifId },
+            recipientId: { stringValue: recipient_id },
+            senderId: { stringValue: sender_id },
+            senderName: { stringValue: sender_name || "" },
+            senderPhotoUrl: { stringValue: custom_data?.senderPhotoUrl ? String(custom_data.senderPhotoUrl) : "" },
+            title: { stringValue: notifTitle },
+            body: { stringValue: notifBody },
+            type: { stringValue: notifType },
+            chatId: { stringValue: chat_id || "" },
+            read: { booleanValue: false },
+            createdAt: { timestampValue: new Date().toISOString() },
+          },
+        }),
+      });
+    } catch (dbErr) {
+      console.error("[send-chat-notification] Firestore admin write failed:", dbErr);
+    }
+
     return new Response(JSON.stringify({ success: true, messageId: fcmResult.name }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,

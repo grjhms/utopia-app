@@ -152,13 +152,25 @@ class _RequestRowState extends State<_RequestRow> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    displayName,
-                    style: GoogleFonts.outfit(
-                      color: U.text,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          displayName,
+                          style: GoogleFonts.outfit(
+                            color: U.text,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if ((widget.request['role'] ?? '') == 'superuser') ...[
+                        const SizedBox(width: 4),
+                        Icon(Icons.verified_rounded, color: U.red, size: 14),
+                      ],
+                    ],
                   ),
                   if (bio.isNotEmpty)
                     Text(

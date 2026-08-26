@@ -4,17 +4,23 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import '../theme/image_overlay_colors.dart';
 import 'package:flutter/services.dart';
-import 'university_screen.dart';
+import 'people_screen.dart';
 import 'focus_screen.dart';
 import 'profile_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
+
+  static bool _sessionCounted = false;
+
+  static void resetSession() {
+    _sessionCounted = false;
+  }
+
   @override
   State<AppShell> createState() => _AppShellState();
 }
@@ -34,7 +40,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
     if (_screens[index] == null) {
       switch (index) {
         case 1:
-          _screens[index] = const UniversityScreen();
+          _screens[index] = const PeopleScreen();
           break;
         case 2:
           _screens[index] = const ProfileScreen();
@@ -59,8 +65,20 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
 
   Future<void> _checkPopupEvent() async {
     try {
-      final doc = await FirebaseFirestore.instance.collection('config').doc('app_config').get();
       final prefs = await SharedPreferences.getInstance();
+
+      if (!AppShell._sessionCounted) {
+        AppShell._sessionCounted = true;
+        final currentCount = prefs.getInt('app_open_count') ?? 0;
+        await prefs.setInt('app_open_count', currentCount + 1);
+      }
+
+      final openCount = prefs.getInt('app_open_count') ?? 0;
+      if (openCount < 2) {
+        return;
+      }
+
+      final doc = await FirebaseFirestore.instance.collection('config').doc('app_config').get();
 
       final eventId = doc.data()?['popup_event_id'] as String?;
       if (eventId != null && eventId.isNotEmpty) {
@@ -323,8 +341,8 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                                         onTap: () => _setIndex(0),
                                       ),
                                       _NavItem(
-                                        icon: Icons.school_outlined,
-                                        activeIcon: Icons.school_rounded,
+                                        icon: Icons.groups_outlined,
+                                        activeIcon: Icons.groups_rounded,
                                         isActive: _index == 1,
                                         accent: U.primary,
                                         isDark: isDark,

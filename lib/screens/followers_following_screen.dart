@@ -8,6 +8,7 @@ import '../main.dart';
 import '../services/follow_service.dart';
 import '../widgets/app_motion.dart';
 import '../widgets/utopia_loader.dart';
+import '../widgets/wave_count_badge.dart';
 import 'user_profile_screen.dart';
 
 class FollowersFollowingScreen extends StatefulWidget {
@@ -261,6 +262,7 @@ class _UserRowState extends State<_UserRow> {
         final photoUrl = data['photoUrl']?.toString();
         final bio = (data['bio'] ?? '').toString().trim();
         final isSuper = data['role'] == 'superuser';
+        final wavesCount = (data['wavesReceivedCount'] as num?)?.toInt() ?? 0;
 
         return InkWell(
           onTap: () {
@@ -319,8 +321,10 @@ class _UserRowState extends State<_UserRow> {
                           ),
                           if (isSuper) ...[
                             const SizedBox(width: 4),
-                            const Icon(Icons.verified_rounded, color: Color(0xFF1D9BF0), size: 14),
+                            Icon(Icons.verified_rounded, color: U.red, size: 14),
                           ],
+                          const SizedBox(width: 6),
+                          WaveCountBadge(count: wavesCount, compact: true),
                         ],
                       ),
                       if (bio.isNotEmpty)

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:ui';
-import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:flutter/material.dart';
@@ -24,7 +23,6 @@ import 'services/platform_support.dart';
 import 'screens/app_shell.dart';
 import 'screens/join_class_screen.dart';
 import 'screens/university_selection_screen.dart';
-import 'services/class_service.dart';
 import 'services/focus_supabase_service.dart';
 
 import 'screens/event_details_screen.dart';
@@ -616,8 +614,7 @@ Future<AppInitializationState> _initializeApp() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     if (PlatformSupport.supportsNotifications) {
-      // Disabled background Dart VM execution for push messaging to prevent battery/background optimization alerts
-      // FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
       unawaited(NotificationService.initialize());
     }
 
@@ -763,19 +760,31 @@ class U {
   }
 
   static String sanitizeDisplayName(String? name) {
-    final clean = (name ?? '').trim();
+    var clean = (name ?? '').trim();
     if (clean.isEmpty) return 'Student';
     if (clean.contains('@')) {
       final prefix = clean.split('@').first.trim();
       if (prefix.isEmpty) return 'Student';
-      final formatted = prefix.replaceAll('.', ' ').replaceAll('_', ' ');
-      final parts = formatted.split(' ').where((w) => w.isNotEmpty).toList();
-      if (parts.isEmpty) return 'Student';
-      return parts.map((word) {
-        return word[0].toUpperCase() + word.substring(1);
-      }).join(' ');
+      clean = prefix.replaceAll('.', ' ').replaceAll('_', ' ');
     }
-    return clean;
+
+    final words = clean.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    if (words.isEmpty) return 'Student';
+
+    // Deduplicate identical consecutive words (e.g. "25B11CE107 25B11CE107" -> "25B11CE107")
+    final deduplicated = <String>[];
+    for (final word in words) {
+      if (deduplicated.isEmpty || deduplicated.last.toLowerCase() != word.toLowerCase()) {
+        deduplicated.add(word);
+      }
+    }
+
+    return deduplicated.map((word) {
+      if (word.length <= 1) return word.toUpperCase();
+      // If it looks like a roll number / alphanumeric ID (e.g. 25B11CE107), keep uppercase
+      if (RegExp(r'^\d+[a-zA-Z]+\d+').hasMatch(word)) return word.toUpperCase();
+      return word[0].toUpperCase() + word.substring(1);
+    }).join(' ');
   }
 
   static void showSnackBar(
@@ -1110,9 +1119,6 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     NotificationService.setAppForeground(true);
-    if (PlatformSupport.supportsNotifications) {
-      unawaited(NotificationService.ensureNotificationPermissions());
-    }
 
     _initDeepLinks();
     Future.delayed(SplashScreen.minimumDisplayDuration, () {
@@ -1141,7 +1147,6 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         }
       }());
       if (PlatformSupport.supportsNotifications) {
-        unawaited(NotificationService.ensureNotificationPermissions());
         unawaited(NotificationService.refreshTokenRegistration());
       }
     }
@@ -1266,6 +1271,16 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
                   if (userSnapshot.connectionState == ConnectionState.active && 
                       selectedUniversityId == null) {
                     return const UniversitySelectionScreen();
+                  }
+
+                  if (selectedUniversityId != null && selectedUniversityId.isNotEmpty) {
+                    U.cachedUniversityId = selectedUniversityId;
+                    unawaited(
+                      CacheService().saveAppSetting(
+                        'cached_university_id',
+                        selectedUniversityId,
+                      ),
+                    );
                   }
 
                   return const AppShell();
@@ -1824,7 +1839,7 @@ class _PlatformSetupScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 18),
                     Text(
-                      'Current blockers: Firebase desktop config, desktop login, push notifications, and the campus map view.',
+                      'Current blockers: Firebase desktop config, desktop login, and push notifications.',
                       style: GoogleFonts.outfit(
                         color: U.primary,
                         fontSize: 13,

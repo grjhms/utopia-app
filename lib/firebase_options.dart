@@ -54,7 +54,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyBGslt8X1GGuIsqlIhwSxEi7iCNf-N6DN4',
-    appId: '1:402670858978:android:200c4504814ccd9ffea4bb',
+    appId: '1:402670858978:android:873b9416a7e07734fea4bb',
     messagingSenderId: '402670858978',
     projectId: 'utopia-app-33cf8',
     databaseURL: 'https://utopia-app-33cf8-default-rtdb.asia-southeast1.firebasedatabase.app',

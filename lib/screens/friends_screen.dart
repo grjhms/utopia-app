@@ -503,7 +503,7 @@ class _FriendRow extends StatelessWidget {
                       ),
                       if (user['role'] == 'superuser') ...[
                         const SizedBox(width: 4),
-                        Icon(Icons.verified_rounded, color: U.primary, size: 14),
+                        Icon(Icons.verified_rounded, color: U.red, size: 14),
                       ],
                     ],
                   ),

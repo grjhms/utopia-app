@@ -1,11 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -15,7 +13,9 @@ import '../main.dart';
 import 'platform_support.dart';
 import '../screens/chat_screen.dart';
 import '../screens/event_certificates_screen.dart';
+import '../screens/event_notifications_screen.dart';
 import '../screens/timetable_screen.dart';
+import '../screens/uni_chat_screen.dart';
 import '../widgets/app_motion.dart';
 import '../widgets/utopia_snackbar.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
@@ -36,12 +36,30 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   }
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    
-    final title = message.notification?.title ?? message.data['title']?.toString();
-    final body = message.notification?.body ?? message.data['body']?.toString();
-    if (title == null && body == null) {
+
+    // If message contains a standard notification payload, Android/Google Play Services
+    // and iOS APNs automatically render the system notification banner directly.
+    if (message.notification != null) {
       return;
     }
+
+    // For data-only messages in the background/killed state, display the notification manually
+    final rawTitle = (message.data['title']?.toString() ??
+        message.data['senderName']?.toString() ??
+        message.data['sender_name']?.toString() ??
+        '').trim();
+    final rawBody = (message.data['body']?.toString() ??
+        message.data['message']?.toString() ??
+        message.data['message_text']?.toString() ??
+        '').trim();
+
+    // Ignore empty/data-only background pings that contain no user-visible message
+    if (rawBody.isEmpty) {
+      return;
+    }
+
+    final title = rawTitle.isNotEmpty ? rawTitle : 'UTOPIA';
+    final body = rawBody;
 
     final localNotifications = FlutterLocalNotificationsPlugin();
     const androidSettings = AndroidInitializationSettings('ic_notification');
@@ -58,10 +76,13 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     await localNotifications.initialize(initSettings);
 
     const channel = AndroidNotificationChannel(
-      'utopia_high_importance',
+      'utopia_high_importance_v2',
       'UTOPIA Notifications',
-      description: 'Morning alerts and writer broadcasts from UTOPIA',
-      importance: Importance.high,
+      description: 'Live alerts, chat messages, and reminders from UTOPIA',
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
+      showBadge: true,
     );
 
     await localNotifications
@@ -72,13 +93,20 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
     const details = NotificationDetails(
       android: AndroidNotificationDetails(
-        'utopia_high_importance',
+        'utopia_high_importance_v2',
         'UTOPIA Notifications',
-        channelDescription: 'Morning alerts and writer broadcasts from UTOPIA',
+        channelDescription: 'Live alerts, chat messages, and reminders from UTOPIA',
         importance: Importance.max,
         priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
         icon: 'ic_notification',
         largeIcon: DrawableResourceAndroidBitmap('ic_notification_large'),
+      ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
       ),
     );
 
@@ -104,23 +132,18 @@ class NotificationService {
   static bool _initialized = false;
   static bool isDialogShowing = false;
   static StreamSubscription<User?>? _authSubscription;
-  static String? _lastSavedToken;
-  static String? _lastSavedUid;
   static bool _isAppForeground = true;
   static String? _activeChatId;
-  static bool _checkingNotificationPermission = false;
 
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
-    'utopia_high_importance',
+    'utopia_high_importance_v2',
     'UTOPIA Notifications',
-    description: 'Morning alerts and writer broadcasts from UTOPIA',
-    importance: Importance.high,
+    description: 'Live alerts, chat messages, and reminders from UTOPIA',
+    importance: Importance.max,
+    playSound: true,
+    enableVibration: true,
+    showBadge: true,
   );
-
-  static const Set<AuthorizationStatus> _grantedAuthorizationStatuses = {
-    AuthorizationStatus.authorized,
-    AuthorizationStatus.provisional,
-  };
 
   static Future<void> initialize() async {
     if (!PlatformSupport.supportsNotifications) {
@@ -142,9 +165,9 @@ class NotificationService {
           AndroidInitializationSettings('ic_notification');
       const DarwinInitializationSettings darwinSettings =
           DarwinInitializationSettings(
-            requestAlertPermission: false,
-            requestBadgePermission: false,
-            requestSoundPermission: false,
+            requestAlertPermission: true,
+            requestBadgePermission: true,
+            requestSoundPermission: true,
             defaultPresentAlert: true,
             defaultPresentSound: true,
             defaultPresentBadge: true,
@@ -178,7 +201,9 @@ class NotificationService {
                 }
               }
             }
-          } catch (e) {}
+          } catch (e) {
+            debugPrint('Error handling notification response: $e');
+          }
         },
         onDidReceiveBackgroundNotificationResponse: onDidReceiveBackgroundNotificationResponse,
       );
@@ -192,14 +217,17 @@ class NotificationService {
         }
       }
 
+      // Create high-importance notification channel for Android
       await _localNotifications
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
           >()
           ?.createNotificationChannel(_channel);
 
-      await ensureNotificationPermissions();
+      // Request runtime notification permissions
+      await _requestRuntimePermissions();
 
+      // Retrieve and register FCM token
       String? token = await FirebaseMessaging.instance.getToken();
       if (token != null) {
         await _saveTokenToFirestore(token);
@@ -218,33 +246,47 @@ class NotificationService {
         }
       });
 
+      // Foreground message listener
       FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
         try {
-          final title = message.notification?.title ?? '';
-          final body = message.notification?.body ?? '';
+          final rawTitle = (message.notification?.title ??
+              message.data['title']?.toString() ??
+              message.data['senderName']?.toString() ??
+              message.data['sender_name']?.toString() ??
+              '').trim();
+          final rawBody = (message.notification?.body ??
+              message.data['body']?.toString() ??
+              message.data['message']?.toString() ??
+              message.data['message_text']?.toString() ??
+              '').trim();
+
+          // Ignore empty pings without user message content
+          if (rawBody.isEmpty) {
+            return;
+          }
+
+          final title = rawTitle.isNotEmpty ? rawTitle : 'UTOPIA';
+          final body = rawBody;
           final type = (message.data['type'] ?? '').toString();
           final chatId =
               (message.data['chatId'] ?? message.data['chat_id'] ?? '')
                   .toString();
+          final uniId =
+              (message.data['universityId'] ?? message.data['university_id'] ?? '')
+                  .toString();
           final isForegroundChat = type == 'chat' && _isAppForeground;
+          final isForegroundUniChat =
+              (type == 'uni_chat' || type == 'global_chat') && _isAppForeground;
           final isActiveChat =
               isForegroundChat && chatId.isNotEmpty && _activeChatId == chatId;
+          final isActiveUniChat = isForegroundUniChat &&
+              (_activeChatId == 'uni_$uniId' || (_activeChatId?.startsWith('uni_') ?? false));
 
-          if (isActiveChat) {
+          if (isActiveChat || isActiveUniChat) {
             return;
           }
 
           if (type == 'morning_notification' && !U.morningNotifEnabled) {
-            return;
-          }
-
-          if (isForegroundChat) {
-            await _showLocalNotification(
-              title: title,
-              body: body,
-              data: Map<String, dynamic>.from(message.data),
-            );
-            _showInAppMessageHint(title: title, body: body);
             return;
           }
 
@@ -253,7 +295,13 @@ class NotificationService {
             body: body,
             data: Map<String, dynamic>.from(message.data),
           );
-        } catch (e) {}
+
+          if (isForegroundChat || isForegroundUniChat) {
+            _showInAppMessageHint(title: title, body: body);
+          }
+        } catch (e) {
+          debugPrint('Error handling foreground FCM message: $e');
+        }
       });
 
       FirebaseMessaging.onMessageOpenedApp.listen((
@@ -261,7 +309,9 @@ class NotificationService {
       ) async {
         try {
           await _handleRemoteMessageInteraction(message);
-        } catch (e) {}
+        } catch (e) {
+          debugPrint('Error handling onMessageOpenedApp: $e');
+        }
       });
 
       RemoteMessage? initialMessage = await FirebaseMessaging.instance
@@ -269,60 +319,55 @@ class NotificationService {
       if (initialMessage != null) {
         try {
           await _handleRemoteMessageInteraction(initialMessage);
-        } catch (e) {}
+        } catch (e) {
+          debugPrint('Error handling initialMessage: $e');
+        }
       }
       _initialized = true;
     } catch (e) {
+      debugPrint('Error initializing NotificationService: $e');
       return;
     }
   }
 
-  static Future<void> _requestNotificationPermissions() async {
-    if (!PlatformSupport.supportsNotifications) {
-      return;
-    }
+  static Future<void> _requestRuntimePermissions() async {
     try {
-      await _localNotifications
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >()
-          ?.requestNotificationsPermission();
+      // 1. Firebase Messaging Permission (iOS & Android)
+      await FirebaseMessaging.instance.requestPermission(
+        alert: true,
+        announcement: false,
+        badge: true,
+        carPlay: false,
+        criticalAlert: false,
+        provisional: false,
+        sound: true,
+      );
 
-      await _localNotifications
-          .resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin
-          >()
-          ?.requestPermissions(alert: true, badge: true, sound: true);
-
-      await _localNotifications
-          .resolvePlatformSpecificImplementation<
-            MacOSFlutterLocalNotificationsPlugin
-          >()
-          ?.requestPermissions(alert: true, badge: true, sound: true);
+      // 2. Android 13+ (API 33+) POST_NOTIFICATIONS permission
+      final androidPlugin = _localNotifications.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (androidPlugin != null) {
+        await androidPlugin.requestNotificationsPermission();
+      }
     } catch (e) {
-      return;
+      debugPrint('Error requesting runtime permissions: $e');
     }
   }
 
   static Future<bool> areNotificationPermissionsEnabled() async {
-    if (!PlatformSupport.supportsNotifications) {
-      return false;
-    }
+    if (!PlatformSupport.supportsNotifications) return true;
     try {
-      final androidEnabled = await _localNotifications
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >()
-          ?.areNotificationsEnabled();
-      if (androidEnabled != null) {
-        return androidEnabled;
+      final settings = await FirebaseMessaging.instance.getNotificationSettings();
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        return false;
       }
-
-      final settings = await FirebaseMessaging.instance
-          .getNotificationSettings();
-      return _grantedAuthorizationStatuses.contains(
-        settings.authorizationStatus,
-      );
+      final androidPlugin = _localNotifications.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (androidPlugin != null) {
+        final areEnabled = await androidPlugin.areNotificationsEnabled();
+        return areEnabled ?? true;
+      }
+      return true;
     } catch (e) {
       return true;
     }
@@ -330,50 +375,11 @@ class NotificationService {
 
   static Future<void> requestNotificationPermissionOnly() async {
     if (!PlatformSupport.supportsNotifications) return;
-    try {
-      if (PlatformSupport.isAndroid) {
-        await _localNotifications
-            .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin
-            >()
-            ?.requestNotificationsPermission();
-      } else if (PlatformSupport.isIOS) {
-        await _localNotifications
-            .resolvePlatformSpecificImplementation<
-              IOSFlutterLocalNotificationsPlugin
-            >()
-            ?.requestPermissions(alert: true, badge: true, sound: true);
-      }
-    } catch (_) {}
+    await _requestRuntimePermissions();
   }
 
-
   static Future<void> ensureNotificationPermissions() async {
-    if (!PlatformSupport.supportsNotifications) {
-      return;
-    }
-    if (_checkingNotificationPermission) {
-      return;
-    }
-
-    _checkingNotificationPermission = true;
-    try {
-      final enabled = await areNotificationPermissionsEnabled();
-      if (enabled) {
-        return;
-      }
-
-      await _requestNotificationPermissions();
-      await FirebaseMessaging.instance.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
-    } catch (e) {
-      return;
-    } finally {
-      _checkingNotificationPermission = false;
-    }
+    await _requestRuntimePermissions();
   }
 
   static void setAppForeground(bool isForeground) {
@@ -449,17 +455,20 @@ class NotificationService {
     required String body,
     Map<String, dynamic>? data,
   }) async {
-    if (title.isEmpty && body.isEmpty) {
+    if (body.trim().isEmpty) {
       return;
     }
 
     const details = NotificationDetails(
       android: AndroidNotificationDetails(
-        'utopia_high_importance',
+        'utopia_high_importance_v2',
         'UTOPIA Notifications',
-        channelDescription: 'Morning alerts and writer broadcasts from UTOPIA',
+        channelDescription: 'Live alerts, chat messages, and reminders from UTOPIA',
         importance: Importance.max,
         priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        visibility: NotificationVisibility.public,
         icon: 'ic_notification',
         largeIcon: DrawableResourceAndroidBitmap('ic_notification_large'),
       ),
@@ -524,6 +533,24 @@ class NotificationService {
     required Map<String, dynamic> data,
   }) async {
     final type = (data['type'] ?? '').toString();
+    if (type == 'uni_chat' || type == 'global_chat') {
+      final universityId = (data['universityId'] ?? data['university_id'] ?? '').toString();
+      final navigator = navigatorKey.currentState;
+      if (navigator != null) {
+        await navigator.push(
+          MaterialPageRoute(
+            builder: (_) => UniChatScreen(
+              universityId: universityId.isNotEmpty
+                  ? universityId
+                  : (U.cachedUniversityId.isNotEmpty
+                      ? U.cachedUniversityId
+                      : 'support'),
+            ),
+          ),
+        );
+      }
+      return;
+    }
     if (type == 'chat') {
       final senderId = (data['senderId'] ?? data['sender_id'] ?? '').toString();
       final senderName = (data['senderName'] ?? data['sender_name'] ?? title)
@@ -536,6 +563,15 @@ class NotificationService {
         if (opened) {
           return;
         }
+      }
+      return;
+    }
+    if (type == 'wave' || type == 'follow_request' || type == 'follow_accept' || type == 'general' || type == 'broadcast') {
+      final navigator = navigatorKey.currentState;
+      if (navigator != null) {
+        await navigator.push(
+          MaterialPageRoute(builder: (_) => const EventNotificationsScreen()),
+        );
       }
       return;
     }
@@ -556,6 +592,46 @@ class NotificationService {
         );
       }
       return;
+    }
+  }
+
+  /// Dispatches push & in-app notification via Firebase Firestore 'notifications' collection.
+  /// Cloud Function `onNotificationCreated` automatically delivers the high-importance FCM push.
+  static Future<void> dispatchPushNotification({
+    required String recipientId,
+    required String title,
+    required String message,
+    required String type, // 'chat', 'wave', 'follow_request', 'follow_accept', 'broadcast', 'general'
+    String? chatId,
+    Map<String, dynamic>? extraData,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final senderId = user?.uid ?? '';
+    final senderName = user?.displayName ?? user?.email ?? 'Student';
+    final senderPhotoUrl = user?.photoURL;
+    if (senderId.isEmpty || recipientId.isEmpty || recipientId == senderId) {
+      return;
+    }
+
+    try {
+      final notifDoc = FirebaseFirestore.instance.collection('notifications').doc();
+      await notifDoc.set({
+        'id': notifDoc.id,
+        'recipientId': recipientId,
+        'senderId': senderId,
+        'senderName': senderName,
+        'senderPhotoUrl': senderPhotoUrl,
+        'title': title,
+        'body': message,
+        'type': type,
+        'chatId': chatId ?? '',
+        'data': extraData ?? {},
+        'read': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      debugPrint('Firebase Notification queued to Firestore for $recipientId (type: $type)');
+    } catch (e) {
+      debugPrint('Error creating notification in Firestore: $e');
     }
   }
 
@@ -601,7 +677,7 @@ class NotificationService {
   }) async {
     const platformChannelSpecifics = NotificationDetails(
       android: AndroidNotificationDetails(
-        'utopia_high_importance',
+        'utopia_high_importance_v2',
         'UTOPIA Notifications',
         channelDescription: 'Morning alerts and writer broadcasts from UTOPIA',
         importance: Importance.max,
@@ -779,72 +855,7 @@ class NotificationService {
       } catch (_) {}
     }
 
-    // 1. Try EXACT scheduling WITH Large Icon
-    try {
-      await _localNotifications.zonedSchedule(
-        id,
-        title,
-        body,
-        scheduledDate,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            channelId,
-            channelName,
-            channelDescription: channelDescription,
-            importance: Importance.max,
-            priority: Priority.high,
-            playSound: true,
-            enableVibration: true,
-            icon: 'ic_notification',
-            largeIcon: const DrawableResourceAndroidBitmap('ic_notification_large'),
-            actions: actions,
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: matchDateTimeComponents,
-        payload: payload,
-      );
-      debugPrint("NOTIF: Scheduled successfully (exact, with large icon) for ID $id at $scheduledDate");
-      return;
-    } catch (e) {
-      debugPrint("NOTIF: Exact schedule with large icon failed for ID $id ($e). Trying exact WITHOUT large icon...");
-    }
-
-    // 2. Try EXACT scheduling WITHOUT Large Icon
-    try {
-      await _localNotifications.zonedSchedule(
-        id,
-        title,
-        body,
-        scheduledDate,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            channelId,
-            channelName,
-            channelDescription: channelDescription,
-            importance: Importance.max,
-            priority: Priority.high,
-            playSound: true,
-            enableVibration: true,
-            icon: 'ic_notification',
-            actions: actions,
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: matchDateTimeComponents,
-        payload: payload,
-      );
-      debugPrint("NOTIF: Scheduled successfully (exact, no large icon) for ID $id at $scheduledDate");
-      return;
-    } catch (e) {
-      debugPrint("NOTIF: Exact schedule without large icon failed for ID $id ($e). Trying inexact WITH large icon...");
-    }
-
-    // 3. Try INEXACT scheduling WITH Large Icon
+    // 1. Try INEXACT scheduling WITH Large Icon (Standard Google Play compliant mode)
     try {
       await _localNotifications.zonedSchedule(
         id,
@@ -877,32 +888,36 @@ class NotificationService {
       debugPrint("NOTIF: Inexact schedule with large icon failed for ID $id ($e). Trying inexact WITHOUT large icon...");
     }
 
-    // 4. Try INEXACT scheduling WITHOUT Large Icon (absolute baseline fallback)
-    await _localNotifications.zonedSchedule(
-      id,
-      title,
-      body,
-      scheduledDate,
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          channelId,
-          channelName,
-          channelDescription: channelDescription,
-          importance: Importance.max,
-          priority: Priority.high,
-          playSound: true,
-          enableVibration: true,
-          icon: 'ic_notification',
-          actions: actions,
+    // 2. Try INEXACT scheduling WITHOUT Large Icon (fallback)
+    try {
+      await _localNotifications.zonedSchedule(
+        id,
+        title,
+        body,
+        scheduledDate,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            channelId,
+            channelName,
+            channelDescription: channelDescription,
+            importance: Importance.max,
+            priority: Priority.high,
+            playSound: true,
+            enableVibration: true,
+            icon: 'ic_notification',
+            actions: actions,
+          ),
         ),
-      ),
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-      matchDateTimeComponents: matchDateTimeComponents,
-      payload: payload,
-    );
-    debugPrint("NOTIF: Scheduled successfully (inexact, no large icon - absolute fallback) for ID $id at $scheduledDate");
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: matchDateTimeComponents,
+        payload: payload,
+      );
+      debugPrint("NOTIF: Scheduled successfully (inexact, no large icon) for ID $id at $scheduledDate");
+    } catch (e) {
+      debugPrint("NOTIF: Failed to schedule local notification for ID $id: $e");
+    }
   }
 
   // Private helper to avoid code duplication and support robust exact/inexact fallback
@@ -926,7 +941,7 @@ class NotificationService {
       title: title,
       body: body,
       scheduledDate: scheduledDate,
-      channelId: 'utopia_high_importance',
+      channelId: 'utopia_high_importance_v2',
       channelName: 'UTOPIA Notifications',
       channelDescription: 'Daily timetable reminders',
       payload: payloadString,
@@ -949,19 +964,34 @@ class NotificationService {
     }
   }
 
-  static Future<bool> _isOnline() async {
-    final results = await Connectivity().checkConnectivity();
-    return results.any((result) => result != ConnectivityResult.none);
-  }
-
   /// Check if exact alarms are permitted (Android 12+)
   static Future<bool> canScheduleExactNotifications() async {
-    return true;
+    if (!PlatformSupport.isAndroid) return true;
+    try {
+      final androidPlugin = _localNotifications.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (androidPlugin != null) {
+        final canExact = await androidPlugin.canScheduleExactNotifications();
+        return canExact ?? true;
+      }
+      return true;
+    } catch (e) {
+      return true;
+    }
   }
 
   /// Open system settings for exact alarm permission (Android 12+)
   static Future<void> openExactAlarmSettings() async {
-    return;
+    if (!PlatformSupport.isAndroid) return;
+    try {
+      final androidPlugin = _localNotifications.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (androidPlugin != null) {
+        await androidPlugin.requestExactAlarmsPermission();
+      }
+    } catch (e) {
+      debugPrint("NOTIF: Error requesting exact alarm permission: $e");
+    }
   }
 
   /// Check if battery optimization is ignored/disabled for the app.
@@ -1043,7 +1073,7 @@ class NotificationService {
           title: notifTitle,
           body: notifBody,
           scheduledDate: scheduledDate,
-          channelId: 'utopia_high_importance',
+          channelId: 'utopia_high_importance_v2',
           channelName: 'UTOPIA Notifications',
           channelDescription: 'Focus reminders and task alerts',
           matchDateTimeComponents: DateTimeComponents.time,
@@ -1067,7 +1097,7 @@ class NotificationService {
           title: notifTitle,
           body: notifBody,
           scheduledDate: scheduledDate,
-          channelId: 'utopia_high_importance',
+          channelId: 'utopia_high_importance_v2',
           channelName: 'UTOPIA Notifications',
           channelDescription: 'Focus reminders and task alerts',
           payload: payloadString,
@@ -1090,7 +1120,7 @@ class NotificationService {
             title: notifTitle,
             body: notifBody,
             scheduledDate: scheduledDate,
-            channelId: 'utopia_high_importance',
+            channelId: 'utopia_high_importance_v2',
             channelName: 'UTOPIA Notifications',
             channelDescription: 'Focus reminders and task alerts',
             matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
@@ -1109,7 +1139,7 @@ class NotificationService {
           title: notifTitle,
           body: notifBody,
           scheduledDate: scheduledDate,
-          channelId: 'utopia_high_importance',
+          channelId: 'utopia_high_importance_v2',
           channelName: 'UTOPIA Notifications',
           channelDescription: 'Focus reminders and task alerts',
           matchDateTimeComponents: DateTimeComponents.dayOfMonthAndTime,
@@ -1214,13 +1244,7 @@ class NotificationService {
   static Future<void> _saveTokenToFirestore(String token) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        if (!await _isOnline()) {
-          return;
-        }
-        if (_lastSavedUid == user.uid && _lastSavedToken == token) {
-          return;
-        }
+      if (user != null && token.isNotEmpty) {
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
           'fcmToken': token,
           'fcmTokens': FieldValue.arrayUnion([token]),
@@ -1228,10 +1252,11 @@ class NotificationService {
           'displayName': user.displayName ?? '',
           'tokenUpdatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-        _lastSavedUid = user.uid;
-        _lastSavedToken = token;
+        debugPrint('FCM: Successfully registered token for ${user.uid}');
       }
-    } catch (e) {}
+    } catch (e) {
+      debugPrint('FCM: Error saving token to Firestore: $e');
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1305,7 +1330,7 @@ class NotificationService {
           title: r['title'] as String,
           body: r['body'] as String,
           scheduledDate: scheduledDate,
-          channelId: 'utopia_high_importance',
+          channelId: 'utopia_high_importance_v2',
           channelName: 'UTOPIA Notifications',
           channelDescription: 'Delve vocabulary session reminders',
           payload: payloadString,

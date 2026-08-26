@@ -9,18 +9,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
 import '../widgets/utopia_snackbar.dart';
 import 'university_selection_screen.dart';
-import 'iaa_screen.dart';
-import 'attendance_screen.dart';
-import 'people_screen.dart';
-import 'friends_screen.dart';
-import 'uni_chat_screen.dart';
+import 'iaa_screen.dart'; // ignore: unused_import
+import 'attendance_screen.dart'; // ignore: unused_import
+import 'people_screen.dart'; // ignore: unused_import
+import 'friends_screen.dart'; // ignore: unused_import
+import 'uni_chat_screen.dart'; // ignore: unused_import
 import 'docs_screen.dart';
 import 'events_screen.dart';
 import 'event_notifications_screen.dart';
 import '../services/cache_service.dart';
 import '../services/event_service.dart';
 import '../models/event_model.dart';
-import 'community_notes_screen.dart';
+import 'community_notes_screen.dart'; // ignore: unused_import
 import 'classes_screen.dart';
 
 class UniversityScreen extends StatefulWidget {
@@ -130,6 +130,9 @@ class _UniversityScreenState extends State<UniversityScreen> {
     final theme = appThemeNotifier.value;
 
     final cards = [
+      // ── Hidden Cards (kept for reference / future restore) ──
+      // Attendance, People, Friends, Uni Chat, IAA, Community Notes
+      /*
       _CardItem(
         title: 'Attendance',
         subtitle: 'Track your class\nattendance daily',
@@ -163,17 +166,19 @@ class _UniversityScreenState extends State<UniversityScreen> {
           MaterialPageRoute(builder: (_) => const FriendsScreen()),
         ),
       ),
+      */
       _CardItem(
         title: 'Events',
         subtitle: 'Campus happenings\nand activities',
         icon: Icons.event_available_outlined,
         color: theme.green,
-        delay: 250,
+        delay: 100,
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const EventsScreen()),
         ),
       ),
+      /*
       _CardItem(
         title: 'Uni Chat',
         subtitle: 'Chat with students\nand groups',
@@ -191,17 +196,19 @@ class _UniversityScreenState extends State<UniversityScreen> {
           }
         },
       ),
+      */
       _CardItem(
         title: 'Docs',
         subtitle: 'Access important\nresources',
         icon: Icons.description_outlined,
         color: theme.lavender,
-        delay: 350,
+        delay: 150,
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const DocsScreen()),
         ),
       ),
+      /*
       _CardItem(
         title: 'IAA',
         subtitle: 'Ask your academic\nAI assistant',
@@ -230,12 +237,13 @@ class _UniversityScreenState extends State<UniversityScreen> {
           }
         },
       ),
+      */
       _CardItem(
         title: 'My Classes',
         subtitle: 'Study groups &\nshared folders',
         icon: Icons.groups_2_outlined,
         color: theme.peach,
-        delay: 500,
+        delay: 200,
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const ClassesScreen()),
@@ -247,7 +255,7 @@ class _UniversityScreenState extends State<UniversityScreen> {
         icon: Icons.calendar_month_rounded,
         color: Colors.grey,
         isDisabled: true,
-        delay: 550,
+        delay: 250,
         onTap: () {
           showUtopiaSnackBar(
             context,
@@ -259,7 +267,7 @@ class _UniversityScreenState extends State<UniversityScreen> {
     ];
 
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: U.bg,
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -272,19 +280,32 @@ class _UniversityScreenState extends State<UniversityScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Circular University Change Button (Left)
-                  _HeaderButton(
-                    icon: Icons.swap_horiz_rounded,
-                    tooltip: 'Change University',
-                    onTap: () async {
-                      await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const UniversitySelectionScreen(),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (Navigator.canPop(context)) ...[
+                        _HeaderButton(
+                          icon: Icons.arrow_back_ios_new_rounded,
+                          tooltip: 'Back',
+                          onTap: () => Navigator.pop(context),
                         ),
-                      );
-                      _loadData(); // Reload selected university details on back
-                    },
+                        const SizedBox(width: 10),
+                      ],
+                      // Circular University Change Button (Left)
+                      _HeaderButton(
+                        icon: Icons.swap_horiz_rounded,
+                        tooltip: 'Change University',
+                        onTap: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const UniversitySelectionScreen(),
+                            ),
+                          );
+                          _loadData(); // Reload selected university details on back
+                        },
+                      ),
+                    ],
                   ),
                   // Circular Notification Bell Button (Right)
                   _HeaderButton(

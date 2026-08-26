@@ -36,9 +36,8 @@ class _HabitTrackerScreenState extends State<HabitTrackerScreen> with WidgetsBin
   String _syncTimeLabel = 'Never synced';
   bool _showFab = true;
 
-  bool _hasNotificationPermission = true;
   bool _hasAlarmPermission = true;
-  bool _hasBatteryPermission = true;
+  bool _hasNotificationPermission = true;
   bool _checkingPermissionState = true;
 
   String get _userId => FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -65,14 +64,12 @@ class _HabitTrackerScreenState extends State<HabitTrackerScreen> with WidgetsBin
   }
 
   Future<void> _checkPermissions() async {
-    final notifEnabled = await NotificationService.areNotificationPermissionsEnabled();
     final alarmEnabled = await NotificationService.canScheduleExactNotifications();
-    final batteryIgnored = await NotificationService.isBatteryOptimizationIgnored();
+    final notifEnabled = await NotificationService.areNotificationPermissionsEnabled();
     if (mounted) {
       setState(() {
-        _hasNotificationPermission = notifEnabled;
         _hasAlarmPermission = alarmEnabled;
-        _hasBatteryPermission = batteryIgnored;
+        _hasNotificationPermission = notifEnabled;
         _checkingPermissionState = false;
       });
     }
@@ -540,24 +537,28 @@ class _HabitTrackerScreenState extends State<HabitTrackerScreen> with WidgetsBin
 
   Widget _buildPermissionsWarning() {
     if (_checkingPermissionState) return const SizedBox.shrink();
-    if (_hasNotificationPermission && _hasAlarmPermission && _hasBatteryPermission) {
+    if (_hasAlarmPermission && _hasNotificationPermission) {
       return const SizedBox.shrink();
     }
 
     final isDark = appThemeNotifier.value.isDark;
-    
-    String title = 'Alarms & Notifications';
-    String message = 'Habit reminders might not fire in the background.';
-    IconData icon = Icons.notification_important_rounded;
-    
-    if (!_hasNotificationPermission) {
-      title = 'Enable Notifications';
-      message = 'Allow notifications so habit alerts can show on your screen.';
-      icon = Icons.notifications_active_outlined;
-    } else if (!_hasBatteryPermission) {
-      title = 'Exclude from Battery Saver';
-      message = 'Android battery optimization may kill background reminders. Tap to exclude UTOPIA.';
-      icon = Icons.battery_alert_rounded;
+
+    String title = 'Enable Notifications';
+    String message = 'Allow notifications so habit reminders appear on time.';
+    IconData icon = Icons.notifications_active_rounded;
+    Future<void> Function() onFix = () async {
+      await NotificationService.requestNotificationPermissionOnly();
+      await _checkPermissions();
+    };
+
+    if (_hasNotificationPermission && !_hasAlarmPermission) {
+      title = 'Alarms & Reminders';
+      message = 'Exact alarms are restricted. Tap to enable exact alarm timing.';
+      icon = Icons.alarm_rounded;
+      onFix = () async {
+        await NotificationService.openExactAlarmSettings();
+        await _checkPermissions();
+      };
     }
 
     return Padding(
@@ -618,12 +619,7 @@ class _HabitTrackerScreenState extends State<HabitTrackerScreen> with WidgetsBin
             const SizedBox(width: 12),
             TextButton(
               onPressed: () async {
-                if (!_hasNotificationPermission) {
-                  await NotificationService.requestNotificationPermissionOnly();
-                } else if (!_hasBatteryPermission) {
-                  await NotificationService.requestIgnoreBatteryOptimization();
-                }
-                await _checkPermissions();
+                await onFix();
               },
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -633,7 +629,7 @@ class _HabitTrackerScreenState extends State<HabitTrackerScreen> with WidgetsBin
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               child: Text(
-                'Fix',
+                'Enable',
                 style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w700),
               ),
             ),

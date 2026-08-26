@@ -37,6 +37,49 @@ class UniChatService {
     }
   }
 
+  /// Mark a single message as viewed by [userId] in [universityId].
+  Future<void> markMessageAsViewed({
+    required String universityId,
+    required String messageId,
+    required String userId,
+  }) async {
+    if (userId.isEmpty || universityId.isEmpty || messageId.isEmpty) return;
+    try {
+      await _firestore
+          .collection('uni_chats')
+          .doc(universityId)
+          .collection('messages')
+          .doc(messageId)
+          .update({
+        'views': FieldValue.arrayUnion([userId]),
+        'viewCount': FieldValue.increment(1),
+      });
+    } catch (_) {}
+  }
+
+  /// Batch mark multiple messages as viewed by [userId] in [universityId].
+  Future<void> markMessagesAsViewed({
+    required String universityId,
+    required List<String> messageIds,
+    required String userId,
+  }) async {
+    if (userId.isEmpty || universityId.isEmpty || messageIds.isEmpty) return;
+    try {
+      final batch = _firestore.batch();
+      final collection = _firestore
+          .collection('uni_chats')
+          .doc(universityId)
+          .collection('messages');
+      for (final id in messageIds.take(20)) {
+        batch.update(collection.doc(id), {
+          'views': FieldValue.arrayUnion([userId]),
+          'viewCount': FieldValue.increment(1),
+        });
+      }
+      await batch.commit();
+    } catch (_) {}
+  }
+
   final Map<String, Stream<bool>> _unreadStreams = {};
 
   /// Real-time stream indicating whether the current user has unread messages

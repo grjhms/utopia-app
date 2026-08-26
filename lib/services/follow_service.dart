@@ -102,6 +102,8 @@ class FollowService {
         } catch (_) {}
       }
       return result;
+    }).handleError((e) {
+      return <Map<String, dynamic>>[];
     });
   }
 
@@ -140,9 +142,54 @@ class FollowService {
 
   /// Stream of canChat (realtime).
   Stream<bool> canChatStream(String currentUid, String otherUid) {
-    return followStatusStream(currentUid, otherUid).asyncMap((_) async {
-      return canChat(currentUid, otherUid);
-    });
+    if (currentUid.isEmpty || otherUid.isEmpty || currentUid == otherUid) {
+      return Stream.value(false);
+    }
+    final currentFollowsOther = _db
+        .collection('follows')
+        .where('followerId', isEqualTo: currentUid)
+        .where('followingId', isEqualTo: otherUid)
+        .where('status', isEqualTo: 'accepted')
+        .snapshots();
+
+    final otherFollowsCurrent = _db
+        .collection('follows')
+        .where('followerId', isEqualTo: otherUid)
+        .where('followingId', isEqualTo: currentUid)
+        .where('status', isEqualTo: 'accepted')
+        .snapshots();
+
+    late StreamController<bool> controller;
+    bool a = false;
+    bool b = false;
+    StreamSubscription? subA;
+    StreamSubscription? subB;
+
+    void update() {
+      if (!controller.isClosed) {
+        controller.add(a || b);
+      }
+    }
+
+    controller = StreamController<bool>(
+      onListen: () {
+        subA = currentFollowsOther.listen((snap) {
+          a = snap.docs.isNotEmpty;
+          update();
+        }, onError: (_) {});
+
+        subB = otherFollowsCurrent.listen((snap) {
+          b = snap.docs.isNotEmpty;
+          update();
+        }, onError: (_) {});
+      },
+      onCancel: () {
+        subA?.cancel();
+        subB?.cancel();
+      },
+    );
+
+    return controller.stream;
   }
 
   // ─── Writes ───────────────────────────────────────────────────────────────

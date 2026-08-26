@@ -8,6 +8,13 @@
 -keep class com.google.firebase.** { *; }
 -dontwarn com.google.firebase.**
 
+# Firebase Messaging
+-keep class io.flutter.plugins.firebase.messaging.** { *; }
+-keepclassmembers class io.flutter.plugins.firebase.messaging.** { *; }
+-keep class com.google.firebase.messaging.** { *; }
+-keepclassmembers class com.google.firebase.messaging.** { *; }
+-dontwarn com.google.firebase.messaging.**
+
 # Play Core rules to fix R8 errors
 -dontwarn com.google.android.play.core.**
 -keep class com.google.android.play.core.** { *; }

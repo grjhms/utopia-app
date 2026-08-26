@@ -33,7 +33,11 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isSignedIn();
-      allow create, update: if isOwner(uid);
+      allow create: if isOwner(uid);
+      allow update: if isOwner(uid) || (
+        isSignedIn() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['wavesReceivedCount'])
+      );
       allow delete: if false;
 
       match /{document=**} {
@@ -66,10 +70,15 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow read, write: if isSignedIn() &&
-        request.auth.uid == resource.data.uid;
-      allow create: if isSignedIn() &&
-        request.auth.uid == request.resource.data.uid;
+      allow read, update, delete: if isSignedIn() && (
+        request.auth.uid == resource.data.recipientId ||
+        request.auth.uid == resource.data.uid ||
+        request.auth.uid == resource.data.senderId
+      );
+      allow create: if isSignedIn() && (
+        request.auth.uid == request.resource.data.senderId ||
+        request.auth.uid == request.resource.data.uid
+      );
     }
 
     match /config/{docId} {
@@ -155,7 +164,8 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn() && request.auth.uid == request.resource.data.senderId;
-        allow update, delete: if isSignedIn() && request.auth.uid == resource.data.senderId;
+        allow update: if isSignedIn();
+        allow delete: if isSignedIn() && request.auth.uid == resource.data.senderId;
       }
     }
 
@@ -167,6 +177,23 @@ service cloud.firestore {
         request.resource.data.createdBy == request.auth.uid;
       allow update: if isSignedIn();
       allow delete: if isSignedIn();
+    }
+
+    // ── Campus Spark Votes ────────────────────────────────────────────────
+    match /campus_spark_votes/{voteId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && request.auth.uid == request.resource.data.uid;
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.uid;
+    }
+
+    // ── Waves ─────────────────────────────────────────────────────────────
+    match /waves/{waveId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.senderId;
+      allow update, delete: if isSignedIn() && (
+        request.auth.uid == resource.data.senderId ||
+        request.auth.uid == resource.data.receiverId
+      );
     }
   }
 }

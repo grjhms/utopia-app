@@ -232,7 +232,7 @@ jobs:
                         android: {
                           priority: 'HIGH',
                           notification: {
-                            channel_id: 'utopia_high_importance',
+                            channel_id: 'utopia_high_importance_v2',
                             icon: 'ic_notification',
                           },
                         },

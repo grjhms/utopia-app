@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../providers/delve_theme_provider.dart';
 import '../../../providers/delve_deck_provider.dart';
 import '../../../providers/delve_inventory_provider.dart';
 import '../../../providers/delve_session_provider.dart';
+import '../../app_shell.dart';
 import 'theme_selector.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -418,6 +420,10 @@ class _AccountSection extends StatelessWidget {
               onPressed: () async {
                 context.read<DeckProvider>().clearUserData();
                 context.read<InventoryProvider>().clearUserData();
+                AppShell.resetSession();
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.remove('app_open_count');
+                await prefs.remove('last_seen_popup_event_id');
                 await FirebaseAuth.instance.signOut();
               },
               icon: Icon(Icons.logout_rounded, size: 18, color: theme.textSecondary),

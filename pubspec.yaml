@@ -1,7 +1,7 @@
 name: utopia_app
 description: UTOPIA student notes app.
 publish_to: 'none'
-version: 4.0.10+39
+version: 4.1.1+41
 
 environment:
   sdk: ^3.11.3
@@ -36,8 +36,6 @@ dependencies:
   flutter_math_fork: ^0.7.2
   webview_flutter: ^4.10.0
   package_info_plus: ^8.0.2
-  google_maps_flutter: ^2.9.0
-  geolocator: ^13.0.2
   firebase_database: ^12.1.4
   shared_preferences: ^2.3.2
   google_generative_ai: ^0.4.7

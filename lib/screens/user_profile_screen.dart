@@ -10,6 +10,7 @@ import '../main.dart';
 import '../services/follow_service.dart';
 import '../widgets/app_motion.dart';
 import '../widgets/instagram_badge.dart';
+import '../widgets/wave_count_badge.dart';
 import 'chat_screen.dart';
 import 'followers_following_screen.dart';
 
@@ -202,6 +203,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                           stream: _followService
                                               .followingCountStream(widget.uid),
                                           builder: (context, followingSnap) {
+                                            final wavesCount = (userData['wavesReceivedCount'] as num?)?.toInt() ?? 0;
                                             return StreamBuilder<FollowStatus>(
                                               stream: _followService.followStatusStream(_currentUid, widget.uid),
                                               builder: (context, statusSnap) {
@@ -218,6 +220,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                                       count: followingSnap.data ?? 0,
                                                       label: 'Following',
                                                       onTap: () => _navigateToFollows(false, displayName),
+                                                    ),
+                                                    _StatPill(
+                                                      count: wavesCount,
+                                                      label: 'Waves',
                                                     ),
                                                   ],
                                                 );
@@ -252,10 +258,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                           ),
                                         ),
                                       ),
-                                      if (userData['role'] == 'superuser') ...[
-                                        const SizedBox(width: 4),
-                                        const Icon(Icons.verified_rounded, color: Color(0xFF1D9BF0), size: 14),
-                                      ],
+                                       if (userData['role'] == 'superuser') ...[
+                                         const SizedBox(width: 4),
+                                         Icon(Icons.verified_rounded, color: U.red, size: 14),
+                                       ],
                                     ],
                                   ),
                                   if (university.isNotEmpty) ...[
@@ -279,11 +285,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                        ),
                                      ),
                                    ],
-                                   if (branch.isNotEmpty || instagramId.isNotEmpty) ...[
+                                   if (branch.isNotEmpty || instagramId.isNotEmpty || ((userData['wavesReceivedCount'] as num?)?.toInt() ?? 0) > 0) ...[
                                      const SizedBox(height: 10),
                                      Wrap(
                                        spacing: 8,
                                        runSpacing: 6,
+                                       crossAxisAlignment: WrapCrossAlignment.center,
                                        children: [
                                          if (branch.isNotEmpty)
                                            Container(
@@ -314,6 +321,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                            ),
                                          if (instagramId.isNotEmpty)
                                            InstagramBadge(handle: instagramId),
+                                         WaveCountBadge(
+                                           count: (userData['wavesReceivedCount'] as num?)?.toInt() ?? 0,
+                                         ),
                                        ],
                                      ),
                                    ],

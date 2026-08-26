@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -10,15 +9,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
 import '../services/cache_service.dart';
 import '../services/email_service.dart';
 import '../services/file_upload_service.dart';
+import '../services/people_interaction_service.dart';
 import '../services/platform_support.dart';
 import '../services/role_service.dart';
 import '../widgets/instagram_badge.dart';
+import '../widgets/wave_count_badge.dart';
 import 'app_shell.dart';
 import 'university_selection_screen.dart';
 import 'utopia_section_screen.dart';
@@ -48,15 +51,18 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderStateMixin {
+class _ProfileScreenState extends State<ProfileScreen> {
   bool _isSuperUser = false;
   bool _updatingTheme = false;
-  late AnimationController _gradientController;
 
   Future<void> _signOut() async {
     RoleService().clearCache();
     await CacheService().deleteAppSetting('cached_university_id');
     await CacheService().deleteAppSetting('cached_university_name');
+    AppShell.resetSession();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('app_open_count');
+    await prefs.remove('last_seen_popup_event_id');
     U.cachedUniversityId = '';
     U.cachedUniversityName = '';
     if (PlatformSupport.supportsGoogleSignIn) {
@@ -206,6 +212,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
+    PeopleInteractionService().syncMyWavesCount();
     RoleService().isSuperUser().then((v) {
       if (mounted) setState(() => _isSuperUser = v);
     });
@@ -218,41 +225,230 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
 
 
-  void _showChangePhotoDialog(BuildContext context) {
-    showDialog(
+  bool _uploadingPhoto = false;
+
+  Future<void> _pickAndUploadPhoto(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: source,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+      if (picked == null) return;
+
+      setState(() => _uploadingPhoto = true);
+
+      final file = File(picked.path);
+      final uniId = U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : 'profiles';
+      final downloadUrl = await FileUploadService().uploadProfilePhoto(
+        file: file,
+        universityId: uniId,
+      );
+
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await user.updatePhotoURL(downloadUrl);
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'photoUrl': downloadUrl,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        await user.reload();
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: U.primary,
+            content: Text(
+              'Profile photo updated successfully!',
+              style: GoogleFonts.plusJakartaSans(color: U.bg, fontWeight: FontWeight.w600),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error updating profile photo: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: U.red,
+            content: Text(
+              e is FileUploadException ? e.message : 'Failed to update profile photo. Please try again.',
+              style: GoogleFonts.plusJakartaSans(color: Colors.white),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _uploadingPhoto = false);
+      }
+    }
+  }
+
+  Future<void> _removePhoto() async {
+    try {
+      setState(() => _uploadingPhoto = true);
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await user.updatePhotoURL(null);
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'photoUrl': null,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        await user.reload();
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: U.card,
+            content: Text(
+              'Profile photo removed.',
+              style: GoogleFonts.plusJakartaSans(color: U.text),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error removing profile photo: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: U.red,
+            content: Text('Failed to remove photo.', style: GoogleFonts.plusJakartaSans(color: Colors.white)),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _uploadingPhoto = false);
+      }
+    }
+  }
+
+  void _showChangePhotoModal(BuildContext context, {String? currentPhotoUrl}) {
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: U.card,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6), side: BorderSide(color: U.border, width: 0.5)),
-        title: Row(
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: U.card,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border(top: BorderSide(color: U.border, width: 0.5)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.info_outline_rounded, color: U.primary, size: 24),
-            const SizedBox(width: 10),
-            Text(
-              'Change Profile Photo',
-              style: GoogleFonts.plusJakartaSans(
-                color: U.text,
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: U.border.withValues(alpha: 0.8),
+                  borderRadius: BorderRadius.circular(99),
+                ),
               ),
             ),
+            const SizedBox(height: 18),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                'Profile Photo',
+                style: GoogleFonts.plusJakartaSans(
+                  color: U.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: U.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.photo_camera_rounded, color: U.primary, size: 20),
+              ),
+              title: Text(
+                'Take Photo',
+                style: GoogleFonts.plusJakartaSans(
+                  color: U.text,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: Text(
+                'Use camera to capture new photo',
+                style: GoogleFonts.plusJakartaSans(color: U.sub, fontSize: 12),
+              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickAndUploadPhoto(ImageSource.camera);
+              },
+            ),
+            const SizedBox(height: 4),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: U.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.photo_library_rounded, color: U.primary, size: 20),
+              ),
+              title: Text(
+                'Choose from Gallery',
+                style: GoogleFonts.plusJakartaSans(
+                  color: U.text,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: Text(
+                'Upload an existing photo from device',
+                style: GoogleFonts.plusJakartaSans(color: U.sub, fontSize: 12),
+              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickAndUploadPhoto(ImageSource.gallery);
+              },
+            ),
+            if (currentPhotoUrl != null && currentPhotoUrl.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: U.red.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.delete_outline_rounded, color: U.red, size: 20),
+                ),
+                title: Text(
+                  'Remove Current Photo',
+                  style: GoogleFonts.plusJakartaSans(
+                    color: U.red,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _removePhoto();
+                },
+              ),
+            ],
           ],
         ),
-        content: Text(
-          'Your profile photo is linked to your Google account.\n\nTo change it:\n1. Open your Google Account settings\n2. Update your profile picture there\n3. Sign out and sign back in to UTOPIA\n\nThe new photo will appear automatically after re-login.',
-          style: GoogleFonts.plusJakartaSans(color: U.sub, fontSize: 14, height: 1.5),
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx),
-            style: FilledButton.styleFrom(
-              backgroundColor: U.primary,
-              foregroundColor: U.bg,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            child: Text('Got it', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
-          ),
-        ],
       ),
     );
   }
@@ -363,6 +559,11 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                         final bio = (userData['bio'] ?? '').toString().trim();
                         final branch = (userData['branch'] ?? '').toString().trim();
                         final instagramId = (userData['instagramId'] ?? '').toString().trim();
+                        final wavesCount = (userData['wavesReceivedCount'] as num?)?.toInt() ?? 0;
+                        final rawPhotoUrl = (userData['photoUrl'] as String?)?.trim();
+                        final displayPhotoUrl = (rawPhotoUrl != null && rawPhotoUrl.isNotEmpty)
+                            ? rawPhotoUrl
+                            : user?.photoURL;
                         return Container(
                           decoration: BoxDecoration(
                             color: U.card,
@@ -390,7 +591,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                                 alignment: Alignment.bottomRight,
                                 children: [
                                   GestureDetector(
-                                    onTap: () => _showChangePhotoDialog(context),
+                                    onTap: _uploadingPhoto ? null : () => _showChangePhotoModal(context, currentPhotoUrl: displayPhotoUrl),
                                     child: Container(
                                       padding: const EdgeInsets.all(3),
                                       decoration: BoxDecoration(
@@ -400,27 +601,51 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                                           width: 2,
                                         ),
                                       ),
-                                      child: CircleAvatar(
-                                        radius: 44,
-                                        backgroundColor: theme.primary.withValues(alpha: 0.1),
-                                        backgroundImage: user?.photoURL != null
-                                            ? CachedNetworkImageProvider(user!.photoURL!)
-                                            : null,
-                                        child: user?.photoURL == null
-                                            ? Text(
-                                                (user?.displayName ?? 'U')[0].toUpperCase(),
-                                                style: GoogleFonts.plusJakartaSans(
-                                                  color: theme.primary,
-                                                  fontSize: 32,
-                                                  fontWeight: FontWeight.w700,
+                                      child: Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          CircleAvatar(
+                                            radius: 44,
+                                            backgroundColor: theme.primary.withValues(alpha: 0.1),
+                                            backgroundImage: displayPhotoUrl != null && displayPhotoUrl.isNotEmpty
+                                                ? CachedNetworkImageProvider(displayPhotoUrl)
+                                                : null,
+                                            child: (displayPhotoUrl == null || displayPhotoUrl.isEmpty)
+                                                ? Text(
+                                                    (user?.displayName ?? 'U')[0].toUpperCase(),
+                                                    style: GoogleFonts.plusJakartaSans(
+                                                      color: theme.primary,
+                                                      fontSize: 32,
+                                                      fontWeight: FontWeight.w700,
+                                                    ),
+                                                  )
+                                                : null,
+                                          ),
+                                          if (_uploadingPhoto)
+                                            Container(
+                                              width: 88,
+                                              height: 88,
+                                              decoration: BoxDecoration(
+                                                color: Colors.black.withValues(alpha: 0.55),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: Center(
+                                                child: SizedBox(
+                                                  width: 24,
+                                                  height: 24,
+                                                  child: CircularProgressIndicator(
+                                                    strokeWidth: 2.5,
+                                                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                                                  ),
                                                 ),
-                                              )
-                                            : null,
+                                              ),
+                                            ),
+                                        ],
                                       ),
                                     ),
                                   ),
                                   GestureDetector(
-                                    onTap: () => _showChangePhotoDialog(context),
+                                    onTap: _uploadingPhoto ? null : () => _showChangePhotoModal(context, currentPhotoUrl: displayPhotoUrl),
                                     child: Container(
                                       padding: const EdgeInsets.all(6),
                                       decoration: BoxDecoration(
@@ -452,7 +677,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                                   ),
                                   if (_isSuperUser) ...[
                                     const SizedBox(width: 6),
-                                    const Icon(Icons.verified_rounded, color: Color(0xFF1D9BF0), size: 18),
+                                    Icon(Icons.verified_rounded, color: U.red, size: 18),
                                   ],
                                 ],
                               ),
@@ -472,10 +697,11 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ],
-                              if (branch.isNotEmpty || instagramId.isNotEmpty) ...[
+                              if (branch.isNotEmpty || instagramId.isNotEmpty || wavesCount > 0) ...[
                                 const SizedBox(height: 14),
                                 Wrap(
                                   alignment: WrapAlignment.center,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
                                   spacing: 8,
                                   runSpacing: 6,
                                   children: [
@@ -508,6 +734,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                                       ),
                                     if (instagramId.isNotEmpty)
                                       InstagramBadge(handle: instagramId),
+                                    WaveCountBadge(count: wavesCount),
                                   ],
                                 ),
                               ],
@@ -523,6 +750,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                                       initialBio: bio,
                                       initialInstagram: instagramId,
                                       initialBranch: branch,
+                                      initialPhotoUrl: displayPhotoUrl,
                                     ),
                                   );
                                   if (updated == true && mounted) {
@@ -1237,12 +1465,14 @@ class _EditProfileSheet extends StatefulWidget {
     required this.initialBio,
     this.initialInstagram = '',
     this.initialBranch = '',
+    this.initialPhotoUrl,
   });
 
   final String initialName;
   final String initialBio;
   final String initialInstagram;
   final String initialBranch;
+  final String? initialPhotoUrl;
 
   @override
   State<_EditProfileSheet> createState() => _EditProfileSheetState();
@@ -1253,6 +1483,8 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   late final TextEditingController _bioController;
   late final TextEditingController _instagramController;
   String? _selectedBranch;
+  String? _photoUrl;
+  bool _uploadingPhoto = false;
   bool _saving = false;
 
   @override
@@ -1261,6 +1493,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _nameController = TextEditingController(text: widget.initialName);
     _bioController = TextEditingController(text: widget.initialBio);
     _instagramController = TextEditingController(text: widget.initialInstagram);
+    _photoUrl = widget.initialPhotoUrl;
     _selectedBranch = widget.initialBranch.isNotEmpty && kBTechBranches.contains(widget.initialBranch)
         ? widget.initialBranch
         : null;
@@ -1272,6 +1505,208 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _bioController.dispose();
     _instagramController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickAndUploadPhoto(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: source,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+      if (picked == null) return;
+
+      setState(() => _uploadingPhoto = true);
+
+      final file = File(picked.path);
+      final uniId = U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : 'profiles';
+      final downloadUrl = await FileUploadService().uploadProfilePhoto(
+        file: file,
+        universityId: uniId,
+      );
+
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await user.updatePhotoURL(downloadUrl);
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'photoUrl': downloadUrl,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        await user.reload();
+      }
+
+      if (mounted) {
+        setState(() {
+          _photoUrl = downloadUrl;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: U.primary,
+            content: Text(
+              'Profile photo updated!',
+              style: GoogleFonts.plusJakartaSans(color: U.bg, fontWeight: FontWeight.w600),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error updating photo in edit sheet: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: U.red,
+            content: Text(
+              e is FileUploadException ? e.message : 'Failed to update photo.',
+              style: GoogleFonts.plusJakartaSans(color: Colors.white),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _uploadingPhoto = false);
+      }
+    }
+  }
+
+  Future<void> _removePhoto() async {
+    try {
+      setState(() => _uploadingPhoto = true);
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await user.updatePhotoURL(null);
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'photoUrl': null,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        await user.reload();
+      }
+      if (mounted) {
+        setState(() {
+          _photoUrl = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: U.card,
+            content: Text('Profile photo removed.', style: GoogleFonts.plusJakartaSans(color: U.text)),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error removing photo: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: U.red,
+            content: Text('Failed to remove photo.', style: GoogleFonts.plusJakartaSans(color: Colors.white)),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _uploadingPhoto = false);
+      }
+    }
+  }
+
+  void _showPhotoOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: U.card,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border(top: BorderSide(color: U.border, width: 0.5)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: U.border.withValues(alpha: 0.8),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                'Change Photo',
+                style: GoogleFonts.plusJakartaSans(
+                  color: U.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: U.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.photo_camera_rounded, color: U.primary, size: 20),
+              ),
+              title: Text('Take Photo', style: GoogleFonts.plusJakartaSans(color: U.text, fontSize: 15, fontWeight: FontWeight.w600)),
+              subtitle: Text('Use camera to capture new photo', style: GoogleFonts.plusJakartaSans(color: U.sub, fontSize: 12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickAndUploadPhoto(ImageSource.camera);
+              },
+            ),
+            const SizedBox(height: 4),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: U.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.photo_library_rounded, color: U.primary, size: 20),
+              ),
+              title: Text('Choose from Gallery', style: GoogleFonts.plusJakartaSans(color: U.text, fontSize: 15, fontWeight: FontWeight.w600)),
+              subtitle: Text('Upload an existing photo from device', style: GoogleFonts.plusJakartaSans(color: U.sub, fontSize: 12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickAndUploadPhoto(ImageSource.gallery);
+              },
+            ),
+            if (_photoUrl != null && _photoUrl!.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: U.red.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.delete_outline_rounded, color: U.red, size: 20),
+                ),
+                title: Text('Remove Current Photo', style: GoogleFonts.plusJakartaSans(color: U.red, fontSize: 15, fontWeight: FontWeight.w600)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _removePhoto();
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _save() async {
@@ -1297,15 +1732,22 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
         await user.updateDisplayName(nextName);
         
         // Update Firestore users collection
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        final updateMap = <String, dynamic>{
           'displayName': nextName,
           'bio': nextBio,
           'instagramId': nextInstagram,
           'branch': _selectedBranch ?? '',
           'email': user.email ?? '',
-          'photoUrl': user.photoURL,
           'lastSeen': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        };
+        if (_photoUrl != null) {
+          updateMap['photoUrl'] = _photoUrl;
+        }
+
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set(
+          updateMap,
+          SetOptions(merge: true),
+        );
 
         await user.reload();
       }
@@ -1404,7 +1846,99 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
+
+            // Profile Photo Center
+            Center(
+              child: GestureDetector(
+                onTap: _uploadingPhoto ? null : _showPhotoOptions,
+                child: Stack(
+                  alignment: Alignment.bottomRight,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: U.primary.withValues(alpha: 0.3),
+                          width: 2,
+                        ),
+                      ),
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          CircleAvatar(
+                            radius: 38,
+                            backgroundColor: U.primary.withValues(alpha: 0.1),
+                            backgroundImage: _photoUrl != null && _photoUrl!.isNotEmpty
+                                ? CachedNetworkImageProvider(_photoUrl!)
+                                : null,
+                            child: (_photoUrl == null || _photoUrl!.isEmpty)
+                                ? Text(
+                                    (_nameController.text.isNotEmpty ? _nameController.text : 'U')[0].toUpperCase(),
+                                    style: GoogleFonts.plusJakartaSans(
+                                      color: U.primary,
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          if (_uploadingPhoto)
+                            Container(
+                              width: 76,
+                              height: 76,
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.55),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Center(
+                                child: SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        color: U.card,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: U.border),
+                      ),
+                      child: Icon(Icons.camera_alt_outlined, size: 13, color: U.primary),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Center(
+              child: TextButton(
+                onPressed: _uploadingPhoto ? null : _showPhotoOptions,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(
+                  'Change Photo',
+                  style: GoogleFonts.plusJakartaSans(
+                    color: U.primary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
             // Name Field
             Text(
               'NAME',

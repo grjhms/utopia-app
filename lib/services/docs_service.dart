@@ -112,24 +112,40 @@ class DocsService {
     return url;
   }
 
-  /// Returns a direct download URL for Google Drive files.
+  /// Returns a direct download URL for Google Drive and Google Docs files.
   static String toDownloadUrl(String url) {
+    // Google drive file
     final fileRegex = RegExp(r'drive\.google\.com/file/d/([^/?]+)');
     final fileMatch = fileRegex.firstMatch(url);
     if (fileMatch != null) {
       final id = fileMatch.group(1)!;
       return 'https://drive.google.com/uc?export=download&id=$id';
     }
-    final openRegex = RegExp(r'drive\.google\.com/open\?id=([^&]+)');
+    // Google drive open?id= or uc?id=
+    final openRegex = RegExp(r'drive\.google\.com/(?:open|uc)\?.*id=([^&]+)');
     final openMatch = openRegex.firstMatch(url);
     if (openMatch != null) {
       final id = openMatch.group(1)!;
       return 'https://drive.google.com/uc?export=download&id=$id';
     }
+    // Google Docs/Sheets/Slides export as PDF
+    final docsRegex = RegExp(r'docs\.google\.com/(document|presentation|spreadsheets)/d/([^/?]+)');
+    final docsMatch = docsRegex.firstMatch(url);
+    if (docsMatch != null) {
+      final type = docsMatch.group(1)!;
+      final id = docsMatch.group(2)!;
+      if (type == 'document') {
+        return 'https://docs.google.com/document/d/$id/export?format=pdf';
+      } else if (type == 'presentation') {
+        return 'https://docs.google.com/presentation/d/$id/export/pdf';
+      } else if (type == 'spreadsheets') {
+        return 'https://docs.google.com/spreadsheets/d/$id/export?format=pdf';
+      }
+    }
     return url;
   }
 
   static bool isGoogleDriveUrl(String url) {
-    return url.contains('drive.google.com');
+    return url.contains('drive.google.com') || url.contains('docs.google.com');
   }
 }

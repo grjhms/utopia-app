@@ -4,10 +4,12 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../widgets/utopia_loader.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../main.dart';
+import '../models/icebreaker_data.dart';
 import '../services/chat_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/app_motion.dart';
@@ -21,12 +23,14 @@ class ChatScreen extends StatefulWidget {
     required this.displayName,
     required this.email,
     this.photoUrl,
+    this.initialText,
   });
 
   final String otherUserId;
   final String displayName;
   final String email;
   final String? photoUrl;
+  final String? initialText;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -54,6 +58,9 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialText != null && widget.initialText!.isNotEmpty) {
+      _messageController.text = widget.initialText!;
+    }
     _chatStream = _chatService.chatStream(_chatId);
     _otherUserStream = _chatService.userStream(widget.otherUserId);
     _messagesStream = _chatService.messagesStream(_chatId);
@@ -305,6 +312,29 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  void _onSelectIcebreaker(String text) {
+    HapticFeedback.lightImpact();
+    _messageController.text = text;
+    _messageController.selection = TextSelection.fromPosition(
+      TextPosition(offset: text.length),
+    );
+    _composerFocusNode.requestFocus();
+  }
+
+  void _openIcebreakersSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _ChatIcebreakersSheet(
+        onSelect: (text) {
+          Navigator.pop(ctx);
+          _onSelectIcebreaker(text);
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -416,7 +446,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                           ),
                                           if (userData?['role'] == 'superuser') ...[
                                             const SizedBox(width: 4),
-                                            Icon(Icons.verified_rounded, color: U.primary, size: 14),
+                                            Icon(Icons.verified_rounded, color: U.red, size: 14),
                                           ],
                                         ],
                                       ),
@@ -476,10 +506,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       return (data['deleted'] ?? false) != true;
                     }).toList();
                     if (messages.isEmpty) {
-                      return const _ChatEmptyState(
-                        icon: Icons.chat_bubble_outline,
-                        title: 'No messages yet',
-                        subtitle: 'Start the conversation.',
+                      return _ChatIcebreakerEmptyState(
+                        onSelectIcebreaker: _onSelectIcebreaker,
                       );
                     }
 
@@ -742,6 +770,13 @@ class _ChatScreenState extends State<ChatScreen> {
                                   Icons.chat_bubble_outline_rounded,
                                   color: U.teal,
                                   size: 20,
+                                ),
+                                suffixIcon: Tooltip(
+                                  message: 'Interest Icebreakers & Starters',
+                                  child: IconButton(
+                                    icon: const Text('💡', style: TextStyle(fontSize: 16)),
+                                    onPressed: _openIcebreakersSheet,
+                                  ),
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16,
@@ -1314,6 +1349,331 @@ class _ChatEmptyState extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ChatIcebreakerEmptyState extends StatefulWidget {
+  const _ChatIcebreakerEmptyState({required this.onSelectIcebreaker});
+
+  final ValueChanged<String> onSelectIcebreaker;
+
+  @override
+  State<_ChatIcebreakerEmptyState> createState() => _ChatIcebreakerEmptyStateState();
+}
+
+class _ChatIcebreakerEmptyStateState extends State<_ChatIcebreakerEmptyState> {
+  int _selectedCategoryIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final categories = IcebreakerData.categories;
+    final currentCat = categories[_selectedCategoryIndex.clamp(0, categories.length - 1)];
+
+    return Center(
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: U.primary.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Text('⚡', style: TextStyle(fontSize: 26)),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Break the Ice 💬',
+              style: GoogleFonts.outfit(
+                color: U.text,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Pick an interest topic to start a conversation effortlessly',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.outfit(color: U.sub, fontSize: 12.5),
+            ),
+            const SizedBox(height: 16),
+
+            // Categories horizontal selector
+            SizedBox(
+              height: 34,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                itemCount: categories.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  final cat = categories[index];
+                  final isSelected = index == _selectedCategoryIndex;
+                  return GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _selectedCategoryIndex = index);
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? cat.color.withValues(alpha: 0.15)
+                            : U.card,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: isSelected ? cat.color : U.border,
+                          width: isSelected ? 1.4 : 0.8,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(cat.emoji, style: const TextStyle(fontSize: 12)),
+                          const SizedBox(width: 5),
+                          Text(
+                            cat.title,
+                            style: GoogleFonts.outfit(
+                              color: isSelected ? cat.color : U.text,
+                              fontSize: 11.5,
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Icebreaker sentences cards
+            ...currentCat.starters.map((starter) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => widget.onSelectIcebreaker(starter),
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: U.card,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: U.border.withValues(alpha: 0.7)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '💬',
+                            style: TextStyle(fontSize: 13, color: currentCat.color),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              starter,
+                              style: GoogleFonts.outfit(
+                                color: U.text,
+                                fontSize: 12.5,
+                                height: 1.35,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            Icons.arrow_forward_rounded,
+                            size: 14,
+                            color: U.sub.withValues(alpha: 0.6),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ChatIcebreakersSheet extends StatefulWidget {
+  const _ChatIcebreakersSheet({required this.onSelect});
+
+  final ValueChanged<String> onSelect;
+
+  @override
+  State<_ChatIcebreakersSheet> createState() => _ChatIcebreakersSheetState();
+}
+
+class _ChatIcebreakersSheetState extends State<_ChatIcebreakersSheet> {
+  int _selectedCategoryIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final categories = IcebreakerData.categories;
+    final currentCat = categories[_selectedCategoryIndex.clamp(0, categories.length - 1)];
+
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.75,
+      ),
+      decoration: BoxDecoration(
+        color: U.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border.all(color: U.border, width: 0.8),
+      ),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: U.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Text('💡', style: TextStyle(fontSize: 20)),
+              const SizedBox(width: 8),
+              Text(
+                'Interest Icebreakers',
+                style: GoogleFonts.outfit(
+                  color: U.text,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                icon: Icon(Icons.close_rounded, color: U.sub, size: 20),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          Text(
+            'Tap any prompt to insert into your chat message',
+            style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+
+          // Categories horizontal scroll
+          SizedBox(
+            height: 34,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: categories.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final cat = categories[index];
+                final isSelected = index == _selectedCategoryIndex;
+                return GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _selectedCategoryIndex = index);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isSelected ? cat.color.withValues(alpha: 0.15) : U.card,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: isSelected ? cat.color : U.border,
+                        width: isSelected ? 1.4 : 0.8,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(cat.emoji, style: const TextStyle(fontSize: 12)),
+                        const SizedBox(width: 5),
+                        Text(
+                          cat.title,
+                          style: GoogleFonts.outfit(
+                            color: isSelected ? cat.color : U.text,
+                            fontSize: 11.5,
+                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Starters list
+          Flexible(
+            child: ListView.separated(
+              shrinkWrap: true,
+              physics: const BouncingScrollPhysics(),
+              itemCount: currentCat.starters.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final starter = currentCat.starters[index];
+                return InkWell(
+                  onTap: () => widget.onSelect(starter),
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: U.card,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: U.border),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '💬',
+                          style: TextStyle(fontSize: 13, color: currentCat.color),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            starter,
+                            style: GoogleFonts.outfit(
+                              color: U.text,
+                              fontSize: 12.5,
+                              height: 1.35,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(Icons.add_circle_outline_rounded, size: 16, color: currentCat.color),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

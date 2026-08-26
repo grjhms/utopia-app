@@ -1,13 +1,18 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import '../widgets/utopia_loader.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
+import '../services/cache_service.dart';
+import '../services/notification_service.dart';
 import '../services/uni_chat_service.dart';
+import '../widgets/chat_media_picker.dart';
 import '../widgets/unread_indicator_dot.dart';
+import '../widgets/utopia_loader.dart';
 import 'user_profile_screen.dart';
 
 class UniChatScreen extends StatefulWidget {
@@ -21,6 +26,7 @@ class UniChatScreen extends StatefulWidget {
 class _UniChatScreenState extends State<UniChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final FocusNode _focusNode = FocusNode();
   bool _sending = false;
   DateTime? _lastSent;
   String? _editingMessageId;
@@ -28,23 +34,160 @@ class _UniChatScreenState extends State<UniChatScreen> {
   bool _showScrollDown = false;
   bool _hasNewMessagesWhileScrolled = false;
   String? _lastSeenTopDocId;
-  late final Stream<QuerySnapshot> _messagesStream;
+  String _utopiaChatNotifMode = 'replies'; // 'all', 'replies', 'off'
+  final Set<String> _touchedMessageIds = {};
+  final Set<String> _locallyViewedDocIds = {};
 
   String get _currentUid => FirebaseAuth.instance.currentUser?.uid ?? '';
   String get _currentName => FirebaseAuth.instance.currentUser?.displayName ?? 'Student';
   String get _currentEmail => FirebaseAuth.instance.currentUser?.email ?? '';
 
+  int _getViewCount(Map<String, dynamic> data) {
+    final views = data['views'];
+    if (views is List) {
+      return views.isNotEmpty ? views.length : 1;
+    }
+    final count = data['viewCount'] ?? data['viewsCount'];
+    if (count is int && count > 0) {
+      return count;
+    }
+    return 1;
+  }
+
+  void _trackVisibleViews(List<QueryDocumentSnapshot> docs) {
+    if (_currentUid.isEmpty || _effectiveUniversityId.isEmpty) return;
+    final unviewedDocIds = <String>[];
+    for (final doc in docs) {
+      if (_locallyViewedDocIds.contains(doc.id)) continue;
+      final data = doc.data() as Map<String, dynamic>?;
+      if (data == null) continue;
+      final views = data['views'];
+      final hasViewed = views is List && views.contains(_currentUid);
+      if (!hasViewed) {
+        _locallyViewedDocIds.add(doc.id);
+        unviewedDocIds.add(doc.id);
+      } else {
+        _locallyViewedDocIds.add(doc.id);
+      }
+    }
+    if (unviewedDocIds.isNotEmpty) {
+      UniChatService().markMessagesAsViewed(
+        universityId: _effectiveUniversityId,
+        messageIds: unviewedDocIds,
+        userId: _currentUid,
+      );
+    }
+  }
+
+  // Palette for distinctive student sender identity colors
+  static const List<Color> _senderPalette = [
+    Color(0xFF38BDF8), // Sky
+    Color(0xFF818CF8), // Indigo
+    Color(0xFFA78BFA), // Violet
+    Color(0xFFF472B6), // Pink
+    Color(0xFFFB7185), // Rose
+    Color(0xFFFBBF24), // Amber
+    Color(0xFF34D399), // Emerald
+    Color(0xFF2DD4BF), // Teal
+  ];
+
+  Color _getSenderColor(String name) {
+    final hash = name.hashCode.abs();
+    return _senderPalette[hash % _senderPalette.length];
+  }
+
+  late String _effectiveUniversityId;
+  late Stream<QuerySnapshot> _messagesStream;
+
   @override
   void initState() {
     super.initState();
+    _effectiveUniversityId = widget.universityId.isNotEmpty && widget.universityId != 'support'
+        ? widget.universityId
+        : (U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : widget.universityId);
+
+    NotificationService.setActiveChat('uni_$_effectiveUniversityId');
+    _loadNotifPreference();
+    _initMessagesStream();
+    _resolveUniversityId();
+    _scrollController.addListener(_onScroll);
+  }
+
+  Future<void> _loadNotifPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final mode = prefs.getString('pref_notif_utopia_chat_mode') ?? 'replies';
+      if (mounted) {
+        setState(() => _utopiaChatNotifMode = mode);
+      }
+      final uid = _currentUid;
+      if (uid.isNotEmpty) {
+        final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+        if (doc.exists && mounted) {
+          final data = doc.data() ?? {};
+          final notifPrefs = (data['notification_preferences'] as Map<String, dynamic>?) ?? {};
+          final remoteMode = (notifPrefs['utopia_chat'] as String?) ??
+              (data['notif_utopia_chat_mode'] as String?);
+          if (remoteMode != null && remoteMode.isNotEmpty && mounted) {
+            setState(() => _utopiaChatNotifMode = remoteMode);
+            await prefs.setString('pref_notif_utopia_chat_mode', remoteMode);
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _updateNotifMode(String mode) async {
+    HapticFeedback.selectionClick();
+    setState(() => _utopiaChatNotifMode = mode);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('pref_notif_utopia_chat_mode', mode);
+
+    final uid = _currentUid;
+    if (uid.isNotEmpty) {
+      try {
+        await FirebaseFirestore.instance.collection('users').doc(uid).set({
+          'notification_preferences': {
+            'utopia_chat': mode,
+          },
+          'notif_utopia_chat_mode': mode,
+        }, SetOptions(merge: true));
+      } catch (e) {
+        debugPrint('Error updating utopia chat notification mode: $e');
+      }
+    }
+  }
+
+  void _initMessagesStream() {
+    final uniId = _effectiveUniversityId.isNotEmpty ? _effectiveUniversityId : 'support';
     _messagesStream = FirebaseFirestore.instance
         .collection('uni_chats')
-        .doc(widget.universityId)
+        .doc(uniId)
         .collection('messages')
         .orderBy('timestamp', descending: true)
         .snapshots();
-    UniChatService().markAsSeen(widget.universityId);
-    _scrollController.addListener(_onScroll);
+    UniChatService().markAsSeen(uniId);
+  }
+
+  Future<void> _resolveUniversityId() async {
+    final uid = _currentUid;
+    if (uid.isNotEmpty && (_effectiveUniversityId.isEmpty || _effectiveUniversityId == 'support')) {
+      try {
+        final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+        final selectedId = doc.data()?['selectedUniversityId'] as String?;
+        if (selectedId != null && selectedId.isNotEmpty && selectedId != _effectiveUniversityId) {
+          if (mounted) {
+            setState(() {
+              _effectiveUniversityId = selectedId;
+              U.cachedUniversityId = selectedId;
+              NotificationService.setActiveChat('uni_$selectedId');
+              _initMessagesStream();
+            });
+            unawaited(CacheService().saveAppSetting('cached_university_id', selectedId));
+          }
+        }
+      } catch (_) {}
+    }
   }
 
   void _onScroll() {
@@ -58,7 +201,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
       if (_hasNewMessagesWhileScrolled) {
         setState(() => _hasNewMessagesWhileScrolled = false);
       }
-      UniChatService().markAsSeen(widget.universityId);
+      UniChatService().markAsSeen(_effectiveUniversityId);
     }
   }
 
@@ -74,7 +217,28 @@ class _UniChatScreenState extends State<UniChatScreen> {
     if (_hasNewMessagesWhileScrolled) {
       setState(() => _hasNewMessagesWhileScrolled = false);
     }
-    UniChatService().markAsSeen(widget.universityId);
+    UniChatService().markAsSeen(_effectiveUniversityId);
+  }
+
+  /// Evaluates whether a string consists ONLY of 1-4 emojis (with optional whitespace).
+  bool _isOnlyEmoji(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return false;
+    final emojiRegex = RegExp(
+      r'(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])',
+    );
+    final stripped = trimmed.replaceAll(emojiRegex, '').replaceAll(RegExp(r'\s+'), '');
+    if (stripped.isNotEmpty) return false;
+
+    final matches = emojiRegex.allMatches(trimmed);
+    return matches.isNotEmpty && matches.length <= 4;
+  }
+
+  int _countEmojiCharacters(String text) {
+    final emojiRegex = RegExp(
+      r'(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])',
+    );
+    return emojiRegex.allMatches(text.trim()).length;
   }
 
   Future<void> _send() async {
@@ -87,7 +251,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
       try {
         await FirebaseFirestore.instance
             .collection('uni_chats')
-            .doc(widget.universityId)
+            .doc(_effectiveUniversityId)
             .collection('messages')
             .doc(msgId)
             .update({
@@ -132,6 +296,8 @@ class _UniChatScreenState extends State<UniChatScreen> {
         'senderName': _currentName,
         'senderEmail': _currentEmail,
         'timestamp': FieldValue.serverTimestamp(),
+        'views': [_currentUid],
+        'viewCount': 1,
       };
 
       if (_replyingToMessage != null) {
@@ -139,16 +305,19 @@ class _UniChatScreenState extends State<UniChatScreen> {
           'id': _replyingToMessage!['id'],
           'text': _replyingToMessage!['text'],
           'senderName': _replyingToMessage!['senderName'],
+          'senderId': _replyingToMessage!['senderId'] ?? '',
+          if (_replyingToMessage!['mediaUrl'] != null) 'mediaUrl': _replyingToMessage!['mediaUrl'],
+          if (_replyingToMessage!['mediaType'] != null) 'mediaType': _replyingToMessage!['mediaType'],
         };
       }
 
       await FirebaseFirestore.instance
           .collection('uni_chats')
-          .doc(widget.universityId)
+          .doc(_effectiveUniversityId)
           .collection('messages')
           .add(payload);
 
-      UniChatService().markAsSeen(widget.universityId);
+      UniChatService().markAsSeen(_effectiveUniversityId);
 
       _controller.clear();
       _lastSent = DateTime.now();
@@ -172,6 +341,117 @@ class _UniChatScreenState extends State<UniChatScreen> {
     }
   }
 
+  Future<void> _sendMedia({
+    required String mediaUrl,
+    required String mediaType, // 'gif' or 'sticker'
+  }) async {
+    if (_sending) return;
+
+    setState(() => _sending = true);
+    try {
+      final payload = <String, dynamic>{
+        'text': mediaType == 'gif' ? '👾 GIF' : '🎨 Sticker',
+        'mediaUrl': mediaUrl,
+        'mediaType': mediaType,
+        'senderId': _currentUid,
+        'senderName': _currentName,
+        'senderEmail': _currentEmail,
+        'timestamp': FieldValue.serverTimestamp(),
+        'views': [_currentUid],
+        'viewCount': 1,
+      };
+
+      if (_replyingToMessage != null) {
+        payload['replyTo'] = {
+          'id': _replyingToMessage!['id'],
+          'text': _replyingToMessage!['text'],
+          'senderName': _replyingToMessage!['senderName'],
+          'senderId': _replyingToMessage!['senderId'] ?? '',
+          if (_replyingToMessage!['mediaUrl'] != null) 'mediaUrl': _replyingToMessage!['mediaUrl'],
+          if (_replyingToMessage!['mediaType'] != null) 'mediaType': _replyingToMessage!['mediaType'],
+        };
+      }
+
+      await FirebaseFirestore.instance
+          .collection('uni_chats')
+          .doc(_effectiveUniversityId)
+          .collection('messages')
+          .add(payload);
+
+      UniChatService().markAsSeen(_effectiveUniversityId);
+
+      setState(() {
+        _replyingToMessage = null;
+      });
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to send $mediaType', style: GoogleFonts.outfit(color: U.bg)),
+            backgroundColor: U.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  void _openMediaPicker() {
+    ChatMediaPickerSheet.show(
+      context,
+      onSelectGif: (url) => _sendMedia(mediaUrl: url, mediaType: 'gif'),
+      onSelectSticker: (url) => _sendMedia(mediaUrl: url, mediaType: 'sticker'),
+      onSelectEmoji: (emoji) {
+        _controller.text = '${_controller.text}$emoji';
+        _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
+      },
+    );
+  }
+
+  void _openMediaPreview(String url) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.85),
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white, size: 28),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ],
+            ),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: CachedNetworkImage(
+                imageUrl: url,
+                fit: BoxFit.contain,
+                placeholder: (c, _) => const Center(
+                  child: SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                  ),
+                ),
+                errorWidget: (c, _, error) => const Icon(Icons.broken_image, color: Colors.white70),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _startEditing(String messageId, String currentText) {
     setState(() {
       _replyingToMessage = null;
@@ -179,6 +459,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
       _controller.text = currentText;
       _controller.selection = TextSelection.collapsed(offset: currentText.length);
     });
+    _focusNode.requestFocus();
   }
 
   void _cancelEditing() {
@@ -189,14 +470,19 @@ class _UniChatScreenState extends State<UniChatScreen> {
   }
 
   void _startReply(Map<String, dynamic> data, String messageId) {
+    HapticFeedback.lightImpact();
     setState(() {
       _editingMessageId = null;
       _replyingToMessage = {
         'id': messageId,
         'text': data['text'] ?? '',
         'senderName': data['senderName'] ?? 'Student',
+        'senderId': data['senderId'] ?? '',
+        'mediaUrl': data['mediaUrl'],
+        'mediaType': data['mediaType'],
       };
     });
+    _focusNode.requestFocus();
   }
 
   void _cancelReply() {
@@ -209,7 +495,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
     try {
       await FirebaseFirestore.instance
           .collection('uni_chats')
-          .doc(widget.universityId)
+          .doc(_effectiveUniversityId)
           .collection('messages')
           .doc(messageId)
           .delete();
@@ -242,11 +528,14 @@ class _UniChatScreenState extends State<UniChatScreen> {
 
   void _showMessageOptions(String messageId, Map<String, dynamic> data, bool isMe) {
     final text = (data['text'] ?? '').toString();
+    final mediaUrl = data['mediaUrl'] as String?;
+    final isMedia = mediaUrl != null && mediaUrl.isNotEmpty;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: U.card,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
         return SafeArea(
@@ -256,7 +545,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 36,
+                  width: 38,
                   height: 4,
                   decoration: BoxDecoration(
                     color: U.border,
@@ -272,7 +561,16 @@ class _UniChatScreenState extends State<UniChatScreen> {
                     _startReply(data, messageId);
                   },
                 ),
-                if (isMe) ...[
+                if (isMedia)
+                  ListTile(
+                    leading: Icon(Icons.fullscreen_rounded, color: U.teal),
+                    title: Text('View Full Size', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600)),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _openMediaPreview(mediaUrl);
+                    },
+                  ),
+                if (isMe && !isMedia)
                   ListTile(
                     leading: Icon(Icons.edit_rounded, color: U.primary),
                     title: Text('Edit message', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600)),
@@ -281,29 +579,30 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       _startEditing(messageId, text);
                     },
                   ),
+                if (isMe)
                   ListTile(
-                    leading: Icon(Icons.undo_rounded, color: U.red),
+                    leading: Icon(Icons.delete_outline_rounded, color: U.red),
                     title: Text('Unsend message', style: GoogleFonts.outfit(color: U.red, fontWeight: FontWeight.w600)),
                     onTap: () {
                       Navigator.pop(context);
                       _unsendMessage(messageId);
                     },
                   ),
-                ],
-                ListTile(
-                  leading: Icon(Icons.copy_rounded, color: U.sub),
-                  title: Text('Copy text', style: GoogleFonts.outfit(color: U.text)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Clipboard.setData(ClipboardData(text: text));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Copied to clipboard', style: GoogleFonts.outfit(color: U.bg)),
-                        duration: const Duration(seconds: 1),
-                      ),
-                    );
-                  },
-                ),
+                if (!isMedia && text.isNotEmpty)
+                  ListTile(
+                    leading: Icon(Icons.copy_rounded, color: U.sub),
+                    title: Text('Copy text', style: GoogleFonts.outfit(color: U.text)),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Clipboard.setData(ClipboardData(text: text));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Copied to clipboard', style: GoogleFonts.outfit(color: U.bg)),
+                          duration: const Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                  ),
               ],
             ),
           ),
@@ -314,11 +613,189 @@ class _UniChatScreenState extends State<UniChatScreen> {
 
   @override
   void dispose() {
+    NotificationService.setActiveChat(null);
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    _focusNode.dispose();
     _controller.dispose();
-    UniChatService().markAsSeen(widget.universityId);
+    UniChatService().markAsSeen(_effectiveUniversityId);
     super.dispose();
+  }
+
+  void _showNotificationSettingsSheet() {
+    HapticFeedback.lightImpact();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: U.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            Widget buildOptionTile({
+              required String title,
+              required String subtitle,
+              required IconData icon,
+              required String mode,
+            }) {
+              final isSelected = _utopiaChatNotifMode == mode;
+              return InkWell(
+                onTap: () {
+                  _updateNotifMode(mode);
+                  setSheetState(() {});
+                  Navigator.pop(ctx);
+                },
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? (isDark
+                            ? U.teal.withValues(alpha: 0.12)
+                            : U.teal.withValues(alpha: 0.08))
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isSelected
+                          ? U.teal.withValues(alpha: 0.4)
+                          : Colors.transparent,
+                      width: 1.2,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? U.teal.withValues(alpha: 0.15)
+                              : (isDark
+                                  ? Colors.white.withValues(alpha: 0.05)
+                                  : Colors.black.withValues(alpha: 0.04)),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          icon,
+                          color: isSelected ? U.teal : U.dim,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: GoogleFonts.outfit(
+                                fontSize: 15,
+                                fontWeight: isSelected
+                                    ? FontWeight.w700
+                                    : FontWeight.w600,
+                                color: isSelected ? U.teal : U.text,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              subtitle,
+                              style: GoogleFonts.outfit(
+                                fontSize: 12,
+                                color: U.sub,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (isSelected)
+                        Icon(
+                          Icons.check_circle_rounded,
+                          color: U.teal,
+                          size: 20,
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 38,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: U.border,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.notifications_active_outlined,
+                          color: U.teal,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Utopia Chat Notifications',
+                          style: GoogleFonts.outfit(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: U.text,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Choose when to receive notifications for this community chat.',
+                      style: GoogleFonts.outfit(
+                        fontSize: 13,
+                        color: U.sub,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    buildOptionTile(
+                      title: 'All Messages',
+                      subtitle:
+                          'Get notified for every message posted in this chat',
+                      icon: Icons.notifications_active_rounded,
+                      mode: 'all',
+                    ),
+                    buildOptionTile(
+                      title: 'Replies to You',
+                      subtitle:
+                          'Only get notified when someone replies to your message',
+                      icon: Icons.reply_rounded,
+                      mode: 'replies',
+                    ),
+                    buildOptionTile(
+                      title: 'Muted / Off',
+                      subtitle:
+                          'Never receive push notifications from this chat',
+                      icon: Icons.notifications_off_rounded,
+                      mode: 'off',
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   String _formatTime(Timestamp? raw) {
@@ -337,7 +814,20 @@ class _UniChatScreenState extends State<UniChatScreen> {
     final diff = today.difference(target).inDays;
     if (diff == 0) return 'Today';
     if (diff == 1) return 'Yesterday';
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
     if (date.year == now.year) {
       return '${months[date.month - 1]} ${date.day}';
     }
@@ -345,12 +835,11 @@ class _UniChatScreenState extends State<UniChatScreen> {
   }
 
   bool _shouldShowDateSeparator(List<QueryDocumentSnapshot> docs, int index) {
-    // List is reversed, so index 0 is newest
     final currentData = docs[index].data() as Map<String, dynamic>;
     final currentTs = currentData['timestamp'] as Timestamp?;
     if (currentTs == null) return false;
 
-    if (index == docs.length - 1) return true; // Oldest message always shows date
+    if (index == docs.length - 1) return true;
 
     final nextData = docs[index + 1].data() as Map<String, dynamic>;
     final nextTs = nextData['timestamp'] as Timestamp?;
@@ -359,8 +848,8 @@ class _UniChatScreenState extends State<UniChatScreen> {
     final currentDate = currentTs.toDate();
     final nextDate = nextTs.toDate();
     return currentDate.year != nextDate.year ||
-           currentDate.month != nextDate.month ||
-           currentDate.day != nextDate.day;
+        currentDate.month != nextDate.month ||
+        currentDate.day != nextDate.day;
   }
 
   @override
@@ -371,8 +860,63 @@ class _UniChatScreenState extends State<UniChatScreen> {
       backgroundColor: U.bg,
       appBar: AppBar(
         backgroundColor: U.bg,
-        title: Text('Chat to Utopia', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600)),
+        elevation: 0,
+        centerTitle: false,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Chat to Utopia',
+              style: GoogleFonts.outfit(
+                color: U.text,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            Row(
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  margin: const EdgeInsets.only(right: 5),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF2DD4BF),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                Text(
+                  'Campus Community • Live',
+                  style: GoogleFonts.outfit(
+                    color: U.dim,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
         foregroundColor: U.text,
+        actions: [
+          IconButton(
+            icon: Icon(
+              _utopiaChatNotifMode == 'all'
+                  ? Icons.notifications_active_rounded
+                  : (_utopiaChatNotifMode == 'replies'
+                      ? Icons.notifications_rounded
+                      : Icons.notifications_off_outlined),
+              color: _utopiaChatNotifMode == 'off' ? U.dim : U.teal,
+              size: 22,
+            ),
+            tooltip: 'Notification Settings',
+            onPressed: _showNotificationSettingsSheet,
+          ),
+          IconButton(
+            icon: Icon(Icons.auto_awesome_rounded, color: U.teal, size: 22),
+            tooltip: 'GIFs & Stickers',
+            onPressed: _openMediaPicker,
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -388,12 +932,42 @@ class _UniChatScreenState extends State<UniChatScreen> {
                     final docs = snapshot.data?.docs ?? [];
                     if (docs.isEmpty) {
                       return Center(
-                        child: Text('Be the first to say hi!', style: GoogleFonts.outfit(color: U.dim)),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 64,
+                              height: 64,
+                              decoration: BoxDecoration(
+                                color: U.primary.withValues(alpha: 0.1),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                child: Icon(Icons.forum_outlined, color: U.primary, size: 30),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Be the first to say hi!',
+                              style: GoogleFonts.outfit(
+                                color: U.text,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Send a message, sticker, or GIF to your campus.',
+                              style: GoogleFonts.outfit(color: U.dim, fontSize: 13),
+                            ),
+                          ],
+                        ),
                       );
                     }
 
                     // Real-time unread synchronization & scroll badge trigger
                     if (docs.isNotEmpty) {
+                      _trackVisibleViews(docs);
                       final topDoc = docs.first.data() as Map<String, dynamic>;
                       final topSenderId = topDoc['senderId'] as String?;
                       final topTs = topDoc['timestamp'] as Timestamp?;
@@ -406,7 +980,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
                             });
                           }
                         } else {
-                          UniChatService().markAsSeen(widget.universityId);
+                          UniChatService().markAsSeen(_effectiveUniversityId);
                         }
                       }
                     }
@@ -418,21 +992,29 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       itemCount: docs.length,
                       itemBuilder: (context, index) {
                         final data = docs[index].data() as Map<String, dynamic>;
+                        final messageId = docs[index].id;
                         final isMe = data['senderId'] == _currentUid;
                         final ts = data['timestamp'] as Timestamp?;
                         final showDateSep = _shouldShowDateSeparator(docs, index);
 
                         return Column(
                           children: [
-                            // Date separator (shown above in visual order, but below in reversed list)
+                            // Date separator
                             if (showDateSep && ts != null)
                               Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
                                 child: Row(
                                   children: [
-                                    Expanded(child: Divider(color: U.border, thickness: 0.5)),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                                    Expanded(child: Divider(color: U.border.withValues(alpha: 0.5), thickness: 0.5)),
+                                    Container(
+                                      margin: const EdgeInsets.symmetric(horizontal: 12),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: isDarkTheme
+                                            ? Colors.white.withValues(alpha: 0.05)
+                                            : Colors.black.withValues(alpha: 0.04),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
                                       child: Text(
                                         _formatDateLabel(ts.toDate()),
                                         style: GoogleFonts.outfit(
@@ -442,113 +1024,29 @@ class _UniChatScreenState extends State<UniChatScreen> {
                                         ),
                                       ),
                                     ),
-                                    Expanded(child: Divider(color: U.border, thickness: 0.5)),
+                                    Expanded(child: Divider(color: U.border.withValues(alpha: 0.5), thickness: 0.5)),
                                   ],
                                 ),
                               ),
                             Align(
                               alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                               child: _SwipeToReplyBubble(
-                                onReply: () => _startReply(data, docs[index].id),
+                                onReply: () => _startReply(data, messageId),
                                 child: GestureDetector(
-                                  onLongPress: () => _showMessageOptions(docs[index].id, data, isMe),
-                                  onDoubleTap: () => _startReply(data, docs[index].id),
-                                  child: Container(
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                    decoration: BoxDecoration(
-                                      color: isMe ? U.primary : U.card,
-                                      borderRadius: BorderRadius.only(
-                                        topLeft: const Radius.circular(16),
-                                        topRight: const Radius.circular(16),
-                                        bottomLeft: Radius.circular(isMe ? 16 : 4),
-                                        bottomRight: Radius.circular(isMe ? 4 : 16),
-                                      ),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                                      children: [
-                                        if (!isMe)
-                                          Padding(
-                                            padding: const EdgeInsets.only(bottom: 2),
-                                            child: GestureDetector(
-                                              onTap: () {
-                                                if (data['senderId'] != null) {
-                                                  Navigator.push(
-                                                    context,
-                                                    MaterialPageRoute(
-                                                      builder: (_) => UserProfileScreen(
-                                                        uid: data['senderId'],
-                                                        displayName: data['senderName'] ?? 'Student',
-                                                        email: data['senderEmail'] ?? '',
-                                                      ),
-                                                    ),
-                                                  );
-                                                }
-                                              },
-                                              child: Text(
-                                                data['senderName'] ?? 'Student',
-                                                style: GoogleFonts.outfit(color: isMe ? U.bg.withValues(alpha: 0.7) : U.primary, fontSize: 11, fontWeight: FontWeight.w600),
-                                              ),
-                                            ),
-                                          ),
-                                        if (data['replyTo'] != null) ...[
-                                          Container(
-                                            margin: const EdgeInsets.only(bottom: 6),
-                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                            decoration: BoxDecoration(
-                                              color: isMe
-                                                  ? Colors.black.withValues(alpha: 0.15)
-                                                  : U.surface.withValues(alpha: 0.7),
-                                              borderRadius: BorderRadius.circular(8),
-                                              border: Border(
-                                                left: BorderSide(
-                                                  color: isMe ? Colors.white : U.primary,
-                                                  width: 3,
-                                                ),
-                                              ),
-                                            ),
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  data['replyTo']['senderName'] ?? 'Student',
-                                                  style: GoogleFonts.outfit(
-                                                    color: isMe ? Colors.white.withValues(alpha: 0.9) : U.primary,
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 1),
-                                                Text(
-                                                  data['replyTo']['text'] ?? '',
-                                                  style: GoogleFonts.outfit(
-                                                    color: isMe ? Colors.white.withValues(alpha: 0.75) : U.sub,
-                                                    fontSize: 12,
-                                                  ),
-                                                  maxLines: 2,
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                        Text(
-                                          data['text'] ?? '',
-                                          style: GoogleFonts.outfit(color: isMe ? U.bg : U.text, fontSize: 15),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          '${_formatTime(ts)}${data['isEdited'] == true ? ' • edited' : ''}',
-                                          style: GoogleFonts.outfit(
-                                            color: isMe ? U.bg.withValues(alpha: 0.55) : U.dim,
-                                            fontSize: 10,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    setState(() {
+                                      if (_touchedMessageIds.contains(messageId)) {
+                                        _touchedMessageIds.remove(messageId);
+                                      } else {
+                                        _touchedMessageIds.add(messageId);
+                                      }
+                                    });
+                                  },
+                                  onLongPress: () => _showMessageOptions(messageId, data, isMe),
+                                  onDoubleTap: () => _startReply(data, messageId),
+                                  child: _buildMessageBubble(data, messageId, isMe, ts, isDarkTheme),
                                 ),
                               ),
                             ),
@@ -610,10 +1108,10 @@ class _UniChatScreenState extends State<UniChatScreen> {
                                 ),
                                 if (_hasNewMessagesWhileScrolled)
                                   const Positioned(
-                                    top: 2,
-                                    right: 2,
+                                    top: 1,
+                                    right: 1,
                                     child: UnreadIndicatorDot(
-                                      size: 9,
+                                      size: 10,
                                       color: Color(0xFF2DD4BF),
                                     ),
                                   ),
@@ -628,6 +1126,8 @@ class _UniChatScreenState extends State<UniChatScreen> {
               ],
             ),
           ),
+
+          // ── Replying Preview Bar ──
           if (_replyingToMessage != null)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -638,8 +1138,8 @@ class _UniChatScreenState extends State<UniChatScreen> {
               child: Row(
                 children: [
                   Container(
-                    width: 3,
-                    height: 32,
+                    width: 3.5,
+                    height: 36,
                     decoration: BoxDecoration(
                       color: U.primary,
                       borderRadius: BorderRadius.circular(2),
@@ -658,9 +1158,11 @@ class _UniChatScreenState extends State<UniChatScreen> {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 1),
                         Text(
-                          _replyingToMessage!['text'] ?? '',
+                          _replyingToMessage!['mediaUrl'] != null
+                              ? (_replyingToMessage!['mediaType'] == 'sticker' ? '🎨 Sticker' : '👾 GIF')
+                              : (_replyingToMessage!['text'] ?? ''),
                           style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -668,13 +1170,36 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       ],
                     ),
                   ),
+                  if (_replyingToMessage!['mediaUrl'] != null) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: CachedNetworkImage(
+                          imageUrl: _replyingToMessage!['mediaUrl'],
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   GestureDetector(
                     onTap: _cancelReply,
-                    child: Icon(Icons.close_rounded, size: 18, color: U.sub),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: U.dim.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.close_rounded, size: 16, color: U.sub),
+                    ),
                   ),
                 ],
               ),
             ),
+
+          // ── Editing Preview Bar ──
           if (_editingMessageId != null)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -696,42 +1221,71 @@ class _UniChatScreenState extends State<UniChatScreen> {
                 ],
               ),
             ),
+
+          // ── Modern Composer Bar ──
           Container(
             color: U.bg,
             padding: EdgeInsets.fromLTRB(
-              16,
-              10,
-              16,
-              MediaQuery.paddingOf(context).bottom + 16,
+              12,
+              8,
+              12,
+              MediaQuery.paddingOf(context).bottom + 12,
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                // Media Picker Button (GIFs, Stickers, Emojis)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2, right: 8),
+                  child: GestureDetector(
+                    onTap: _openMediaPicker,
+                    child: Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: isDarkTheme
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.black.withValues(alpha: 0.04),
+                        borderRadius: BorderRadius.circular(21),
+                        border: Border.all(
+                          color: U.border.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          Icons.add_reaction_outlined,
+                          color: U.teal,
+                          size: 21,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Text Field Input Container
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
                       color: U.card,
                       borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: U.border.withValues(alpha: 0.5)),
+                      border: Border.all(
+                        color: U.border.withValues(alpha: 0.6),
+                      ),
                     ),
                     child: TextField(
                       controller: _controller,
+                      focusNode: _focusNode,
                       minLines: 1,
                       maxLines: 5,
                       style: GoogleFonts.outfit(color: U.text, fontSize: 15),
                       decoration: InputDecoration(
                         hintText: _editingMessageId != null ? 'Edit message...' : 'Message everyone...',
-                        hintStyle: GoogleFonts.outfit(color: U.sub, fontSize: 14),
+                        hintStyle: GoogleFonts.outfit(color: U.dim, fontSize: 14),
                         filled: true,
                         fillColor: Colors.transparent,
-                        prefixIcon: Icon(
-                          _editingMessageId != null ? Icons.edit_note_rounded : Icons.forum_outlined,
-                          color: U.teal,
-                          size: 20,
-                        ),
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
-                          vertical: 12,
+                          vertical: 11,
                         ),
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,
@@ -742,18 +1296,25 @@ class _UniChatScreenState extends State<UniChatScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
+
+                // Send Button
                 GestureDetector(
                   onTap: _send,
                   child: Container(
-                    width: 48,
-                    height: 48,
+                    width: 44,
+                    height: 44,
                     decoration: BoxDecoration(
-                      color: U.primary,
+                      gradient: LinearGradient(
+                        colors: [
+                          U.primary,
+                          U.primary.withValues(alpha: 0.85),
+                        ],
+                      ),
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: U.primary.withValues(alpha: 0.15),
+                          color: U.primary.withValues(alpha: 0.25),
                           blurRadius: 8,
                           offset: const Offset(0, 3),
                         ),
@@ -761,9 +1322,9 @@ class _UniChatScreenState extends State<UniChatScreen> {
                     ),
                     child: Center(
                       child: _sending
-                          ? SizedBox(
-                              width: 20,
-                              height: 20,
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
                               child: CircularProgressIndicator(
                                 color: Colors.white,
                                 strokeWidth: 2,
@@ -772,7 +1333,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
                           : Icon(
                               _editingMessageId != null ? Icons.check_rounded : Icons.send_rounded,
                               color: Colors.white,
-                              size: 20,
+                              size: 19,
                             ),
                     ),
                   ),
@@ -780,6 +1341,388 @@ class _UniChatScreenState extends State<UniChatScreen> {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Builds the message bubble:
+  /// - Frameless jumbo emoji if message is only emojis
+  /// - Frameless sticker if mediaType == 'sticker'
+  /// - Media card if mediaType == 'gif'
+  /// - Modern gradient / elevated card bubble for text
+  Widget _buildMessageBubble(
+    Map<String, dynamic> data,
+    String messageId,
+    bool isMe,
+    Timestamp? ts,
+    bool isDarkTheme,
+  ) {
+    final rawText = (data['text'] ?? '').toString();
+    final mediaUrl = data['mediaUrl'] as String?;
+    final mediaType = data['mediaType'] as String?;
+    final isSticker = mediaType == 'sticker';
+    final isGif = mediaType == 'gif' || (mediaUrl != null && mediaUrl.contains('.gif') && !isSticker);
+    final isOnlyEmojiMsg = mediaUrl == null && _isOnlyEmoji(rawText);
+    final isTouched = _touchedMessageIds.contains(messageId);
+    final viewCount = _getViewCount(data);
+
+    Widget buildViewCountWidget({bool compact = false}) {
+      return AnimatedSize(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        child: isTouched
+            ? Padding(
+                padding: EdgeInsets.only(
+                  top: compact ? 2 : 4,
+                  bottom: compact ? 1 : 2,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.visibility_outlined,
+                      size: 12,
+                      color: isMe
+                          ? Colors.white.withValues(alpha: 0.9)
+                          : (isDarkTheme ? const Color(0xFF2DD4BF) : U.primary),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$viewCount ${viewCount == 1 ? 'view' : 'views'}',
+                      style: GoogleFonts.outfit(
+                        color: isMe
+                            ? Colors.white.withValues(alpha: 0.95)
+                            : (isDarkTheme ? Colors.white70 : U.text),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.1,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : const SizedBox.shrink(),
+      );
+    }
+
+    // ── 1. Pure Emoji Message (Jumbo Emojis with No Background / Border) ──
+    if (isOnlyEmojiMsg) {
+      final count = _countEmojiCharacters(rawText);
+      final fontSize = count == 1 ? 48.0 : (count == 2 ? 38.0 : 32.0);
+
+      return Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        child: Column(
+          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            if (!isMe)
+              _buildSenderNameTag(data),
+            if (data['replyTo'] != null)
+              _buildReplyPreviewSnippet(data['replyTo'], isMe, isDarkTheme),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              child: Text(
+                rawText,
+                style: TextStyle(
+                  fontSize: fontSize,
+                  height: 1.15,
+                ),
+              ),
+            ),
+            buildViewCountWidget(compact: true),
+            Padding(
+              padding: const EdgeInsets.only(right: 4, top: 1),
+              child: Text(
+                '${_formatTime(ts)}${data['isEdited'] == true ? ' • edited' : ''}',
+                style: GoogleFonts.outfit(
+                  color: U.dim,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // ── 2. Sticker Message (Frameless transparent sticker) ──
+    if (isSticker && mediaUrl != null) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        child: Column(
+          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            if (!isMe)
+              _buildSenderNameTag(data),
+            if (data['replyTo'] != null)
+              _buildReplyPreviewSnippet(data['replyTo'], isMe, isDarkTheme),
+            GestureDetector(
+              onTap: () => _openMediaPreview(mediaUrl),
+              child: SizedBox(
+                width: 140,
+                height: 140,
+                child: CachedNetworkImage(
+                  imageUrl: mediaUrl,
+                  fit: BoxFit.contain,
+                  placeholder: (context, _) => const Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                  errorWidget: (context, _, error) => Icon(Icons.broken_image, color: U.dim),
+                ),
+              ),
+            ),
+            buildViewCountWidget(compact: true),
+            Padding(
+              padding: const EdgeInsets.only(right: 4, top: 2),
+              child: Text(
+                _formatTime(ts),
+                style: GoogleFonts.outfit(color: U.dim, fontSize: 10),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // ── 3. GIF Message (Rounded media card) ──
+    if (isGif && mediaUrl != null) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+        decoration: BoxDecoration(
+          color: isMe ? U.primary.withValues(alpha: 0.15) : U.card,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isMe ? U.primary.withValues(alpha: 0.3) : U.border.withValues(alpha: 0.6),
+          ),
+        ),
+        padding: const EdgeInsets.all(6),
+        child: Column(
+          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            if (!isMe)
+              _buildSenderNameTag(data),
+            if (data['replyTo'] != null)
+              _buildReplyPreviewSnippet(data['replyTo'], isMe, isDarkTheme),
+            GestureDetector(
+              onTap: () => _openMediaPreview(mediaUrl),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: CachedNetworkImage(
+                  imageUrl: mediaUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (context, _) => Container(
+                    height: 140,
+                    color: U.surface,
+                    child: const Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  ),
+                  errorWidget: (context, _, error) => Icon(Icons.broken_image, color: U.dim),
+                ),
+              ),
+            ),
+            buildViewCountWidget(compact: true),
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                _formatTime(ts),
+                style: GoogleFonts.outfit(
+                  color: U.dim,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // ── 4. Standard Text Bubble (Modern Gradient for Me, Elevated Card for Others) ──
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: isMe
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  U.primary,
+                  U.primary.withValues(alpha: 0.85),
+                ],
+              )
+            : null,
+        color: isMe ? null : U.card,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(18),
+          topRight: const Radius.circular(18),
+          bottomLeft: Radius.circular(isMe ? 18 : 4),
+          bottomRight: Radius.circular(isMe ? 4 : 18),
+        ),
+        border: isMe
+            ? null
+            : Border.all(
+                color: isDarkTheme
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : U.border.withValues(alpha: 0.6),
+                width: 0.8,
+              ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(
+              alpha: isDarkTheme ? (isMe ? 0.25 : 0.3) : 0.05,
+            ),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          if (!isMe)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: _buildSenderNameTag(data),
+            ),
+          if (data['replyTo'] != null)
+            _buildReplyPreviewSnippet(data['replyTo'], isMe, isDarkTheme),
+          Text(
+            rawText,
+            style: GoogleFonts.outfit(
+              color: isMe ? Colors.white : U.text,
+              fontSize: 15,
+              height: 1.3,
+            ),
+          ),
+          buildViewCountWidget(),
+          const SizedBox(height: 4),
+          Text(
+            '${_formatTime(ts)}${data['isEdited'] == true ? ' • edited' : ''}',
+            style: GoogleFonts.outfit(
+              color: isMe ? Colors.white.withValues(alpha: 0.65) : U.dim,
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSenderNameTag(Map<String, dynamic> data) {
+    final senderName = (data['senderName'] ?? 'Student').toString();
+    final senderColor = _getSenderColor(senderName);
+
+    return GestureDetector(
+      onTap: () {
+        if (data['senderId'] != null) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => UserProfileScreen(
+                uid: data['senderId'],
+                displayName: senderName,
+                email: data['senderEmail'] ?? '',
+              ),
+            ),
+          );
+        }
+      },
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 2),
+        child: Text(
+          senderName,
+          style: GoogleFonts.outfit(
+            color: senderColor,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReplyPreviewSnippet(
+    dynamic replyData,
+    bool isMe,
+    bool isDarkTheme,
+  ) {
+    if (replyData is! Map) return const SizedBox.shrink();
+
+    final sender = (replyData['senderName'] ?? 'Student').toString();
+    final text = (replyData['text'] ?? '').toString();
+    final mediaUrl = replyData['mediaUrl'] as String?;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: isMe
+            ? Colors.black.withValues(alpha: 0.2)
+            : (isDarkTheme ? Colors.white.withValues(alpha: 0.05) : U.surface),
+        borderRadius: BorderRadius.circular(8),
+        border: Border(
+          left: BorderSide(
+            color: isMe ? Colors.white : U.primary,
+            width: 3,
+          ),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  sender,
+                  style: GoogleFonts.outfit(
+                    color: isMe ? Colors.white.withValues(alpha: 0.95) : U.primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  text,
+                  style: GoogleFonts.outfit(
+                    color: isMe ? Colors.white.withValues(alpha: 0.8) : U.sub,
+                    fontSize: 12,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          if (mediaUrl != null && mediaUrl.isNotEmpty) ...[
+            const SizedBox(width: 6),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: SizedBox(
+                width: 28,
+                height: 28,
+                child: CachedNetworkImage(
+                  imageUrl: mediaUrl,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

@@ -1,14 +1,21 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:crypto/crypto.dart';
+import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import '../widgets/utopia_loader.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart';
 import '../services/docs_service.dart';
-import 'doc_viewer_screen.dart';
+import '../widgets/utopia_loader.dart';
 
 class DocsScreen extends StatefulWidget {
   const DocsScreen({super.key});
@@ -22,6 +29,8 @@ class _DocsScreenState extends State<DocsScreen> {
   String _userName = '';
   String _uid = '';
   bool _isReady = false;
+  String? _openingDocId;
+  double _downloadProgress = 0.0;
 
   @override
   void initState() {
@@ -237,6 +246,103 @@ class _DocsScreenState extends State<DocsScreen> {
     );
   }
 
+  Future<String> _getLocalDocPath(UniversityDoc doc) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final docsDir = Directory('${dir.path}/utopia_docs');
+    if (!await docsDir.exists()) {
+      await docsDir.create(recursive: true);
+    }
+    final urlHash = md5.convert(utf8.encode(doc.url)).toString().substring(0, 8);
+    var safeTitle = doc.title.replaceAll(RegExp(r'[^\w\s-]'), '').trim();
+    if (safeTitle.isEmpty) safeTitle = 'document';
+    if (!safeTitle.toLowerCase().endsWith('.pdf')) {
+      safeTitle = '$safeTitle.pdf';
+    }
+    return '${docsDir.path}/${doc.id}_${urlHash}_$safeTitle';
+  }
+
+  Future<void> _openDoc(UniversityDoc doc) async {
+    if (_openingDocId != null) return;
+
+    setState(() {
+      _openingDocId = doc.id;
+      _downloadProgress = 0.0;
+    });
+
+    try {
+      final filePath = await _getLocalDocPath(doc);
+      final file = File(filePath);
+
+      if (!await file.exists() || await file.length() == 0) {
+        final downloadUrl = DocsService.toDownloadUrl(doc.url);
+        await Dio().download(
+          downloadUrl,
+          filePath,
+          deleteOnError: true,
+          onReceiveProgress: (received, total) {
+            if (total > 0 && mounted) {
+              setState(() {
+                _downloadProgress = received / total;
+              });
+            }
+          },
+          options: Options(
+            followRedirects: true,
+            validateStatus: (status) => status != null && status < 400,
+          ),
+        );
+      }
+
+      if (!mounted) return;
+
+      final result = await OpenFilex.open(filePath, type: 'application/pdf');
+      if (result.type != ResultType.done) {
+        final retryResult = await OpenFilex.open(filePath);
+        if (retryResult.type != ResultType.done) {
+          final uri = Uri.tryParse(doc.url);
+          if (uri != null && await canLaunchUrl(uri)) {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+          } else if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  retryResult.type == ResultType.noAppToOpen
+                      ? 'No PDF viewer application found on device.'
+                      : 'Could not open document: ${retryResult.message}',
+                  style: GoogleFonts.outfit(color: Colors.white),
+                ),
+                backgroundColor: U.red,
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      final uri = Uri.tryParse(doc.url);
+      if (uri != null && await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Failed to open document: $e',
+              style: GoogleFonts.outfit(color: Colors.white),
+            ),
+            backgroundColor: U.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _openingDocId = null;
+          _downloadProgress = 0.0;
+        });
+      }
+    }
+  }
+
   Future<void> _confirmDelete(UniversityDoc doc) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -309,6 +415,13 @@ class _DocsScreenState extends State<DocsScreen> {
       ),
     );
     if (confirmed == true) {
+      try {
+        final filePath = await _getLocalDocPath(doc);
+        final file = File(filePath);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } catch (_) {}
       await DocsService.instance.deleteDoc(doc.id);
     }
   }
@@ -395,15 +508,9 @@ class _DocsScreenState extends State<DocsScreen> {
                                   doc: docs[i],
                                   index: i,
                                   isDark: isDark,
-                                  onTap: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => DocViewerScreen(
-                                        title: docs[i].title,
-                                        url: docs[i].url,
-                                      ),
-                                    ),
-                                  ),
+                                  isLoading: _openingDocId == docs[i].id,
+                                  downloadProgress: _downloadProgress,
+                                  onTap: () => _openDoc(docs[i]),
                                   onEdit: () => _showAddEditDialog(existing: docs[i]),
                                   onDelete: () => _confirmDelete(docs[i]),
                                 ),
@@ -468,6 +575,8 @@ class _DocCard extends StatelessWidget {
   final UniversityDoc doc;
   final int index;
   final bool isDark;
+  final bool isLoading;
+  final double downloadProgress;
   final VoidCallback onTap;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
@@ -476,6 +585,8 @@ class _DocCard extends StatelessWidget {
     required this.doc,
     required this.index,
     required this.isDark,
+    required this.isLoading,
+    required this.downloadProgress,
     required this.onTap,
     required this.onEdit,
     required this.onDelete,
@@ -486,65 +597,81 @@ class _DocCard extends StatelessWidget {
     final isGDrive = DocsService.isGoogleDriveUrl(doc.url);
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.03)
-                : Colors.black.withValues(alpha: 0.02),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.07)
-                  : Colors.black.withValues(alpha: 0.05),
-            ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.03)
+              : Colors.black.withValues(alpha: 0.02),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isLoading
+                ? U.primary.withValues(alpha: 0.5)
+                : (isDark
+                    ? Colors.white.withValues(alpha: 0.07)
+                    : Colors.black.withValues(alpha: 0.05)),
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(20),
-              splashColor: U.primary.withValues(alpha: 0.08),
-              highlightColor: U.primary.withValues(alpha: 0.04),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    // Icon
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: U.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        isGDrive
-                            ? Icons.picture_as_pdf_rounded
-                            : Icons.insert_drive_file_outlined,
-                        color: U.primary,
-                        size: 22,
-                      ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: isLoading ? null : onTap,
+            borderRadius: BorderRadius.circular(20),
+            splashColor: U.primary.withValues(alpha: 0.08),
+            highlightColor: U.primary.withValues(alpha: 0.04),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  // Icon
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: U.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                    const SizedBox(width: 14),
+                    child: Icon(
+                      isGDrive
+                          ? Icons.picture_as_pdf_rounded
+                          : Icons.insert_drive_file_outlined,
+                      color: U.primary,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
 
-                    // Title + meta
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            doc.title,
-                            style: GoogleFonts.outfit(
-                              color: U.text,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              height: 1.3,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                  // Title + meta
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          doc.title,
+                          style: GoogleFonts.outfit(
+                            color: U.text,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            height: 1.3,
                           ),
-                          const SizedBox(height: 4),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        if (isLoading)
+                          Row(
+                            children: [
+                              Text(
+                                downloadProgress > 0
+                                    ? 'Downloading ${(downloadProgress * 100).toInt()}%...'
+                                    : 'Opening in PDF app...',
+                                style: GoogleFonts.outfit(
+                                  color: U.primary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          )
+                        else
                           Row(
                             children: [
                               if (isGDrive) ...[
@@ -557,59 +684,75 @@ class _DocCard extends StatelessWidget {
                                       color: U.sub, fontSize: 12),
                                 ),
                               ],
-                              Text(
-                                'by ${doc.createdByName}',
-                                style: GoogleFonts.outfit(
-                                    color: U.dim, fontSize: 12),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                              Flexible(
+                                child: Text(
+                                  'by ${doc.createdByName}',
+                                  style: GoogleFonts.outfit(
+                                      color: U.dim, fontSize: 12),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ],
                           ),
-                        ],
-                      ),
-                    ),
-
-                    // Options menu
-                    PopupMenuButton<String>(
-                      onSelected: (v) {
-                        if (v == 'edit') onEdit();
-                        if (v == 'delete') onDelete();
-                      },
-                      color: U.surface,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16)),
-                      icon: Icon(Icons.more_vert_rounded, color: U.sub, size: 20),
-                      itemBuilder: (_) => [
-                        PopupMenuItem(
-                          value: 'edit',
-                          child: Row(
-                            children: [
-                              Icon(Icons.edit_outlined, color: U.text, size: 18),
-                              const SizedBox(width: 10),
-                              Text('Edit',
-                                  style: GoogleFonts.outfit(
-                                      color: U.text, fontSize: 14)),
-                            ],
-                          ),
-                        ),
-                        PopupMenuItem(
-                          value: 'delete',
-                          child: Row(
-                            children: [
-                              Icon(Icons.delete_outline_rounded,
-                                  color: U.red, size: 18),
-                              const SizedBox(width: 10),
-                              Text('Delete',
-                                  style: GoogleFonts.outfit(
-                                      color: U.red, fontSize: 14)),
-                            ],
-                          ),
-                        ),
                       ],
                     ),
+                  ),
+
+                  if (isLoading) ...[
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        value: downloadProgress > 0 ? downloadProgress : null,
+                        strokeWidth: 2.2,
+                        color: U.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                   ],
-                ),
+
+                  // Options menu
+                  PopupMenuButton<String>(
+                    enabled: !isLoading,
+                    onSelected: (v) {
+                      if (v == 'edit') onEdit();
+                      if (v == 'delete') onDelete();
+                    },
+                    color: U.surface,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    icon: Icon(Icons.more_vert_rounded, color: U.sub, size: 20),
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        value: 'edit',
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit_outlined, color: U.text, size: 18),
+                            const SizedBox(width: 10),
+                            Text('Edit',
+                                style: GoogleFonts.outfit(
+                                    color: U.text, fontSize: 14)),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(Icons.delete_outline_rounded,
+                                color: U.red, size: 18),
+                            const SizedBox(width: 10),
+                            Text('Delete',
+                                style: GoogleFonts.outfit(
+                                    color: U.red, fontSize: 14)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),

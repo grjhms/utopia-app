@@ -136,7 +136,11 @@ class FileUploadService {
         ? firestoreCloudName
         : remoteCloudName;
 
-    if (cloudName == null || cloudName.isEmpty || publicBaseUrl == null || publicBaseUrl.isEmpty) {
+    final effectivePublicBaseUrl = (publicBaseUrl != null && publicBaseUrl.isNotEmpty)
+        ? publicBaseUrl
+        : (cloudName != null && cloudName.isNotEmpty ? 'https://res.cloudinary.com/$cloudName' : null);
+
+    if (cloudName == null || cloudName.isEmpty || effectivePublicBaseUrl == null || effectivePublicBaseUrl.isEmpty) {
       throw FileUploadException(
         'Storage is not configured yet. Contact the admin.',
       );
@@ -204,7 +208,30 @@ class FileUploadService {
       debugPrint('FileUploadService: Failed to parse secure_url from response: $e');
     }
 
-    return '${publicBaseUrl.replaceFirst(RegExp(r'/+$'), '')}/$publicId';
+    return '${effectivePublicBaseUrl.replaceFirst(RegExp(r'/+$'), '')}/$publicId';
+  }
+
+  /// Upload a user profile avatar image to Cloudinary and return the download URL.
+  Future<String> uploadProfilePhoto({
+    required File file,
+    String? universityId,
+    void Function(double progress)? onProgress,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw FileUploadException('Not signed in.');
+
+    final ext = file.path.split('.').last.toLowerCase();
+    final filename = 'avatar_${DateTime.now().millisecondsSinceEpoch}.$ext';
+    final targetUni = (universityId != null && universityId.isNotEmpty)
+        ? universityId
+        : 'profiles';
+
+    return uploadFile(
+      file: file,
+      originalFilename: filename,
+      universityId: targetUni,
+      onProgress: onProgress,
+    );
   }
 
   /// Guess MIME type from filename extension.

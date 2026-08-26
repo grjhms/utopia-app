@@ -10,14 +10,16 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
-import '../widgets/utopia_snackbar.dart';
 import '../theme/image_overlay_colors.dart';
 import 'attendance_screen.dart';
-import 'people_screen.dart';
+import 'university_screen.dart';
 import 'uni_chat_screen.dart';
 import 'community_notes_screen.dart';
+import 'event_notifications_screen.dart';
+import '../models/event_model.dart';
+import '../services/event_service.dart';
+import '../widgets/app_motion.dart';
 import '../widgets/minimal_news_pill.dart';
-import '../widgets/unread_indicator_dot.dart';
 import '../services/focus_supabase_service.dart';
 import '../services/cache_service.dart';
 import '../services/secure_storage_service.dart';
@@ -43,6 +45,7 @@ class _FocusScreenState extends State<FocusScreen> {
   String _weatherCity = '';
   double? _weatherTemp;
   int? _weatherCode;
+  int _notificationCount = 0;
 
   String get _userName {
     final user = FirebaseAuth.instance.currentUser;
@@ -56,7 +59,6 @@ class _FocusScreenState extends State<FocusScreen> {
     final List<String> variants;
     if (slot == 'morning') {
       variants = const [
-        'Rise and shine',
         'Good morning',
         'Top of the morning',
         'Have a beautiful morning',
@@ -110,38 +112,39 @@ class _FocusScreenState extends State<FocusScreen> {
         'A peaceful evening to you',
         'Evening, superstar',
         'Reflect on today\'s wins',
-        'Hope your evening is cozy',
+        'Relax and recharge',
         'Good evening, champion',
-        'Time to recharge',
-        'Evening, achiever',
-        'You did great today',
-        'Relax and reflect',
-        'Cozy evening vibes',
-        'Enjoy your evening rest',
-        'A calm evening to you',
-        'Great work today',
-        'Sunset vibes are here',
+        'You made it through the day',
+        'Rest up for tomorrow',
+        'Evening calm is here',
+        'Proud of your effort today',
+        'Time to slow down',
+        'Evening, early achiever',
+        'Cherish the quiet moments',
+        'Hope your evening is restful',
+        'Wrap up and relax',
       ];
     } else {
       variants = const [
-        'Good night',
-        'Rest well tonight',
-        'Time to wind down',
-        'Quiet night, sharp mind',
-        'Good night, champion',
-        'Sleep tight, legend',
-        'Sweet dreams',
-        'Late night grind?',
-        'Midnight focus',
-        'Working late, superstar?',
-        'Time to wrap up your day',
-        'Rest your eyes, legend',
-        'Sleep is the best meditation',
-        'Peaceful dreams ahead',
-        'Unwind and recharge',
-        'Still awake, champion?',
-        'Stars are shining, rest well',
-        'Cozy night vibes',
+        'Welcome back',
+        'Great to see you',
+        'Ready to dive in?',
+        'Let\'s get things done',
+        'Stay inspired today',
+        'Keep up the great work',
+        'Your journey continues',
+        'Focus and achieve',
+        'Make today amazing',
+        'Step by step forward',
+        'Believe in your progress',
+        'Every moment counts',
+        'Keep reaching higher',
+        'You\'ve got this',
+        'Stay curious and bold',
+        'Embrace every challenge',
+        'Small steps, big results',
+        'Create something great',
+        'Keep moving forward',
       ];
     }
     final now = DateTime.now();
@@ -161,6 +164,58 @@ class _FocusScreenState extends State<FocusScreen> {
     _loadCachedWeather();
     _loadData();
     _loadQuote();
+    _loadNotificationCount();
+  }
+
+  Future<void> _loadNotificationCount() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final prefs = await SharedPreferences.getInstance();
+      final dismissedIds = prefs.getStringList('dismissed_notifications') ?? [];
+
+      int socialCount = 0;
+      if (uid.isNotEmpty) {
+        try {
+          final pendingReqs = await FirebaseFirestore.instance
+              .collection('follows')
+              .where('followingId', isEqualTo: uid)
+              .where('status', isEqualTo: 'pending')
+              .count()
+              .get();
+          final unseenWaves = await FirebaseFirestore.instance
+              .collection('waves')
+              .where('receiverId', isEqualTo: uid)
+              .limit(10)
+              .get();
+          final unreadNotifs = await FirebaseFirestore.instance
+              .collection('notifications')
+              .where('recipientId', isEqualTo: uid)
+              .limit(10)
+              .get();
+
+          final validWaves = unseenWaves.docs.where((d) => !dismissedIds.contains(d.id)).length;
+          final validNotifs = unreadNotifs.docs.where((d) => !dismissedIds.contains(d.id)).length;
+
+          socialCount = (pendingReqs.count ?? 0) + validWaves + validNotifs;
+        } catch (_) {}
+      }
+
+      final results = await Future.wait([
+        EventService.instance.getEndingSoonEvents(limit: 5),
+        EventService.instance.getUpcomingEvents(limit: 5),
+        EventService.instance.getMyCertificates(),
+      ]);
+
+      final endingSoon = (results[0] as List<EventModel>).where((e) => !dismissedIds.contains(e.id)).toList();
+      final newEvents = (results[1] as List<EventModel>).where((e) => !dismissedIds.contains(e.id)).toList();
+      final certificates = (results[2] as List<EventCertificate>).where((c) => !dismissedIds.contains(c.id)).toList();
+
+      if (mounted) {
+        setState(() {
+          _notificationCount = socialCount + endingSoon.length + newEvents.length + certificates.length;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadCachedWeather() async {
@@ -504,13 +559,6 @@ class _FocusScreenState extends State<FocusScreen> {
   @override
   Widget build(BuildContext context) {
     final isDarkTheme = appThemeNotifier.value.isDark;
-    final now = DateTime.now();
-    final weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    final months = [
-      '', 'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    final dateStr = '${weekdays[now.weekday - 1].toUpperCase()}, ${months[now.month].toUpperCase()} ${now.day}';
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -523,7 +571,7 @@ class _FocusScreenState extends State<FocusScreen> {
             children: [
               const SizedBox(height: 20),
 
-              // ── Header: Utopia brand identity & Date ──
+              // ── Header: Utopia brand identity & Notifications ──
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(
@@ -567,32 +615,71 @@ class _FocusScreenState extends State<FocusScreen> {
                           ],
                         ),
                         GestureDetector(
-                          onTap: () {
-                            showUtopiaSnackBar(
+                          onTap: () async {
+                            await Navigator.push(
                               context,
-                              message: 'Timetable feature is currently muted & disabled.',
-                              tone: UtopiaSnackBarTone.info,
+                              MaterialPageRoute(
+                                builder: (_) => const EventNotificationsScreen(),
+                              ),
                             );
+                            _loadNotificationCount();
                           },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: U.primary.withValues(alpha: 0.06),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: U.primary.withValues(alpha: 0.15),
-                                width: 0.5,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: isDarkTheme
+                                      ? Colors.white.withValues(alpha: 0.08)
+                                      : Colors.black.withValues(alpha: 0.05),
+                                  border: Border.all(
+                                    color: isDarkTheme
+                                        ? Colors.white.withValues(alpha: 0.1)
+                                        : Colors.black.withValues(alpha: 0.05),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Icon(
+                                  Icons.notifications_none_rounded,
+                                  color: U.text,
+                                  size: 20,
+                                ),
                               ),
-                            ),
-                            child: Text(
-                              dateStr,
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 1.0,
-                                color: U.primary,
-                              ),
-                            ),
+                              if (_notificationCount > 0)
+                                Positioned(
+                                  top: -2,
+                                  right: -2,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: U.primary,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: U.bg,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    constraints: const BoxConstraints(
+                                      minWidth: 16,
+                                      minHeight: 16,
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        _notificationCount > 9 ? '9+' : _notificationCount.toString(),
+                                        style: GoogleFonts.plusJakartaSans(
+                                          color: isDarkTheme ? Colors.black : Colors.white,
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.bold,
+                                          height: 1.0,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ],
@@ -708,7 +795,7 @@ class _FocusScreenState extends State<FocusScreen> {
                     MaterialPageRoute(builder: (_) => const AttendanceScreen()),
                   ).then((_) => _loadData()),
                   child: Container(
-                    padding: const EdgeInsets.all(22),
+                    padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
@@ -801,19 +888,23 @@ class _FocusScreenState extends State<FocusScreen> {
                                       size: 15,
                                     ),
                                   ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    'ACADEMIC PROFILE',
-                                    style: GoogleFonts.plusJakartaSans(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 1.5,
-                                      color: (_attendancePct != null && _attendancePct! >= 75
-                                              ? U.green
-                                              : _attendancePct != null && _attendancePct! >= 65
-                                                  ? U.peach
-                                                  : U.red)
-                                          .withValues(alpha: 0.85),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      'ACADEMIC PROFILE',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 1.2,
+                                        color: (_attendancePct != null && _attendancePct! >= 75
+                                                ? U.green
+                                                : _attendancePct != null && _attendancePct! >= 65
+                                                    ? U.peach
+                                                    : U.red)
+                                            .withValues(alpha: 0.85),
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -899,7 +990,7 @@ class _FocusScreenState extends State<FocusScreen> {
                             ],
                           ),
                         ),
-                        const SizedBox(width: 24),
+                        const SizedBox(width: 16),
                         (() {
                           final pctValue = _attendancePct != null ? _attendancePct! / 100 : 0.0;
                           return SizedBox(
@@ -1029,17 +1120,17 @@ class _FocusScreenState extends State<FocusScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(
                 children: [
-                  // People Card
+                  // University Card
                   Expanded(
                     child: PressableCard(
                       onTap: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const PeopleScreen()),
+                          buildForwardRoute(const UniversityScreen()),
                         );
                       },
                       child: Container(
-                        padding: const EdgeInsets.all(18),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             begin: Alignment.topLeft,
@@ -1087,8 +1178,8 @@ class _FocusScreenState extends State<FocusScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Container(
-                                  width: 40,
-                                  height: 40,
+                                  width: 38,
+                                  height: 38,
                                   decoration: BoxDecoration(
                                     gradient: LinearGradient(
                                       begin: Alignment.topLeft,
@@ -1121,44 +1212,51 @@ class _FocusScreenState extends State<FocusScreen> {
                                   ),
                                   child: Center(
                                     child: Icon(
-                                      Icons.groups_rounded,
+                                      Icons.school_rounded,
                                       color: U.primary,
-                                      size: 20,
+                                      size: 19,
                                     ),
                                   ),
                                 ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: U.primary.withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    'Community',
-                                    style: GoogleFonts.outfit(
-                                      color: U.primary,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w700,
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 7,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: U.primary.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      'Campus',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.outfit(
+                                        color: U.primary,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 14),
                             Text(
-                              'People',
+                              'University',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.outfit(
                                 color: U.text,
-                                fontSize: 16,
+                                fontSize: 15.5,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Discover students',
+                              'Events, docs & hub',
                               style: GoogleFonts.plusJakartaSans(
                                 fontSize: 12,
                                 color: U.sub,
@@ -1171,82 +1269,88 @@ class _FocusScreenState extends State<FocusScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 12),
                   // Chat to Utopia Card
                   Expanded(
                     child: Builder(
                       builder: (context) {
-                        final uniId = U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : 'support';
-                        return StreamBuilder<bool>(
-                          stream: UniChatService().unreadStatusStream(uniId),
-                          initialData: false,
-                          builder: (context, snapshot) {
-                            final hasUnread = snapshot.data ?? false;
-                            return PressableCard(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => UniChatScreen(universityId: uniId)),
-                                );
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.all(18),
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: isDarkTheme
-                                        ? [
-                                            U.card.withValues(alpha: 0.95),
-                                            U.card.withValues(alpha: 0.8),
-                                          ]
-                                        : [
-                                            Colors.white,
-                                            U.card.withValues(alpha: 0.95),
-                                          ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(24),
-                                  border: Border.all(
-                                    color: hasUnread
-                                        ? U.teal.withValues(alpha: isDarkTheme ? 0.4 : 0.45)
-                                        : (isDarkTheme
+                        final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+                        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                          stream: currentUid.isNotEmpty
+                              ? FirebaseFirestore.instance.collection('users').doc(currentUid).snapshots()
+                              : const Stream.empty(),
+                          builder: (context, userSnap) {
+                            final liveUniId = userSnap.data?.data()?['selectedUniversityId'] as String?;
+                            final uniId = (liveUniId != null && liveUniId.isNotEmpty)
+                                ? liveUniId
+                                : (U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : 'support');
+                            if (liveUniId != null && liveUniId.isNotEmpty && liveUniId != U.cachedUniversityId) {
+                              U.cachedUniversityId = liveUniId;
+                            }
+
+                            return StreamBuilder<bool>(
+                              stream: UniChatService().unreadStatusStream(uniId),
+                              initialData: false,
+                              builder: (context, snapshot) {
+                                final hasUnread = snapshot.data ?? false;
+                                return PressableCard(
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(builder: (_) => UniChatScreen(universityId: uniId)),
+                                    );
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                        colors: isDarkTheme
+                                            ? [
+                                                U.card.withValues(alpha: 0.95),
+                                                U.card.withValues(alpha: 0.8),
+                                              ]
+                                            : [
+                                                Colors.white,
+                                                U.card.withValues(alpha: 0.95),
+                                              ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(24),
+                                      border: Border.all(
+                                        color: isDarkTheme
                                             ? Colors.white.withValues(alpha: 0.05)
-                                            : Colors.white.withValues(alpha: 0.5)),
-                                    width: 1.0,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: hasUnread
-                                          ? U.teal.withValues(alpha: isDarkTheme ? 0.18 : 0.12)
-                                          : Colors.black.withValues(
-                                              alpha: isDarkTheme ? 0.45 : 0.12,
-                                            ),
-                                      blurRadius: 20,
-                                      offset: const Offset(0, 8),
-                                      spreadRadius: -2,
+                                            : Colors.white.withValues(alpha: 0.5),
+                                        width: 1.0,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: isDarkTheme ? 0.45 : 0.12,
+                                          ),
+                                          blurRadius: 20,
+                                          offset: const Offset(0, 8),
+                                          spreadRadius: -2,
+                                        ),
+                                        BoxShadow(
+                                          color: isDarkTheme
+                                              ? Colors.white.withValues(alpha: 0.03)
+                                              : Colors.black.withValues(alpha: 0.04),
+                                          blurRadius: 6,
+                                          offset: const Offset(0, 2),
+                                          spreadRadius: 0,
+                                        ),
+                                      ],
                                     ),
-                                    BoxShadow(
-                                      color: isDarkTheme
-                                          ? Colors.white.withValues(alpha: 0.03)
-                                          : Colors.black.withValues(alpha: 0.04),
-                                      blurRadius: 6,
-                                      offset: const Offset(0, 2),
-                                      spreadRadius: 0,
-                                    ),
-                                  ],
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Stack(
-                                          clipBehavior: Clip.none,
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                           children: [
                                             Container(
-                                              width: 40,
-                                              height: 40,
+                                              width: 38,
+                                              height: 38,
                                               decoration: BoxDecoration(
                                                 gradient: LinearGradient(
                                                   begin: Alignment.topLeft,
@@ -1278,93 +1382,79 @@ class _FocusScreenState extends State<FocusScreen> {
                                                 ],
                                               ),
                                               child: Center(
-                                                child: Icon(
-                                                  Icons.forum_rounded,
-                                                  color: U.teal,
-                                                  size: 20,
+                                                child: Stack(
+                                                  alignment: Alignment.topRight,
+                                                  children: [
+                                                    Icon(
+                                                      Icons.forum_rounded,
+                                                      color: U.teal,
+                                                      size: 19,
+                                                    ),
+                                                    if (hasUnread)
+                                                      Container(
+                                                        width: 5,
+                                                        height: 5,
+                                                        decoration: const BoxDecoration(
+                                                          color: Colors.redAccent,
+                                                          shape: BoxShape.circle,
+                                                        ),
+                                                      ),
+                                                  ],
                                                 ),
                                               ),
                                             ),
-                                            if (hasUnread)
-                                              const Positioned(
-                                                top: -1,
-                                                right: -1,
-                                                child: UnreadIndicatorDot(
-                                                  size: 10,
-                                                  color: Color(0xFF2DD4BF),
-                                                ),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 8,
+                                                vertical: 3,
                                               ),
-                                          ],
-                                        ),
-                                        AnimatedContainer(
-                                          duration: const Duration(milliseconds: 250),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 3,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: hasUnread
-                                                ? U.teal.withValues(alpha: 0.2)
-                                                : U.teal.withValues(alpha: 0.12),
-                                            borderRadius: BorderRadius.circular(8),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              if (hasUnread) ...[
-                                                Container(
-                                                  width: 5,
-                                                  height: 5,
-                                                  margin: const EdgeInsets.only(right: 4),
-                                                  decoration: const BoxDecoration(
-                                                    color: Color(0xFF2DD4BF),
-                                                    shape: BoxShape.circle,
-                                                  ),
-                                                ),
-                                              ],
-                                              Text(
-                                                hasUnread ? 'New' : 'Global',
+                                              decoration: BoxDecoration(
+                                                color: U.teal.withValues(alpha: 0.12),
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              child: Text(
+                                                'Chat',
                                                 style: GoogleFonts.outfit(
                                                   color: U.teal,
                                                   fontSize: 10,
                                                   fontWeight: FontWeight.w700,
                                                 ),
                                               ),
-                                            ],
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 14),
+                                        Text(
+                                          'Chat to Utopia',
+                                          style: GoogleFonts.outfit(
+                                            color: U.text,
+                                            fontSize: 15.5,
+                                            fontWeight: FontWeight.w700,
                                           ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Campus chat',
+                                          style: GoogleFonts.plusJakartaSans(
+                                            fontSize: 12,
+                                            color: U.sub,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ],
                                     ),
-                                    const SizedBox(height: 16),
-                                    Text(
-                                      'Chat to Utopia',
-                                      style: GoogleFonts.outfit(
-                                        color: U.text,
-                                        fontSize: 15.5,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'Campus chat',
-                                      style: GoogleFonts.plusJakartaSans(
-                                        fontSize: 12,
-                                        color: U.sub,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ),
-                              ),
+                                  ),
                             );
                           },
                         );
                       },
-                    ),
-                  ),
+                    );
+                  },
+                ),
+              ),
                 ],
               ),
             ).animate()
@@ -1476,12 +1566,16 @@ class _FocusScreenState extends State<FocusScreen> {
                           children: [
                             Row(
                               children: [
-                                Text(
-                                  'Community Notes',
-                                  style: GoogleFonts.outfit(
-                                    color: U.text,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
+                                Flexible(
+                                  child: Text(
+                                    'Community Notes',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.outfit(
+                                      color: U.text,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 6),

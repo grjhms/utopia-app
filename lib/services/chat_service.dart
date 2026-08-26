@@ -1,9 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:http/http.dart' as http;
+
 class ChatService {
   static final ChatService _instance = ChatService._internal();
   factory ChatService() => _instance;
@@ -213,16 +212,6 @@ class ChatService {
         'unreadCount_$otherUserId': FieldValue.increment(1),
       }, SetOptions(merge: true));
       await batch.commit();
-
-      unawaited(
-        _dispatchChatNotification(
-          senderId: user.uid,
-          senderName: user.displayName ?? user.email ?? 'New message',
-          recipientId: otherUserId,
-          chatId: chatId,
-          message: previewText,
-        ),
-      );
     } catch (e) {
       rethrow;
     }
@@ -276,16 +265,6 @@ class ChatService {
       }, SetOptions(merge: true));
 
       await batch.commit();
-
-      unawaited(
-        _dispatchChatNotification(
-          senderId: user.uid,
-          senderName: user.displayName ?? user.email ?? 'New message',
-          recipientId: otherUserId,
-          chatId: chatId,
-          message: previewText,
-        ),
-      );
     } catch (e) {
       rethrow;
     }
@@ -303,21 +282,61 @@ class ChatService {
     try {
       final unreadMessages = await chatRef
           .collection('messages')
+          .where('senderId', isEqualTo: otherUserId)
           .where('read', isEqualTo: false)
           .get();
 
+      if (unreadMessages.docs.isEmpty) {
+        return;
+      }
+
       final batch = _firestore.batch();
       for (final doc in unreadMessages.docs) {
-        if ((doc.data()['senderId'] ?? '').toString() != user.uid) {
-          batch.update(doc.reference, {'read': true});
-        }
+        batch.update(doc.reference, {'read': true});
       }
       batch.set(chatRef, {
         'unreadCount_${user.uid}': 0,
       }, SetOptions(merge: true));
+
       await batch.commit();
     } catch (e) {
       rethrow;
+    }
+  }
+
+  Future<void> clearChatHistory(String otherUserId) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return;
+    }
+
+    final chatId = chatIdFor(user.uid, otherUserId);
+    final messagesRef =
+        _firestore.collection('chats').doc(chatId).collection('messages');
+
+    DocumentSnapshot? cursor;
+    while (true) {
+      Query query = messagesRef.orderBy('timestamp').limit(300);
+      if (cursor != null) {
+        query = query.startAfterDocument(cursor);
+      }
+
+      final snapshot = await query.get();
+      if (snapshot.docs.isEmpty) {
+        break;
+      }
+
+      final batch = _firestore.batch();
+      for (final doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+
+      if (snapshot.docs.length < 300) {
+        break;
+      }
+
+      cursor = snapshot.docs.last;
     }
   }
 
@@ -474,59 +493,5 @@ class ChatService {
 
       cursor = snapshot.docs.last;
     }
-  }
-
-  String? _cachedSupabaseUrl;
-  String? _cachedSupabaseAnonKey;
-
-  Future<void> _dispatchChatNotification({
-    required String senderId,
-    required String senderName,
-    required String recipientId,
-    required String chatId,
-    required String message,
-  }) async {
-    try {
-      // Load and cache Supabase config from Firestore
-      if (_cachedSupabaseUrl == null || _cachedSupabaseAnonKey == null) {
-        final configDoc = await _firestore
-            .collection('config')
-            .doc('supabase-focus-1')
-            .get();
-        final data = configDoc.data();
-        _cachedSupabaseUrl = (data?['url'] as String?)?.trim();
-        _cachedSupabaseAnonKey = (data?['anon_key'] as String?)?.trim();
-      }
-
-      if (_cachedSupabaseUrl == null ||
-          _cachedSupabaseUrl!.isEmpty ||
-          _cachedSupabaseAnonKey == null ||
-          _cachedSupabaseAnonKey!.isEmpty) {
-        return;
-      }
-
-      final uri = Uri.parse(
-        '$_cachedSupabaseUrl/functions/v1/send-chat-notification',
-      );
-
-      final preview = message.length > 160
-          ? '${message.substring(0, 157)}...'
-          : message;
-
-      await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_cachedSupabaseAnonKey',
-        },
-        body: jsonEncode({
-          'sender_id': senderId,
-          'sender_name': senderName,
-          'recipient_id': recipientId,
-          'chat_id': chatId,
-          'message_text': preview,
-        }),
-      );
-    } catch (_) {}
   }
 }

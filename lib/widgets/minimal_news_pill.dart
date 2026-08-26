@@ -1,21 +1,11 @@
-import 'dart:async';
 import 'dart:ui';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../main.dart';
 
-class MinimalNewsPill extends StatefulWidget {
+class MinimalNewsPill extends StatelessWidget {
   const MinimalNewsPill({super.key});
-
-  @override
-  State<MinimalNewsPill> createState() => _MinimalNewsPillState();
-}
-
-class _MinimalNewsPillState extends State<MinimalNewsPill> {
-  late final PageController _pageController;
-  Timer? _timer;
-  int _currentIndex = 0;
 
   static const List<Map<String, String>> _fallbackNews = [
     {
@@ -27,30 +17,6 @@ class _MinimalNewsPillState extends State<MinimalNewsPill> {
       'description': 'Target 75%+ attendance across all subjects to stay exam eligible.',
     },
   ];
-
-  @override
-  void initState() {
-    super.initState();
-    _pageController = PageController();
-    _startSlowScroll();
-  }
-
-  void _startSlowScroll() {
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 6), (timer) {
-      if (!mounted) return;
-      setState(() {
-        _currentIndex = _currentIndex + 1;
-      });
-      if (_pageController.hasClients) {
-        _pageController.animateToPage(
-          _currentIndex,
-          duration: const Duration(milliseconds: 1200),
-          curve: Curves.easeInOutCubic,
-        );
-      }
-    });
-  }
 
   double _calculatePillWidth(String title) {
     final textPainter = TextPainter(
@@ -68,14 +34,7 @@ class _MinimalNewsPillState extends State<MinimalNewsPill> {
     return (textPainter.width + 46.0).clamp(80.0, 250.0);
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  void _showNewsDetails(List<Map<String, String>> items, int index) {
+  void _showNewsDetails(BuildContext context, List<Map<String, String>> items, int index) {
     if (items.isEmpty) return;
     final item = items[index % items.length];
     final isDark = appThemeNotifier.value.isDark;
@@ -242,23 +201,20 @@ class _MinimalNewsPillState extends State<MinimalNewsPill> {
           newsItems = _fallbackNews;
         }
 
-        final activeItem = newsItems[_currentIndex % newsItems.length];
+        final activeItem = newsItems.first;
         final activeTitle = activeItem['title'] ?? '';
         final pillWidth = _calculatePillWidth(activeTitle);
 
         return GestureDetector(
           onTap: () {
-            final activeIdx = _currentIndex % newsItems.length;
-            _showNewsDetails(newsItems, activeIdx);
+            _showNewsDetails(context, newsItems, 0);
           },
           behavior: HitTestBehavior.opaque,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(14),
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.easeOutCubic,
+              child: Container(
                 width: pillWidth,
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
@@ -297,33 +253,17 @@ class _MinimalNewsPillState extends State<MinimalNewsPill> {
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: SizedBox(
-                        height: 16,
-                        child: PageView.builder(
-                          controller: _pageController,
-                          scrollDirection: Axis.vertical,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemBuilder: (context, index) {
-                            final item = newsItems[index % newsItems.length];
-                            final headingOnly = item['title'] ?? '';
-
-                            return Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                headingOnly,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: isDark
-                                      ? pillColor.withValues(alpha: 0.95)
-                                      : pillColor.withValues(alpha: 0.85),
-                                  letterSpacing: 0.1,
-                                ),
-                              ),
-                            );
-                          },
+                      child: Text(
+                        activeTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: isDark
+                              ? pillColor.withValues(alpha: 0.95)
+                              : pillColor.withValues(alpha: 0.85),
+                          letterSpacing: 0.1,
                         ),
                       ),
                     ),
