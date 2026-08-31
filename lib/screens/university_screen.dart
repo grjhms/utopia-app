@@ -22,6 +22,7 @@ import '../services/event_service.dart';
 import '../models/event_model.dart';
 import 'community_notes_screen.dart'; // ignore: unused_import
 import 'classes_screen.dart';
+import 'assignments_screen.dart';
 
 class UniversityScreen extends StatefulWidget {
   const UniversityScreen({super.key});
@@ -247,6 +248,17 @@ class _UniversityScreenState extends State<UniversityScreen> {
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const ClassesScreen()),
+        ),
+      ),
+      _CardItem(
+        title: 'Assignments',
+        subtitle: 'Academic tasks\nand homework',
+        icon: Icons.assignment_outlined,
+        color: theme.blue,
+        delay: 220,
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const AssignmentsScreen()),
         ),
       ),
       _CardItem(
