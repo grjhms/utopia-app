@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -10,17 +9,19 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../main.dart';
-import '../models/icebreaker_data.dart';
 import '../services/follow_service.dart';
 import '../services/people_interaction_service.dart';
-import '../services/role_service.dart';
 import '../widgets/app_motion.dart';
+import '../widgets/chat_media_picker.dart';
 import '../widgets/instagram_badge.dart';
 import '../widgets/superuser_badge.dart';
 import '../widgets/utopia_loader.dart';
 import '../widgets/utopia_snackbar.dart';
+import '../widgets/thought_cloud_badge.dart';
+import '../widgets/utopia_wave_button.dart';
 import '../widgets/wave_count_badge.dart';
 import 'chat_screen.dart';
+import 'friends_screen.dart';
 import 'user_profile_screen.dart';
 
 const List<String> kBTechBranches = [
@@ -52,15 +53,15 @@ class PeopleScreen extends StatefulWidget {
 
 class _PeopleScreenState extends State<PeopleScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   final PeopleInteractionService _interactionService = PeopleInteractionService();
+  final FollowService _followService = FollowService();
 
-  bool _isSearching = false;
-  bool _isSuperUser = false;
-  bool _hasAutoPromptedBranch = false;
   PeopleViewMode _viewMode = PeopleViewMode.grid;
-  String _selectedFilter = 'All'; // 'All', 'Active', 'Study', 'Superusers', or Branch name
+  String _selectedFilter = 'All'; // 'All', 'My Branch', 'Active', or Branch name
   String _selectedBranch = 'All';
-  bool _sparkCardDismissed = false;
+  bool _hasAutoPromptedBranch = false;
+  bool _isSearchFocused = false;
 
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _usersStream;
 
@@ -76,30 +77,41 @@ class _PeopleScreenState extends State<PeopleScreen> {
         .orderBy('displayName')
         .snapshots();
 
-    _searchController.addListener(() {
-      if (mounted) setState(() {});
+    _searchFocusNode.addListener(() {
+      if (mounted) {
+        setState(() {
+          _isSearchFocused = _searchFocusNode.hasFocus;
+        });
+      }
     });
 
-    RoleService().isSuperUser().then((val) {
-      if (mounted) setState(() => _isSuperUser = val);
+    _searchController.addListener(() {
+      if (mounted) setState(() {});
     });
   }
 
   @override
   void dispose() {
+    _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
-  void _openSetMyBranchModal() {
+  void _openSetMyBranchModal([Map<String, int> branchCounts = const {}]) {
+    _searchFocusNode.unfocus();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _SetUserBranchSheet(
         currentUid: _currentUid,
+        branchCounts: branchCounts,
         onBranchSaved: (branch) {
           if (mounted) {
+            setState(() {
+              _selectedBranch = branch;
+              _selectedFilter = 'My Branch';
+            });
             showUtopiaSnackBar(
               context,
               message: 'Branch set to $branch',
@@ -111,40 +123,44 @@ class _PeopleScreenState extends State<PeopleScreen> {
     );
   }
 
-  void _openSetVibeSheet(CampusVibe? currentVibe) {
+  void _openSetStatusSheet(CampusVibe? currentVibe) {
+    _searchFocusNode.unfocus();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _SetVibeSheet(
+      builder: (ctx) => _SetStatusSheet(
         initialVibe: currentVibe,
         currentUserName: _currentUserName,
         currentUserPhoto: _currentUserPhoto,
-        onVibeSaved: (emoji, text, location, statusTag, durationHours) async {
+        onStatusSaved: (emoji, text, location, durationHours, mediaUrl) async {
           await _interactionService.setUserVibe(
             emoji: emoji,
             text: text,
             location: location,
-            statusTag: statusTag,
             durationHours: durationHours,
+            mediaUrl: mediaUrl,
           );
           if (mounted) {
             setState(() {});
             final hoursText = durationHours >= 24 ? '24h' : '${durationHours}h';
+            final hasMedia = mediaUrl != null && mediaUrl.isNotEmpty;
             showUtopiaSnackBar(
               context,
-              message: '$emoji Vibe broadcasted ($hoursText)',
+              message: hasMedia
+                  ? '$emoji Media status updated ($hoursText)'
+                  : '$emoji Status updated ($hoursText)',
               tone: UtopiaSnackBarTone.success,
             );
           }
         },
-        onVibeCleared: () async {
+        onStatusCleared: () async {
           await _interactionService.clearUserVibe();
           if (mounted) {
             setState(() {});
             showUtopiaSnackBar(
               context,
-              message: 'Campus vibe cleared',
+              message: 'Status cleared',
               tone: UtopiaSnackBarTone.info,
             );
           }
@@ -153,45 +169,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
     );
   }
 
-  void _openAdminEditSparkSheet(SparkQuestion currentSpark) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _AdminEditSparkSheet(
-        initialSpark: currentSpark,
-        interactionService: _interactionService,
-      ),
-    );
-  }
-
-  void _openStudyBuddyRoulette(List<Map<String, dynamic>> allUsers) {
-    final eligible = allUsers.where((u) => u['uid'] != _currentUid).toList();
-    if (eligible.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: U.card,
-          content: Text(
-            'Need more peers on campus to find a study match!',
-            style: GoogleFonts.outfit(color: U.text),
-          ),
-        ),
-      );
-      return;
-    }
-
-    final randomMatch = eligible[Random().nextInt(eligible.length)];
-    showDialog(
-      context: context,
-      builder: (ctx) => _StudyBuddyRouletteDialog(
-        user: randomMatch,
-        currentUid: _currentUid,
-        onWave: () => _interactionService.sendWave(randomMatch['uid'].toString()),
-      ),
-    );
-  }
-
   void _openQuickPeekSheet(Map<String, dynamic> user, CampusVibe? vibe) {
+    _searchFocusNode.unfocus();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -200,103 +179,28 @@ class _PeopleScreenState extends State<PeopleScreen> {
         user: user,
         vibe: vibe,
         currentUid: _currentUid,
+        interactionService: _interactionService,
+        followService: _followService,
       ),
     );
   }
 
-  void _openBranchPickerModal() {
+  void _openBranchPickerModal(Map<String, int> branchCounts, int totalCount) {
+    _searchFocusNode.unfocus();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => SafeArea(
-        top: false,
-        child: Container(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.75,
-          ),
-          decoration: BoxDecoration(
-            color: U.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border.all(color: U.border, width: 0.8),
-          ),
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Material(
-            color: Colors.transparent,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: U.border,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Select Academic Branch',
-                  style: GoogleFonts.outfit(
-                    color: U.text,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Flexible(
-                  child: ListView(
-                    shrinkWrap: true,
-                    physics: const BouncingScrollPhysics(),
-                    children: [
-                      ListTile(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        tileColor: _selectedBranch == 'All' ? U.primary.withValues(alpha: 0.12) : null,
-                        title: Text(
-                          'All Branches',
-                          style: GoogleFonts.outfit(
-                            color: _selectedBranch == 'All' ? U.primary : U.text,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        trailing: _selectedBranch == 'All' ? Icon(Icons.check_circle_rounded, color: U.primary, size: 20) : null,
-                        onTap: () {
-                          setState(() {
-                            _selectedBranch = 'All';
-                            _selectedFilter = 'All';
-                          });
-                          Navigator.pop(ctx);
-                        },
-                      ),
-                      ...kBTechBranches.map((b) => ListTile(
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            tileColor: _selectedBranch == b ? U.primary.withValues(alpha: 0.12) : null,
-                            title: Text(
-                              b,
-                              style: GoogleFonts.outfit(
-                                color: _selectedBranch == b ? U.primary : U.text,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            trailing: _selectedBranch == b ? Icon(Icons.check_circle_rounded, color: U.primary, size: 20) : null,
-                            onTap: () {
-                              setState(() {
-                                _selectedBranch = b;
-                                _selectedFilter = b;
-                              });
-                              Navigator.pop(ctx);
-                            },
-                          )),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+      builder: (ctx) => _BranchPickerSheet(
+        selectedBranch: _selectedBranch,
+        branchCounts: branchCounts,
+        totalCount: totalCount,
+        onSelectBranch: (branch) {
+          setState(() {
+            _selectedBranch = branch;
+            _selectedFilter = branch;
+          });
+        },
       ),
     );
   }
@@ -305,156 +209,33 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        automaticallyImplyLeading: false,
-        titleSpacing: Navigator.canPop(context) ? 0 : 20,
-        leading: Navigator.canPop(context)
-            ? IconButton(
-                icon: Icon(Icons.arrow_back_ios_new_rounded, color: U.text, size: 18),
-                onPressed: () => Navigator.pop(context),
-              )
-            : null,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'People',
-                  style: GoogleFonts.outfit(
-                    color: U.text,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                  decoration: BoxDecoration(
-                    color: U.primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: U.primary.withValues(alpha: 0.25), width: 0.6),
-                  ),
-                  child: Text(
-                    'Pulse',
-                    style: GoogleFonts.outfit(
-                      color: U.primary,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          // Study Match / Roulette
-          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _usersStream,
-            builder: (context, snap) {
-              final rawDocs = snap.data?.docs ?? [];
-              final userList = rawDocs.map((d) => {'uid': d.id, ...d.data()}).toList();
-              return IconButton(
-                tooltip: 'Study Match',
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                icon: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: U.card,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: U.border, width: 0.8),
-                  ),
-                  child: Icon(Icons.casino_outlined, color: U.text, size: 16),
-                ),
-                onPressed: () => _openStudyBuddyRoulette(userList),
-              );
-            },
-          ),
-          // View Switcher (Grid vs List)
-          IconButton(
-            tooltip: _viewMode == PeopleViewMode.grid ? 'List View' : 'Grid View',
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-            onPressed: () {
-              HapticFeedback.lightImpact();
-              setState(() {
-                _viewMode = _viewMode == PeopleViewMode.grid ? PeopleViewMode.list : PeopleViewMode.grid;
-              });
-            },
-            icon: Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: U.card,
-                shape: BoxShape.circle,
-                border: Border.all(color: U.border, width: 0.8),
-              ),
-              child: Icon(
-                _viewMode == PeopleViewMode.grid ? Icons.view_agenda_outlined : Icons.grid_view_rounded,
-                color: U.text,
-                size: 16,
-              ),
-            ),
-          ),
-          // Search Toggle
-          IconButton(
-            tooltip: 'Search',
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-            onPressed: () => setState(() {
-              _isSearching = !_isSearching;
-              if (!_isSearching) _searchController.clear();
-            }),
-            icon: Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: _isSearching ? U.primary.withValues(alpha: 0.12) : U.card,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: _isSearching ? U.primary.withValues(alpha: 0.35) : U.border,
-                  width: 0.8,
-                ),
-              ),
-              child: Icon(
-                _isSearching ? Icons.close_rounded : Icons.search_rounded,
-                color: _isSearching ? U.primary : U.text,
-                size: 16,
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-        ],
-      ),
       body: SafeArea(
         child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: _usersStream,
           builder: (context, userSnap) {
             final rawDocs = userSnap.data?.docs ?? [];
             final totalCount = rawDocs.length;
-
             final query = _searchController.text.trim().toLowerCase();
 
-            // Extract all users
+            // All campus users
             final allUsers = rawDocs.map((d) => {...d.data(), 'uid': d.id}).toList();
 
-            // Check current user branch
+            // Find current user data
             final currentUserDoc = allUsers.firstWhere(
               (u) => u['uid'] == _currentUid,
               orElse: () => {},
             );
             final myBranch = (currentUserDoc['branch'] ?? '').toString().trim();
             final hasSelectedBranch = myBranch.isNotEmpty;
+
+            // Calculate branch member counts
+            final branchCounts = <String, int>{};
+            for (final u in allUsers) {
+              final b = (u['branch'] ?? '').toString().trim();
+              if (b.isNotEmpty) {
+                branchCounts[b] = (branchCounts[b] ?? 0) + 1;
+              }
+            }
 
             // Auto-prompt branch picker once if user hasn't selected their branch
             if (!hasSelectedBranch && !_hasAutoPromptedBranch && _currentUid.isNotEmpty && rawDocs.isNotEmpty) {
@@ -466,20 +247,19 @@ class _PeopleScreenState extends State<PeopleScreen> {
               });
             }
 
-            // Map of active vibes
+            // Map of active vibes / statuses
             final activeVibesMap = <String, CampusVibe>{};
             for (final u in allUsers) {
               if (u['vibe'] != null) {
                 try {
                   final vibe = CampusVibe.fromMap(u['uid'].toString(), u);
-                  if (vibe.text.isNotEmpty && !vibe.isExpired) {
+                  if ((vibe.text.isNotEmpty || (vibe.mediaUrl != null && vibe.mediaUrl!.isNotEmpty)) && !vibe.isExpired) {
                     activeVibesMap[vibe.uid] = vibe;
                   }
                 } catch (_) {}
               }
             }
 
-            // Current user vibe
             final currentUserVibe = activeVibesMap[_currentUid];
 
             // Filter logic
@@ -491,16 +271,13 @@ class _PeopleScreenState extends State<PeopleScreen> {
 
               if (_selectedFilter == 'Active' && !hasVibe) {
                 return false;
-              } else if (_selectedFilter == 'Study') {
-                final isStudy = bio.contains('study') ||
-                    bio.contains('dsa') ||
-                    bio.contains('gate') ||
-                    hasVibe ||
-                    branch.isNotEmpty;
-                if (!isStudy) return false;
+              } else if (_selectedFilter == 'My Branch') {
+                if (myBranch.isEmpty || branch.toLowerCase() != myBranch.toLowerCase()) {
+                  return false;
+                }
               } else if (_selectedFilter != 'All' &&
                   _selectedFilter != 'Active' &&
-                  _selectedFilter != 'Study') {
+                  _selectedFilter != 'My Branch') {
                 if (branch != _selectedFilter) return false;
               }
 
@@ -519,7 +296,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   vibeText.contains(query);
             }).toList()
               ..sort((a, b) {
-                // Priority: users with active vibes come first, then alphabetical
+                // Priority: users with active status first, then alphabetical
                 final hasVibeA = activeVibesMap.containsKey(a['uid']);
                 final hasVibeB = activeVibesMap.containsKey(b['uid']);
                 if (hasVibeA && !hasVibeB) return -1;
@@ -529,97 +306,272 @@ class _PeopleScreenState extends State<PeopleScreen> {
                 return nameA.compareTo(nameB);
               });
 
-            return CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                // ── Search bar (Collapsible) ──────────────────────────────────
-                if (_isSearching)
+            return GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: () => _searchFocusNode.unfocus(),
+              child: CustomScrollView(
+                physics: const BouncingScrollPhysics(),
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                slivers: [
+                  // ── 1. Top Header Bar ──────────────────────────────────────────
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                      child: Container(
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: U.card,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: U.border),
-                        ),
-                        child: Row(
-                          children: [
-                            const SizedBox(width: 14),
-                            Icon(Icons.search_rounded, color: U.sub, size: 18),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: TextField(
-                                controller: _searchController,
-                                autofocus: true,
-                                style: GoogleFonts.outfit(color: U.text, fontSize: 14),
-                                decoration: InputDecoration(
-                                  hintText: 'Search people, skills, vibes, branches...',
-                                  hintStyle: GoogleFonts.outfit(color: U.sub, fontSize: 13),
-                                  border: InputBorder.none,
-                                  isDense: true,
+                      padding: const EdgeInsets.fromLTRB(20, 12, 16, 8),
+                      child: Row(
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'People',
+                                style: GoogleFonts.outfit(
+                                  color: U.text,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.5,
                                 ),
                               ),
-                            ),
-                            if (_searchController.text.isNotEmpty)
-                              IconButton(
-                                icon: Icon(Icons.close_rounded, color: U.sub, size: 16),
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() {});
-                                },
-                                visualDensity: VisualDensity.compact,
+                              const SizedBox(height: 1),
+                              Text(
+                                totalCount > 0 ? '$totalCount campus members' : 'Campus directory',
+                                style: GoogleFonts.outfit(
+                                  color: U.sub,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
-                          ],
-                        ),
-                      ).animate().fadeIn(duration: 180.ms).slideY(begin: -0.08, end: 0),
+                            ],
+                          ),
+                          const Spacer(),
+
+                          // Friends / Following navigation shortcut
+                          StreamBuilder<int>(
+                            stream: _followService.pendingRequestsCountStream(_currentUid),
+                            builder: (context, reqSnap) {
+                              final reqCount = reqSnap.data ?? 0;
+                              return IconButton(
+                                tooltip: 'Friends & Requests',
+                                padding: const EdgeInsets.all(8),
+                                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                                onPressed: () {
+                                  _searchFocusNode.unfocus();
+                                  Navigator.of(context).push(
+                                    buildForwardRoute(const FriendsScreen()),
+                                  );
+                                },
+                                icon: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(7),
+                                      decoration: BoxDecoration(
+                                        color: U.card,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(Icons.people_alt_outlined, color: U.text, size: 17),
+                                    ),
+                                    if (reqCount > 0)
+                                      Positioned(
+                                        right: -2,
+                                        top: -2,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(3.5),
+                                          decoration: BoxDecoration(
+                                            color: U.red,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(color: U.surface, width: 1.5),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+
+                          // View Switcher (Grid vs List)
+                          IconButton(
+                            tooltip: _viewMode == PeopleViewMode.grid ? 'List View' : 'Grid View',
+                            padding: const EdgeInsets.all(8),
+                            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                            onPressed: () {
+                              HapticFeedback.lightImpact();
+                              _searchFocusNode.unfocus();
+                              setState(() {
+                                _viewMode = _viewMode == PeopleViewMode.grid
+                                    ? PeopleViewMode.list
+                                    : PeopleViewMode.grid;
+                              });
+                            },
+                            icon: Container(
+                              padding: const EdgeInsets.all(7),
+                              decoration: BoxDecoration(
+                                color: U.card,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                _viewMode == PeopleViewMode.grid
+                                    ? Icons.view_agenda_outlined
+                                    : Icons.grid_view_rounded,
+                                color: U.text,
+                                size: 17,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
 
-                // ── Campus Pulse: Live Vibes Stories Tray ────────────────────
+                  // ── 2. Material 3 Plain Round Search Bar (No Strokes) ──────────
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: U.card,
+                                borderRadius: BorderRadius.circular(28),
+                                border: null,
+                                boxShadow: const [],
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.search_rounded,
+                                    color: U.sub,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _searchController,
+                                      focusNode: _searchFocusNode,
+                                      textInputAction: TextInputAction.search,
+                                      onSubmitted: (_) => _searchFocusNode.unfocus(),
+                                      cursorColor: U.primary,
+                                      style: GoogleFonts.outfit(
+                                        color: U.text,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w400,
+                                      ),
+                                      decoration: InputDecoration(
+                                        hintText: 'Search people, branch, vibe...',
+                                        hintStyle: GoogleFonts.outfit(
+                                          color: U.sub.withValues(alpha: 0.8),
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                        border: InputBorder.none,
+                                        enabledBorder: InputBorder.none,
+                                        focusedBorder: InputBorder.none,
+                                        errorBorder: InputBorder.none,
+                                        disabledBorder: InputBorder.none,
+                                        isDense: true,
+                                        filled: false,
+                                        contentPadding: EdgeInsets.zero,
+                                      ),
+                                    ),
+                                  ),
+                                  if (_searchController.text.isNotEmpty)
+                                    GestureDetector(
+                                      onTap: () {
+                                        HapticFeedback.lightImpact();
+                                        _searchController.clear();
+                                        setState(() {});
+                                      },
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(4),
+                                        child: Icon(
+                                          Icons.close_rounded,
+                                          color: U.sub,
+                                          size: 18,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          if (_isSearchFocused || _searchController.text.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            TextButton(
+                              onPressed: () {
+                                HapticFeedback.lightImpact();
+                                _searchFocusNode.unfocus();
+                                if (_searchController.text.isNotEmpty) {
+                                  _searchController.clear();
+                                }
+                                setState(() {});
+                              },
+                              style: TextButton.styleFrom(
+                                foregroundColor: U.primary,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: Text(
+                                'Cancel',
+                                style: GoogleFonts.outfit(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // ── 3. Campus Status Row (Clean & Lightweight) ─────────────────
                 SliverToBoxAdapter(
-                  child: _CampusPulseTray(
+                  child: _CampusStatusRow(
                     currentUid: _currentUid,
                     currentUserName: _currentUserName,
                     currentUserPhoto: _currentUserPhoto,
                     currentUserVibe: currentUserVibe,
                     activeVibes: activeVibesMap.values.toList(),
-                    onSetVibeTap: () => _openSetVibeSheet(currentUserVibe),
-                    onVibeTap: (vibe) {
+                    onSetStatusTap: () => _openSetStatusSheet(currentUserVibe),
+                    onStatusTap: (vibe) {
                       final targetUser = allUsers.firstWhere(
                         (u) => u['uid'] == vibe.uid,
-                        orElse: () => {'uid': vibe.uid, 'displayName': vibe.displayName, 'photoUrl': vibe.photoUrl, 'branch': vibe.branch},
+                        orElse: () => {
+                          'uid': vibe.uid,
+                          'displayName': vibe.displayName,
+                          'photoUrl': vibe.photoUrl,
+                          'branch': vibe.branch,
+                        },
                       );
                       _openQuickPeekSheet(targetUser, vibe);
                     },
                   ),
                 ),
 
-                // ── Academic Branch Prompt Banner ────────────────────────────
+                // ── 4. Academic Branch Prompt (if not set) ─────────────────────
                 if (!hasSelectedBranch && query.isEmpty)
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
                       child: Container(
                         decoration: BoxDecoration(
                           color: U.card,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: U.primary.withValues(alpha: 0.3),
-                            width: 0.9,
-                          ),
+                          borderRadius: BorderRadius.circular(14),
                         ),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         child: Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.all(8),
+                              padding: const EdgeInsets.all(7),
                               decoration: BoxDecoration(
                                 color: U.primary.withValues(alpha: 0.12),
                                 shape: BoxShape.circle,
                               ),
-                              child: Icon(Icons.school_outlined, color: U.primary, size: 18),
+                              child: Icon(Icons.school_outlined, color: U.primary, size: 17),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -627,16 +579,15 @@ class _PeopleScreenState extends State<PeopleScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Set Academic Branch',
+                                    'Set your branch',
                                     style: GoogleFonts.outfit(
                                       color: U.text,
-                                      fontSize: 13.5,
+                                      fontSize: 13,
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
-                                  const SizedBox(height: 1),
                                   Text(
-                                    'Connect with classmates & study partners',
+                                    'Find classmates and study partners in your major',
                                     style: GoogleFonts.outfit(
                                       color: U.sub,
                                       fontSize: 11.5,
@@ -651,11 +602,11 @@ class _PeopleScreenState extends State<PeopleScreen> {
                               style: TextButton.styleFrom(
                                 backgroundColor: U.primary.withValues(alpha: 0.12),
                                 foregroundColor: U.primary,
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                                 minimumSize: Size.zero,
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
                               ),
                               child: Text(
@@ -672,34 +623,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
                     ),
                   ),
 
-                // ── Daily Campus Spark: Interactive Poll ─────────────────────
-                if (!_sparkCardDismissed && query.isEmpty)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 6, 20, 8),
-                      child: _DailyCampusSparkCard(
-                        interactionService: _interactionService,
-                        isSuperUser: _isSuperUser,
-                        allUsers: allUsers,
-                        onDismiss: () => setState(() => _sparkCardDismissed = true),
-                        onAdminEdit: (spark) => _openAdminEditSparkSheet(spark),
-                        onPeerTap: (uid, name, photo) {
-                          final targetUser = allUsers.firstWhere(
-                            (u) => u['uid'] == uid,
-                            orElse: () => {'uid': uid, 'displayName': name, 'photoUrl': photo},
-                          );
-                          _openQuickPeekSheet(targetUser, activeVibesMap[uid]);
-                        },
-                      ),
-                    ),
-                  ),
-
-                // ── Refined Segmented Filter Pills ───────────────────────────
+                // ── 5. Ergonomic Filter Pills ──────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 10, 0, 10),
+                    padding: const EdgeInsets.fromLTRB(0, 6, 0, 10),
                     child: SizedBox(
-                      height: 36,
+                      height: 34,
                       child: ListView(
                         scrollDirection: Axis.horizontal,
                         physics: const BouncingScrollPhysics(),
@@ -708,40 +637,39 @@ class _PeopleScreenState extends State<PeopleScreen> {
                           _buildFilterPill(
                             id: 'All',
                             label: 'All',
-                            count: null,
+                            count: totalCount,
                           ),
                           const SizedBox(width: 8),
+                          if (hasSelectedBranch) ...[
+                            _buildFilterPill(
+                              id: 'My Branch',
+                              label: myBranch,
+                              icon: Icons.school_rounded,
+                              count: branchCounts[myBranch],
+                            ),
+                            const SizedBox(width: 8),
+                          ],
                           _buildFilterPill(
                             id: 'Active',
-                            label: 'Active Vibes',
+                            label: 'Active Status',
                             count: activeVibesMap.length,
-                            leadingEmoji: '🔥',
+                            leadingEmoji: '🟢',
                           ),
                           const SizedBox(width: 8),
-                          _buildFilterPill(
-                            id: 'Study',
-                            label: 'Study Buddies',
-                            count: null,
-                          ),
-                          const SizedBox(width: 8),
-                          // Branch selector pill
+                          // Branch selector dropdown pill
                           GestureDetector(
-                            onTap: _openBranchPickerModal,
+                            onTap: () => _openBranchPickerModal(branchCounts, totalCount),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 180),
                               alignment: Alignment.center,
-                              padding: const EdgeInsets.symmetric(horizontal: 14),
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
                               decoration: BoxDecoration(
-                                color: _selectedBranch != 'All'
+                                color: _selectedFilter != 'All' &&
+                                        _selectedFilter != 'Active' &&
+                                        _selectedFilter != 'My Branch'
                                     ? U.primary.withValues(alpha: 0.14)
                                     : U.card,
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                  color: _selectedBranch != 'All'
-                                      ? U.primary.withValues(alpha: 0.4)
-                                      : U.border,
-                                  width: 0.8,
-                                ),
+                                borderRadius: BorderRadius.circular(16),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -750,22 +678,64 @@ class _PeopleScreenState extends State<PeopleScreen> {
                                   Icon(
                                     Icons.tune_rounded,
                                     size: 13,
-                                    color: _selectedBranch != 'All' ? U.primary : U.sub,
+                                    color: _selectedFilter != 'All' &&
+                                            _selectedFilter != 'Active' &&
+                                            _selectedFilter != 'My Branch'
+                                        ? U.primary
+                                        : U.sub,
                                   ),
-                                  const SizedBox(width: 6),
+                                  const SizedBox(width: 5),
                                   Text(
-                                    _selectedBranch == 'All' ? 'Branches' : _selectedBranch,
+                                    _selectedBranch == 'All' ||
+                                            _selectedFilter == 'All' ||
+                                            _selectedFilter == 'Active' ||
+                                            _selectedFilter == 'My Branch'
+                                        ? 'Branches'
+                                        : _selectedBranch,
                                     style: GoogleFonts.outfit(
-                                      color: _selectedBranch != 'All' ? U.primary : U.sub,
-                                      fontSize: 12.5,
-                                      fontWeight: _selectedBranch != 'All' ? FontWeight.w700 : FontWeight.w500,
+                                      color: _selectedFilter != 'All' &&
+                                              _selectedFilter != 'Active' &&
+                                              _selectedFilter != 'My Branch'
+                                          ? U.primary
+                                          : U.sub,
+                                      fontSize: 12,
+                                      fontWeight: _selectedFilter != 'All' &&
+                                              _selectedFilter != 'Active' &&
+                                              _selectedFilter != 'My Branch'
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
                                     ),
                                   ),
-                                  const SizedBox(width: 4),
+                                  if (_selectedFilter != 'All' &&
+                                      _selectedFilter != 'Active' &&
+                                      _selectedFilter != 'My Branch' &&
+                                      (branchCounts[_selectedBranch] ?? 0) > 0) ...[
+                                    const SizedBox(width: 5),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: U.primary.withValues(alpha: 0.2),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        '${branchCounts[_selectedBranch]}',
+                                        style: GoogleFonts.outfit(
+                                          color: U.primary,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(width: 3),
                                   Icon(
                                     Icons.keyboard_arrow_down_rounded,
                                     size: 15,
-                                    color: _selectedBranch != 'All' ? U.primary : U.sub,
+                                    color: _selectedFilter != 'All' &&
+                                            _selectedFilter != 'Active' &&
+                                            _selectedFilter != 'My Branch'
+                                        ? U.primary
+                                        : U.sub,
                                   ),
                                 ],
                               ),
@@ -777,67 +747,15 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   ),
                 ),
 
-                // ── Result Context Subheader ─────────────────────────────────
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 6, 20, 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            _selectedFilter == 'All' && query.isEmpty
-                                ? 'CAMPUS DIRECTORY (${filteredUsers.length})'
-                                : 'PEERS (${filteredUsers.length} OF $totalCount)',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.outfit(
-                              color: U.sub,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.8,
-                            ),
-                          ),
-                        ),
-                        if (activeVibesMap.isNotEmpty) ...[
-                          const SizedBox(width: 8),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 6,
-                                height: 6,
-                                decoration: BoxDecoration(
-                                  color: U.primary,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                '${activeVibesMap.length} active now',
-                                style: GoogleFonts.outfit(
-                                  color: U.primary,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-
-                // ── Main Content: Grid vs List View ──────────────────────────
+                // ── 6. Main List or Grid Content ───────────────────────────────
                 if (userSnap.connectionState == ConnectionState.waiting)
-                  const SliverToBoxAdapter(child: _MinimalPeopleSkeleton())
+                  const SliverToBoxAdapter(child: _PeopleSkeleton())
                 else if (userSnap.hasError)
                   SliverFillRemaining(
                     hasScrollBody: false,
                     child: _EmptyState(
                       icon: Icons.error_outline_rounded,
-                      title: 'Could not load campus members',
+                      title: 'Could not load directory',
                       subtitle: 'Please check your connection and try again.',
                     ),
                   )
@@ -846,21 +764,21 @@ class _PeopleScreenState extends State<PeopleScreen> {
                     hasScrollBody: false,
                     child: _EmptyState(
                       icon: Icons.person_search_rounded,
-                      title: 'No matching peers found',
+                      title: 'No members found',
                       subtitle: query.isNotEmpty
-                          ? 'Try searching with another skill, name, or vibe.'
-                          : 'Try switching your filter or be the first to broadcast a vibe!',
+                          ? 'Try searching with another name, branch, or skill.'
+                          : 'Try changing your branch filter or be the first to set a status!',
                     ),
                   )
                 else if (_viewMode == PeopleViewMode.grid)
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 140),
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
                     sliver: SliverGrid(
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 2,
-                        childAspectRatio: 0.80,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
+                        childAspectRatio: 0.85,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
                       ),
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
@@ -875,6 +793,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
                             user: user,
                             vibe: vibe,
                             currentUid: _currentUid,
+                            interactionService: _interactionService,
+                            followService: _followService,
                             onTap: () {
                               Navigator.of(context).push(
                                 buildForwardRoute(
@@ -888,7 +808,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
                               );
                             },
                             onLongPress: () => _openQuickPeekSheet(user, vibe),
-                            onWave: () => _interactionService.sendWave(uid),
                           );
                         },
                         childCount: filteredUsers.length,
@@ -897,7 +816,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   )
                 else
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(0, 4, 0, 140),
+                    padding: const EdgeInsets.fromLTRB(0, 4, 0, 120),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
@@ -912,6 +831,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
                             user: user,
                             vibe: vibe,
                             currentUid: _currentUid,
+                            interactionService: _interactionService,
+                            followService: _followService,
                             onTap: () {
                               Navigator.of(context).push(
                                 buildForwardRoute(
@@ -925,7 +846,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
                               );
                             },
                             onLongPress: () => _openQuickPeekSheet(user, vibe),
-                            onWave: () => _interactionService.sendWave(uid),
                           );
                         },
                         childCount: filteredUsers.length,
@@ -933,23 +853,26 @@ class _PeopleScreenState extends State<PeopleScreen> {
                     ),
                   ),
               ],
-            );
-          },
-        ),
+            ),
+          );
+        },
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildFilterPill({
     required String id,
     required String label,
-    required int? count,
+    int? count,
     String? leadingEmoji,
+    IconData? icon,
   }) {
     final isSelected = _selectedFilter == id;
     return GestureDetector(
       onTap: () {
         HapticFeedback.selectionClick();
+        _searchFocusNode.unfocus();
         setState(() {
           _selectedFilter = id;
           if (id == 'All') _selectedBranch = 'All';
@@ -958,58 +881,52 @@ class _PeopleScreenState extends State<PeopleScreen> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: isSelected ? U.primary : U.card,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: isSelected ? Colors.transparent : U.border,
-            width: 0.8,
-          ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: U.primary.withValues(alpha: 0.22),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : null,
+          borderRadius: BorderRadius.circular(16),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            if (leadingEmoji != null) ...[
+            if (icon != null) ...[
+              Icon(
+                icon,
+                size: 13,
+                color: isSelected ? U.getContrastColor(U.primary) : U.sub,
+              ),
+              const SizedBox(width: 4),
+            ] else if (leadingEmoji != null) ...[
               Text(
                 leadingEmoji,
-                style: const TextStyle(fontSize: 12),
+                style: const TextStyle(fontSize: 11),
               ),
-              const SizedBox(width: 5),
+              const SizedBox(width: 4),
             ],
             Text(
               label,
               style: GoogleFonts.outfit(
                 color: isSelected ? U.getContrastColor(U.primary) : U.sub,
-                fontSize: 12.5,
+                fontSize: 12,
                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
               ),
             ),
             if (count != null && count > 0) ...[
-              const SizedBox(width: 6),
+              const SizedBox(width: 5),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? U.getContrastColor(U.primary).withValues(alpha: 0.2)
+                      ? U.getContrastColor(U.primary).withValues(alpha: 0.22)
                       : U.primary.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   '$count',
                   style: GoogleFonts.outfit(
                     color: isSelected ? U.getContrastColor(U.primary) : U.primary,
-                    fontSize: 10.5,
+                    fontSize: 10,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -1022,18 +939,18 @@ class _PeopleScreenState extends State<PeopleScreen> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CAMPUS PULSE: Refined Live Vibes Tray
-// ─────────────────────────────────────────────────────────────────────────────
-class _CampusPulseTray extends StatelessWidget {
-  const _CampusPulseTray({
+// ────────────────────────────────────────────────────────────────────────────
+// CAMPUS STATUS ROW (Clean, Lightweight & Ergonomic)
+// ────────────────────────────────────────────────────────────────────────────
+class _CampusStatusRow extends StatelessWidget {
+  const _CampusStatusRow({
     required this.currentUid,
     required this.currentUserName,
     required this.currentUserPhoto,
     required this.currentUserVibe,
     required this.activeVibes,
-    required this.onSetVibeTap,
-    required this.onVibeTap,
+    required this.onSetStatusTap,
+    required this.onStatusTap,
   });
 
   final String currentUid;
@@ -1041,8 +958,8 @@ class _CampusPulseTray extends StatelessWidget {
   final String? currentUserPhoto;
   final CampusVibe? currentUserVibe;
   final List<CampusVibe> activeVibes;
-  final VoidCallback onSetVibeTap;
-  final ValueChanged<CampusVibe> onVibeTap;
+  final VoidCallback onSetStatusTap;
+  final ValueChanged<CampusVibe> onStatusTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1050,74 +967,156 @@ class _CampusPulseTray extends StatelessWidget {
 
     return Container(
       height: 94,
-      margin: const EdgeInsets.only(top: 2, bottom: 4),
+      margin: const EdgeInsets.only(bottom: 4),
       child: ListView(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 16),
         children: [
-          // Current User Vibe Button
+          // Current User Status Bubble
           GestureDetector(
-            onTap: onSetVibeTap,
+            onTap: onSetStatusTap,
             child: Container(
-              width: 68,
+              width: 70,
               margin: const EdgeInsets.symmetric(horizontal: 4),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Stack(
+                    clipBehavior: Clip.none,
                     children: [
-                      Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: currentUserVibe != null ? U.primary : U.border,
-                            width: currentUserVibe != null ? 1.8 : 1.0,
-                          ),
-                        ),
-                        padding: const EdgeInsets.all(2.5),
-                        child: CircleAvatar(
-                          backgroundColor: U.card,
-                          backgroundImage: currentUserPhoto != null && currentUserPhoto!.isNotEmpty
-                              ? CachedNetworkImageProvider(currentUserPhoto!)
-                              : null,
-                          child: currentUserPhoto == null || currentUserPhoto!.isEmpty
-                              ? Text(
-                                  currentUserName.isEmpty ? 'U' : currentUserName[0].toUpperCase(),
-                                  style: GoogleFonts.outfit(
-                                    color: U.primary,
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                )
-                              : null,
-                        ),
-                      ),
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(3),
+                      if (currentUserVibe != null &&
+                          currentUserVibe!.mediaUrl != null &&
+                          currentUserVibe!.mediaUrl!.isNotEmpty) ...[
+                        // Squared status media container
+                        Container(
+                          width: 54,
+                          height: 54,
                           decoration: BoxDecoration(
-                            color: currentUserVibe != null ? U.surface : U.primary,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: U.surface, width: 1.5),
+                            color: U.card,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: U.primary,
+                              width: 1.8,
+                            ),
                           ),
-                          child: currentUserVibe != null
-                              ? Text(
-                                  currentUserVibe!.emoji,
-                                  style: const TextStyle(fontSize: 10),
-                                )
-                              : Icon(Icons.add_rounded, size: 10, color: U.getContrastColor(U.primary)),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: CachedNetworkImage(
+                              imageUrl: currentUserVibe!.mediaUrl!,
+                              fit: BoxFit.cover,
+                              placeholder: (context, url) => Container(
+                                color: U.surface,
+                                alignment: Alignment.center,
+                                child: SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 1.8,
+                                    valueColor: AlwaysStoppedAnimation<Color>(U.primary),
+                                  ),
+                                ),
+                              ),
+                              errorWidget: (context, url, error) => Icon(Icons.broken_image_rounded, size: 18, color: U.sub),
+                            ),
+                          ),
                         ),
-                      ),
+                        // Reduced-size profile icon overlay
+                        Positioned(
+                          right: -2,
+                          bottom: -2,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: U.surface, width: 1.5),
+                            ),
+                            child: CircleAvatar(
+                              radius: 9,
+                              backgroundColor: U.card,
+                              backgroundImage: currentUserPhoto != null && currentUserPhoto!.isNotEmpty
+                                  ? CachedNetworkImageProvider(currentUserPhoto!)
+                                  : null,
+                              child: currentUserPhoto == null || currentUserPhoto!.isEmpty
+                                  ? Text(
+                                      currentUserName.isEmpty ? 'U' : currentUserName[0].toUpperCase(),
+                                      style: GoogleFonts.outfit(
+                                        color: U.primary,
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          top: -6,
+                          right: -8,
+                          child: ThoughtCloudBadge(
+                            vibe: currentUserVibe,
+                            avatarRadius: 27,
+                            compact: true,
+                          ),
+                        ),
+                      ] else ...[
+                        Container(
+                          width: 54,
+                          height: 54,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: currentUserVibe != null ? U.primary : U.border,
+                              width: currentUserVibe != null ? 1.8 : 0.9,
+                            ),
+                          ),
+                          padding: const EdgeInsets.all(2.5),
+                          child: CircleAvatar(
+                            backgroundColor: U.card,
+                            backgroundImage: currentUserPhoto != null && currentUserPhoto!.isNotEmpty
+                                ? CachedNetworkImageProvider(currentUserPhoto!)
+                                : null,
+                            child: currentUserPhoto == null || currentUserPhoto!.isEmpty
+                                ? Text(
+                                    currentUserName.isEmpty ? 'U' : currentUserName[0].toUpperCase(),
+                                    style: GoogleFonts.outfit(
+                                      color: U.primary,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                        ),
+                        if (currentUserVibe != null)
+                          Positioned(
+                            top: -6,
+                            right: -8,
+                            child: ThoughtCloudBadge(
+                              vibe: currentUserVibe,
+                              avatarRadius: 27,
+                              compact: true,
+                            ),
+                          )
+                        else
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(2.5),
+                              decoration: BoxDecoration(
+                                color: U.primary,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: U.surface, width: 1.2),
+                              ),
+                              child: Icon(Icons.add_rounded, size: 10, color: U.getContrastColor(U.primary)),
+                            ),
+                          ),
+                      ],
                     ],
                   ),
-                  const SizedBox(height: 5),
+                  const SizedBox(height: 4),
                   Text(
-                    currentUserVibe != null ? 'My Vibe' : 'Set Vibe',
+                    currentUserVibe != null ? 'Your Status' : 'Set Status',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
@@ -1132,42 +1131,111 @@ class _CampusPulseTray extends StatelessWidget {
             ),
           ),
 
-          // Subtle divider
+          // Subtle divider if others have active status
           if (otherVibes.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
               child: VerticalDivider(width: 1, color: U.border.withValues(alpha: 0.5)),
             ),
 
-          // Other active vibes
+          // Other active peers
           ...otherVibes.map((vibe) {
+            final hasVibeMedia = vibe.mediaUrl != null && vibe.mediaUrl!.isNotEmpty;
+
             return GestureDetector(
-              onTap: () => onVibeTap(vibe),
+              onTap: () => onStatusTap(vibe),
               child: Container(
-                width: 68,
+                width: 70,
                 margin: const EdgeInsets.symmetric(horizontal: 4),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Stack(
+                      clipBehavior: Clip.none,
                       children: [
-                        Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: U.primary,
-                              width: 1.8,
+                        if (hasVibeMedia) ...[
+                          // Squared status media container
+                          Container(
+                            width: 54,
+                            height: 54,
+                            decoration: BoxDecoration(
+                              color: U.card,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: U.primary,
+                                width: 1.8,
+                              ),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: CachedNetworkImage(
+                                imageUrl: vibe.mediaUrl!,
+                                fit: BoxFit.cover,
+                                placeholder: (context, url) => Container(
+                                  color: U.surface,
+                                  alignment: Alignment.center,
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 1.8,
+                                      valueColor: AlwaysStoppedAnimation<Color>(U.primary),
+                                    ),
+                                  ),
+                                ),
+                                errorWidget: (context, url, error) => Icon(Icons.broken_image_rounded, size: 18, color: U.sub),
+                              ),
                             ),
                           ),
-                          padding: const EdgeInsets.all(2.2),
-                          child: Container(
+                          // Reduced-size profile icon overlay
+                          Positioned(
+                            right: -2,
+                            bottom: -2,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(color: U.surface, width: 1.5),
+                              ),
+                              child: CircleAvatar(
+                                radius: 9,
+                                backgroundColor: U.primary.withValues(alpha: 0.12),
+                                backgroundImage: vibe.photoUrl != null && vibe.photoUrl!.isNotEmpty
+                                    ? CachedNetworkImageProvider(vibe.photoUrl!)
+                                    : null,
+                                child: vibe.photoUrl == null || vibe.photoUrl!.isEmpty
+                                    ? Text(
+                                        vibe.displayName.isEmpty ? 'U' : vibe.displayName[0].toUpperCase(),
+                                        style: GoogleFonts.outfit(
+                                          color: U.primary,
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: -6,
+                            right: -8,
+                            child: ThoughtCloudBadge(
+                              vibe: vibe,
+                              avatarRadius: 27,
+                              compact: true,
+                            ),
+                          ),
+                        ] else ...[
+                          Container(
+                            width: 54,
+                            height: 54,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: U.surface,
+                              border: Border.all(
+                                color: U.primary,
+                                width: 1.6,
+                              ),
                             ),
-                            padding: const EdgeInsets.all(1.2),
+                            padding: const EdgeInsets.all(2.5),
                             child: CircleAvatar(
                               backgroundColor: U.primary.withValues(alpha: 0.12),
                               backgroundImage: vibe.photoUrl != null && vibe.photoUrl!.isNotEmpty
@@ -1178,33 +1246,26 @@ class _CampusPulseTray extends StatelessWidget {
                                       vibe.displayName.isEmpty ? 'U' : vibe.displayName[0].toUpperCase(),
                                       style: GoogleFonts.outfit(
                                         color: U.primary,
-                                        fontSize: 16,
+                                        fontSize: 17,
                                         fontWeight: FontWeight.w700,
                                       ),
                                     )
                                   : null,
                             ),
                           ),
-                        ),
-                        Positioned(
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(2.5),
-                            decoration: BoxDecoration(
-                              color: U.surface,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: U.surface, width: 1.5),
-                            ),
-                            child: Text(
-                              vibe.emoji,
-                              style: const TextStyle(fontSize: 10),
+                          Positioned(
+                            top: -6,
+                            right: -8,
+                            child: ThoughtCloudBadge(
+                              vibe: vibe,
+                              avatarRadius: 27,
+                              compact: true,
                             ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
-                    const SizedBox(height: 5),
+                    const SizedBox(height: 4),
                     Text(
                       vibe.displayName.split(' ')[0],
                       maxLines: 1,
@@ -1227,722 +1288,47 @@ class _CampusPulseTray extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DAILY CAMPUS SPARK: Refined Interactive Poll
-// ─────────────────────────────────────────────────────────────────────────────
-class _DailyCampusSparkCard extends StatefulWidget {
-  const _DailyCampusSparkCard({
-    required this.interactionService,
-    required this.isSuperUser,
-    required this.allUsers,
-    required this.onDismiss,
-    required this.onAdminEdit,
-    required this.onPeerTap,
-  });
-
-  final PeopleInteractionService interactionService;
-  final bool isSuperUser;
-  final List<Map<String, dynamic>> allUsers;
-  final VoidCallback onDismiss;
-  final ValueChanged<SparkQuestion> onAdminEdit;
-  final void Function(String uid, String name, String? photo) onPeerTap;
-
-  @override
-  State<_DailyCampusSparkCard> createState() => _DailyCampusSparkCardState();
-}
-
-class _DailyCampusSparkCardState extends State<_DailyCampusSparkCard> {
-  int? _localVote;
-  String? _loadedQuestionId;
-
-  void _loadVoteIfNew(String questionId) {
-    if (_loadedQuestionId != questionId) {
-      _loadedQuestionId = questionId;
-      widget.interactionService.getLocalSparkVote(questionId).then((vote) {
-        if (mounted && vote != null && _localVote == null) {
-          setState(() => _localVote = vote);
-        }
-      });
-    }
-  }
-
-  Future<void> _vote(String questionId, int optionIndex) async {
-    HapticFeedback.selectionClick();
-    setState(() => _localVote = optionIndex);
-    await widget.interactionService.voteSpark(questionId, optionIndex);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<SparkQuestion>(
-      stream: widget.interactionService.getActiveSparkStream(),
-      builder: (context, sparkSnap) {
-        final question = sparkSnap.data ?? widget.interactionService.getTodaysSparkFallback();
-        if (!question.enabled) return const SizedBox.shrink();
-
-        _loadVoteIfNew(question.id);
-
-        final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-
-        final Map<int, List<Map<String, dynamic>>> votesMap = {};
-        for (int i = 0; i < question.options.length; i++) {
-          votesMap[i] = [];
-        }
-
-        int? detectedVote = _localVote;
-
-        for (final u in widget.allUsers) {
-          final sv = u['sparkVote'];
-          if (sv != null) {
-            Map<String, dynamic> svMap = {};
-            if (sv is Map) {
-              svMap = sv.map((k, v) => MapEntry(k.toString(), v));
-            }
-            final svQId = svMap['questionId']?.toString().trim();
-            final opt = (svMap['optionIndex'] as num?)?.toInt();
-            if (opt != null && opt >= 0 && opt < question.options.length) {
-              final uid = (u['uid'] ?? '').toString();
-              if (svQId == question.id || svQId == 'todays_spark' || svQId == null || svQId.isEmpty) {
-                votesMap[opt]!.add({
-                  'uid': uid,
-                  'displayName': (u['displayName'] ?? 'Student').toString(),
-                  'photoUrl': (u['photoUrl'] ?? u['photoURL'])?.toString(),
-                  'optionIndex': opt,
-                });
-                if (uid == currentUid && currentUid.isNotEmpty) {
-                  detectedVote = opt;
-                }
-              }
-            }
-          }
-        }
-
-        final userAlreadyInVotes = votesMap.values.any((list) => list.any((v) => v['uid'] == currentUid));
-        if (!userAlreadyInVotes && detectedVote != null && currentUid.isNotEmpty) {
-          votesMap[detectedVote]!.add({
-            'uid': currentUid,
-            'displayName': FirebaseAuth.instance.currentUser?.displayName ?? 'You',
-            'photoUrl': FirebaseAuth.instance.currentUser?.photoURL,
-            'optionIndex': detectedVote,
-          });
-        }
-
-        int totalVotes = 0;
-        for (final list in votesMap.values) {
-          totalVotes += list.length;
-        }
-
-        final hasVoted = detectedVote != null;
-
-        return Container(
-          decoration: BoxDecoration(
-            color: U.card,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: U.border, width: 0.8),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.02),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                    decoration: BoxDecoration(
-                      color: U.primary.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      question.category.toUpperCase(),
-                      style: GoogleFonts.outfit(
-                        color: U.primary,
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.4,
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-
-                  if (widget.isSuperUser) ...[
-                    GestureDetector(
-                      onTap: () => widget.onAdminEdit(question),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
-                        decoration: BoxDecoration(
-                          color: U.surface,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: U.border, width: 0.7),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.edit_rounded, size: 10.5, color: U.sub),
-                            const SizedBox(width: 3),
-                            Text(
-                              'Admin',
-                              style: GoogleFonts.outfit(
-                                color: U.sub,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-
-                  if (totalVotes > 0) ...[
-                    Text(
-                      '$totalVotes voted',
-                      style: GoogleFonts.outfit(color: U.sub, fontSize: 11, fontWeight: FontWeight.w500),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-
-                  GestureDetector(
-                    onTap: widget.onDismiss,
-                    child: Icon(Icons.close_rounded, size: 16, color: U.sub),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                question.question,
-                style: GoogleFonts.outfit(
-                  color: U.text,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  height: 1.3,
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Options
-              ...List.generate(question.options.length, (idx) {
-                final optionText = question.options[idx];
-                final optionVotes = votesMap[idx]?.length ?? 0;
-                final pct = totalVotes > 0 ? (optionVotes / totalVotes) : 0.0;
-                final isMyPick = detectedVote == idx;
-
-                return GestureDetector(
-                  onTap: () => _vote(question.id, idx),
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 7),
-                    decoration: BoxDecoration(
-                      color: isMyPick ? U.primary.withValues(alpha: 0.08) : U.surface,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isMyPick ? U.primary.withValues(alpha: 0.4) : U.border,
-                        width: isMyPick ? 1.2 : 0.7,
-                      ),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Stack(
-                      children: [
-                        if (hasVoted)
-                          Positioned.fill(
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: FractionallySizedBox(
-                                alignment: Alignment.centerLeft,
-                                widthFactor: pct.clamp(0.0, 1.0),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: isMyPick
-                                        ? U.primary.withValues(alpha: 0.14)
-                                        : U.border.withValues(alpha: 0.25),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  optionText,
-                                  style: GoogleFonts.outfit(
-                                    color: isMyPick ? U.primary : U.text,
-                                    fontSize: 12.5,
-                                    fontWeight: isMyPick ? FontWeight.w700 : FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                              if (hasVoted) ...[
-                                const SizedBox(width: 8),
-                                Text(
-                                  '${(pct * 100).round()}%',
-                                  style: GoogleFonts.outfit(
-                                    color: isMyPick ? U.primary : U.sub,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
-
-              // Matching Peers Reveal
-              if (hasVoted && (votesMap[detectedVote]?.isNotEmpty ?? false)) ...[
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Text(
-                      'Agreed with you:',
-                      style: GoogleFonts.outfit(color: U.sub, fontSize: 11, fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: SizedBox(
-                        height: 24,
-                        child: ListView(
-                          scrollDirection: Axis.horizontal,
-                          children: (votesMap[detectedVote] ?? [])
-                              .where((v) => v['uid'] != currentUid)
-                              .take(8)
-                              .map((vote) {
-                            final name = (vote['displayName'] ?? 'Student').toString();
-                            final photo = vote['photoUrl']?.toString();
-                            final uid = vote['uid'].toString();
-
-                            return GestureDetector(
-                              onTap: () => widget.onPeerTap(uid, name, photo),
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 5),
-                                child: Tooltip(
-                                  message: name,
-                                  child: CircleAvatar(
-                                    radius: 11,
-                                    backgroundColor: U.primary.withValues(alpha: 0.15),
-                                    backgroundImage: photo != null && photo.isNotEmpty
-                                        ? CachedNetworkImageProvider(photo)
-                                        : null,
-                                    child: photo == null || photo.isEmpty
-                                        ? Text(
-                                            name.isEmpty ? 'U' : name[0].toUpperCase(),
-                                            style: GoogleFonts.outfit(color: U.primary, fontSize: 8.5, fontWeight: FontWeight.w700),
-                                          )
-                                        : null,
-                                  ),
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SUPERUSER: ADMIN EDIT SPARK MODAL SHEET
-// ─────────────────────────────────────────────────────────────────────────────
-class _AdminEditSparkSheet extends StatefulWidget {
-  const _AdminEditSparkSheet({
-    required this.initialSpark,
-    required this.interactionService,
-  });
-
-  final SparkQuestion initialSpark;
-  final PeopleInteractionService interactionService;
-
-  @override
-  State<_AdminEditSparkSheet> createState() => _AdminEditSparkSheetState();
-}
-
-class _AdminEditSparkSheetState extends State<_AdminEditSparkSheet> {
-  late final TextEditingController _questionController;
-  late final TextEditingController _categoryController;
-  late final List<TextEditingController> _optionControllers;
-  bool _enabled = true;
-  bool _createNewPoll = true;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _questionController = TextEditingController(text: widget.initialSpark.question);
-    _categoryController = TextEditingController(text: widget.initialSpark.category);
-    _enabled = widget.initialSpark.enabled;
-    _optionControllers = widget.initialSpark.options
-        .map((opt) => TextEditingController(text: opt))
-        .toList();
-    if (_optionControllers.length < 2) {
-      _optionControllers.add(TextEditingController(text: 'Option 1'));
-      _optionControllers.add(TextEditingController(text: 'Option 2'));
-    }
-  }
-
-  @override
-  void dispose() {
-    _questionController.dispose();
-    _categoryController.dispose();
-    for (final c in _optionControllers) {
-      c.dispose();
-    }
-    super.dispose();
-  }
-
-  void _addOption() {
-    if (_optionControllers.length >= 4) return;
-    setState(() {
-      _optionControllers.add(TextEditingController(text: 'Option ${_optionControllers.length + 1}'));
-    });
-  }
-
-  void _removeOption(int index) {
-    if (_optionControllers.length <= 2) return;
-    setState(() {
-      final removed = _optionControllers.removeAt(index);
-      removed.dispose();
-    });
-  }
-
-  void _applyTemplate(SparkQuestion template) {
-    setState(() {
-      _questionController.text = template.question;
-      _categoryController.text = template.category;
-      for (final c in _optionControllers) {
-        c.dispose();
-      }
-      _optionControllers.clear();
-      _optionControllers.addAll(
-        template.options.map((opt) => TextEditingController(text: opt)),
-      );
-    });
-  }
-
-  Future<void> _save() async {
-    final question = _questionController.text.trim();
-    final category = _categoryController.text.trim();
-    final options = _optionControllers.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
-
-    if (question.isEmpty || options.length < 2) {
-      showUtopiaSnackBar(context, message: 'Please enter question and at least 2 options', tone: UtopiaSnackBarTone.error);
-      return;
-    }
-
-    setState(() => _saving = true);
-    try {
-      await widget.interactionService.updateSparkConfig(
-        question: question,
-        options: options,
-        category: category.isNotEmpty ? category : 'Campus Spark',
-        enabled: _enabled,
-        createNewPoll: _createNewPoll,
-      );
-
-      if (mounted) {
-        Navigator.pop(context);
-        showUtopiaSnackBar(context, message: 'Campus Spark broadcasted successfully', tone: UtopiaSnackBarTone.success);
-      }
-    } catch (e) {
-      if (mounted) {
-        showUtopiaSnackBar(context, message: 'Failed to update: $e', tone: UtopiaSnackBarTone.error);
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: U.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        border: Border.all(color: U.border, width: 0.8),
-      ),
-      padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(context).viewInsets.bottom + 24),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: U.border,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Text(
-                  'Manage Campus Spark',
-                  style: GoogleFonts.outfit(
-                    color: U.text,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const Spacer(),
-                Switch.adaptive(
-                  value: _enabled,
-                  activeTrackColor: U.primary,
-                  onChanged: (v) => setState(() => _enabled = v),
-                ),
-              ],
-            ),
-            Text(
-              'Publish custom questions & polls for the campus network.',
-              style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
-            ),
-            const SizedBox(height: 14),
-
-            // Templates shortcut
-            Text(
-              'QUICK TEMPLATES',
-              style: GoogleFonts.outfit(color: U.sub, fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.8),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 32,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                children: PeopleInteractionService.sparkPool.map((tpl) {
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: GestureDetector(
-                      onTap: () => _applyTemplate(tpl),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: U.card,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: U.border),
-                        ),
-                        child: Text(
-                          tpl.question,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.outfit(color: U.text, fontSize: 11, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Category Input
-            Text('CATEGORY', style: GoogleFonts.outfit(color: U.sub, fontSize: 11, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: U.card,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: U.border),
-              ),
-              child: TextField(
-                controller: _categoryController,
-                style: GoogleFonts.outfit(color: U.text, fontSize: 13),
-                decoration: InputDecoration(
-                  hintText: 'e.g. Study Habit, Campus Vibe, Food',
-                  hintStyle: GoogleFonts.outfit(color: U.sub, fontSize: 13),
-                  border: InputBorder.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            // Question Input
-            Text('QUESTION', style: GoogleFonts.outfit(color: U.sub, fontSize: 11, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: U.card,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: U.border),
-              ),
-              child: TextField(
-                controller: _questionController,
-                maxLines: 2,
-                style: GoogleFonts.outfit(color: U.text, fontSize: 13),
-                decoration: InputDecoration(
-                  hintText: 'e.g. Your peak productivity hours?',
-                  hintStyle: GoogleFonts.outfit(color: U.sub, fontSize: 13),
-                  border: InputBorder.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            // Options list
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('OPTIONS', style: GoogleFonts.outfit(color: U.sub, fontSize: 11, fontWeight: FontWeight.w700)),
-                if (_optionControllers.length < 4)
-                  GestureDetector(
-                    onTap: _addOption,
-                    child: Text('+ Add Option', style: GoogleFonts.outfit(color: U.primary, fontSize: 12, fontWeight: FontWeight.w700)),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            ...List.generate(_optionControllers.length, (idx) {
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: U.card,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: U.border),
-                ),
-                child: Row(
-                  children: [
-                    Text('${idx + 1}.', style: GoogleFonts.outfit(color: U.sub, fontWeight: FontWeight.w700, fontSize: 12)),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _optionControllers[idx],
-                        style: GoogleFonts.outfit(color: U.text, fontSize: 13),
-                        decoration: InputDecoration(
-                          hintText: 'Option text...',
-                          hintStyle: GoogleFonts.outfit(color: U.sub, fontSize: 13),
-                          border: InputBorder.none,
-                        ),
-                      ),
-                    ),
-                    if (_optionControllers.length > 2)
-                      GestureDetector(
-                        onTap: () => _removeOption(idx),
-                        child: Icon(Icons.remove_circle_outline_rounded, color: U.red, size: 18),
-                      ),
-                  ],
-                ),
-              );
-            }),
-            const SizedBox(height: 8),
-
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              value: _createNewPoll,
-              title: Text(
-                'Reset votes (fresh poll)',
-                style: GoogleFonts.outfit(color: U.text, fontSize: 12.5, fontWeight: FontWeight.w600),
-              ),
-              activeColor: U.primary,
-              onChanged: (v) => setState(() => _createNewPoll = v ?? true),
-            ),
-            const SizedBox(height: 16),
-
-            SizedBox(
-              width: double.infinity,
-              height: 46,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: U.primary,
-                  foregroundColor: U.getContrastColor(U.primary),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  elevation: 0,
-                ),
-                onPressed: _saving ? null : _save,
-                child: _saving
-                    ? const UtopiaLoader(scale: 0.3)
-                    : Text(
-                        'Broadcast to Campus',
-                        style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w700),
-                      ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PEER GRID CARD (Refined Utopia Aesthetic)
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// PEER GRID CARD (Ergonomic & Modern)
+// ────────────────────────────────────────────────────────────────────────────
 class _PeerGridCard extends StatefulWidget {
   const _PeerGridCard({
     required this.user,
     required this.vibe,
     required this.currentUid,
+    required this.interactionService,
+    required this.followService,
     required this.onTap,
     required this.onLongPress,
-    required this.onWave,
   });
 
   final Map<String, dynamic> user;
   final CampusVibe? vibe;
   final String currentUid;
+  final PeopleInteractionService interactionService;
+  final FollowService followService;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
-  final VoidCallback onWave;
 
   @override
   State<_PeerGridCard> createState() => _PeerGridCardState();
 }
 
 class _PeerGridCardState extends State<_PeerGridCard> {
-  final FollowService _followService = FollowService();
-  final PeopleInteractionService _interactionService = PeopleInteractionService();
-
-  bool _loading = false;
   bool _hasWaved = false;
 
   @override
   void initState() {
     super.initState();
-    _interactionService.hasWavedRecently(widget.user['uid'].toString()).then((waved) {
+    widget.interactionService.hasWavedRecently(widget.user['uid'].toString()).then((waved) {
       if (mounted) setState(() => _hasWaved = waved);
     });
-  }
-
-  Future<void> _toggleFollow(FollowStatus status) async {
-    if (_loading) return;
-    setState(() => _loading = true);
-    try {
-      await _followService.toggleFollow(widget.user['uid'].toString());
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
   }
 
   Future<void> _handleWave() async {
     if (_hasWaved) return;
     setState(() => _hasWaved = true);
-    widget.onWave();
+    await widget.interactionService.sendWave(widget.user['uid'].toString());
   }
 
   @override
@@ -1951,12 +1337,11 @@ class _PeerGridCardState extends State<_PeerGridCard> {
     final displayName = UtopiaApp.sanitizeDisplayName(
       (widget.user['displayName'] ?? 'Student').toString(),
     );
+    final firstName = displayName.split(' ').first;
     final photoUrl = widget.user['photoUrl']?.toString();
     final branch = (widget.user['branch'] ?? '').toString().trim();
-    final bio = (widget.user['bio'] ?? '').toString().trim();
     final isSuperuser = widget.user['role'] == 'superuser';
     final instagramId = (widget.user['instagramId'] ?? '').toString().trim();
-    final wavesCount = (widget.user['wavesReceivedCount'] as num?)?.toInt() ?? 0;
     final isMe = uid == widget.currentUid;
 
     return GestureDetector(
@@ -1965,222 +1350,211 @@ class _PeerGridCardState extends State<_PeerGridCard> {
       child: Container(
         decoration: BoxDecoration(
           color: U.card,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: widget.vibe != null ? U.primary.withValues(alpha: 0.35) : U.border,
-            width: widget.vibe != null ? 1.0 : 0.8,
+            color: widget.vibe != null ? U.primary.withValues(alpha: 0.4) : U.border,
+            width: widget.vibe != null ? 1.2 : 0.8,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.025),
-              blurRadius: 6,
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 8,
               offset: const Offset(0, 2),
             ),
           ],
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Avatar
+            // Avatar / Status container
             Stack(
               clipBehavior: Clip.none,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: widget.vibe != null ? U.primary : Colors.transparent,
-                      width: widget.vibe != null ? 1.6 : 0,
+                if (widget.vibe != null &&
+                    widget.vibe!.mediaUrl != null &&
+                    widget.vibe!.mediaUrl!.isNotEmpty) ...[
+                  // Squared status media container
+                  Container(
+                    width: 68,
+                    height: 68,
+                    decoration: BoxDecoration(
+                      color: U.card,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: U.primary,
+                        width: 2.0,
+                      ),
                     ),
-                  ),
-                  child: CircleAvatar(
-                    radius: 24,
-                    backgroundColor: U.primary.withValues(alpha: 0.12),
-                    backgroundImage: photoUrl != null && photoUrl.isNotEmpty
-                        ? CachedNetworkImageProvider(photoUrl)
-                        : null,
-                    child: photoUrl == null || photoUrl.isEmpty
-                        ? Text(
-                            displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
-                            style: GoogleFonts.outfit(
-                              color: U.primary,
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: CachedNetworkImage(
+                        imageUrl: widget.vibe!.mediaUrl!,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          color: U.surface,
+                          alignment: Alignment.center,
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(U.primary),
                             ),
-                          )
-                        : null,
-                  ),
-                ),
-                if (widget.vibe != null)
-                  Positioned(
-                    right: -2,
-                    bottom: -2,
-                    child: Container(
-                      padding: const EdgeInsets.all(2.5),
-                      decoration: BoxDecoration(
-                        color: U.surface,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: U.card, width: 1.5),
-                      ),
-                      child: Text(
-                        widget.vibe!.emoji,
-                        style: const TextStyle(fontSize: 10),
+                          ),
+                        ),
+                        errorWidget: (context, url, error) => Icon(Icons.broken_image_rounded, size: 22, color: U.sub),
                       ),
                     ),
                   ),
+                  // Reduced-size profile icon overlay
+                  Positioned(
+                    right: -3,
+                    bottom: -3,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: U.surface, width: 1.8),
+                      ),
+                      child: CircleAvatar(
+                        radius: 11,
+                        backgroundColor: U.primary.withValues(alpha: 0.12),
+                        backgroundImage: photoUrl != null && photoUrl.isNotEmpty
+                            ? CachedNetworkImageProvider(photoUrl)
+                            : null,
+                        child: photoUrl == null || photoUrl.isEmpty
+                            ? Text(
+                                displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
+                                style: GoogleFonts.outfit(
+                                  color: U.primary,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              )
+                            : null,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: -6,
+                    right: -8,
+                    child: ThoughtCloudBadge(
+                      vibe: widget.vibe,
+                      avatarRadius: 34,
+                    ),
+                  ),
+                ] else ...[
+                  Container(
+                    width: 68,
+                    height: 68,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: widget.vibe != null
+                            ? U.primary.withValues(alpha: 0.5)
+                            : U.border,
+                        width: widget.vibe != null ? 2.0 : 1.0,
+                      ),
+                    ),
+                    child: ClipOval(
+                      child: photoUrl != null && photoUrl.isNotEmpty
+                          ? CachedNetworkImage(
+                              imageUrl: photoUrl,
+                              fit: BoxFit.cover,
+                              width: 68,
+                              height: 68,
+                            )
+                          : Container(
+                              color: U.primary.withValues(alpha: 0.10),
+                              alignment: Alignment.center,
+                              child: Text(
+                                displayName.isNotEmpty
+                                    ? displayName[0].toUpperCase()
+                                    : 'U',
+                                style: GoogleFonts.outfit(
+                                  color: U.primary,
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                    ),
+                  ),
+                  // Vibe thought cloud top-right (30% area occupancy)
+                  if (widget.vibe != null)
+                    Positioned(
+                      top: -6,
+                      right: -8,
+                      child: ThoughtCloudBadge(
+                        vibe: widget.vibe,
+                        avatarRadius: 34,
+                      ),
+                    ),
+                ],
               ],
             ),
-            const SizedBox(height: 6),
 
-            // Display Name + Badges
+            const SizedBox(height: 9),
+
+            // Name row
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
                 Flexible(
                   child: Text(
-                    displayName,
+                    firstName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
                     style: GoogleFonts.outfit(
                       color: U.text,
-                      fontSize: 13,
+                      fontSize: 13.5,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
                 if (isSuperuser) ...[
                   const SizedBox(width: 3),
-                  const SuperUserBadge(size: 13),
+                  const SuperUserBadge(size: 12),
                 ],
                 if (instagramId.isNotEmpty) ...[
                   const SizedBox(width: 3),
-                  InstagramBadge(handle: instagramId, iconSize: 11, showHandle: false),
-                ],
-                if (wavesCount > 0) ...[
-                  const SizedBox(width: 3),
-                  WaveCountBadge(count: wavesCount, compact: true),
+                  InstagramBadge(handle: instagramId, iconSize: 10, showHandle: false),
                 ],
               ],
             ),
 
-            // Active vibe / Branch / Bio chip
-            if (widget.vibe != null) ...[
-              const SizedBox(height: 4),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                decoration: BoxDecoration(
-                  color: U.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${widget.vibe!.emoji} ${widget.vibe!.text}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.outfit(
-                    color: U.primary,
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ] else if (branch.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                decoration: BoxDecoration(
-                  color: U.surface,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: U.border, width: 0.6),
-                ),
-                child: Text(
-                  branch,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.outfit(
-                    color: U.sub,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ] else if (bio.isNotEmpty) ...[
-              const SizedBox(height: 3),
+            // Branch text
+            if (branch.isNotEmpty) ...[
+              const SizedBox(height: 2),
               Text(
-                bio,
+                branch,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
                 style: GoogleFonts.outfit(
                   color: U.sub,
                   fontSize: 10,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],
 
-            const Spacer(),
+            const SizedBox(height: 10),
 
-            // Actions Row: Wave + Follow
+            // Wave button (hidden for own card)
             if (!isMe)
-              Row(
-                children: [
-                  Expanded(
-                    flex: 4,
-                    child: GestureDetector(
-                      onTap: _handleWave,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: _hasWaved ? U.primary.withValues(alpha: 0.1) : U.surface,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: _hasWaved ? U.primary.withValues(alpha: 0.35) : U.border,
-                            width: 0.8,
-                          ),
-                        ),
-                        child: Center(
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              _hasWaved ? '👋 Waved' : '👋 Wave',
-                              maxLines: 1,
-                              style: GoogleFonts.outfit(
-                                color: _hasWaved ? U.primary : U.text,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 5),
-
-                  Expanded(
-                    flex: 5,
-                    child: StreamBuilder<FollowStatus>(
-                      stream: _followService.followStatusStream(widget.currentUid, uid),
-                      builder: (context, statusSnap) {
-                        final status = statusSnap.data ?? FollowStatus.notFollowing;
-                        return _MinimalFollowButton(
-                          status: status,
-                          loading: _loading,
-                          onTap: () => _toggleFollow(status),
-                        );
-                      },
-                    ),
-                  ),
-                ],
+              UtopiaWaveButton(
+                hasWaved: _hasWaved,
+                onWave: _handleWave,
+                variant: WaveButtonVariant.standard,
               )
             else
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 6),
+                padding: const EdgeInsets.symmetric(vertical: 5),
                 decoration: BoxDecoration(
                   color: U.surface,
                   borderRadius: BorderRadius.circular(10),
@@ -2204,59 +1578,58 @@ class _PeerGridCardState extends State<_PeerGridCard> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PEER LIST TILE (Refined Streamlined Row)
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// PEER LIST TILE (Ergonomic & Modern)
+// ────────────────────────────────────────────────────────────────────────────
 class _PeerListTile extends StatefulWidget {
   const _PeerListTile({
     required this.user,
     required this.vibe,
     required this.currentUid,
+    required this.interactionService,
+    required this.followService,
     required this.onTap,
     required this.onLongPress,
-    required this.onWave,
   });
 
   final Map<String, dynamic> user;
   final CampusVibe? vibe;
   final String currentUid;
+  final PeopleInteractionService interactionService;
+  final FollowService followService;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
-  final VoidCallback onWave;
 
   @override
   State<_PeerListTile> createState() => _PeerListTileState();
 }
 
 class _PeerListTileState extends State<_PeerListTile> {
-  final FollowService _followService = FollowService();
-  final PeopleInteractionService _interactionService = PeopleInteractionService();
-
-  bool _loading = false;
+  bool _loadingFollow = false;
   bool _hasWaved = false;
 
   @override
   void initState() {
     super.initState();
-    _interactionService.hasWavedRecently(widget.user['uid'].toString()).then((waved) {
+    widget.interactionService.hasWavedRecently(widget.user['uid'].toString()).then((waved) {
       if (mounted) setState(() => _hasWaved = waved);
     });
   }
 
-  Future<void> _toggleFollow(FollowStatus status) async {
-    if (_loading) return;
-    setState(() => _loading = true);
+  Future<void> _handleFollow(FollowStatus status) async {
+    if (_loadingFollow) return;
+    setState(() => _loadingFollow = true);
     try {
-      await _followService.toggleFollow(widget.user['uid'].toString());
+      await widget.followService.toggleFollow(widget.user['uid'].toString());
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _loadingFollow = false);
     }
   }
 
   Future<void> _handleWave() async {
     if (_hasWaved) return;
     setState(() => _hasWaved = true);
-    widget.onWave();
+    await widget.interactionService.sendWave(widget.user['uid'].toString());
   }
 
   @override
@@ -2270,7 +1643,6 @@ class _PeerListTileState extends State<_PeerListTile> {
     final branch = (widget.user['branch'] ?? '').toString().trim();
     final isSuperuser = widget.user['role'] == 'superuser';
     final instagramId = (widget.user['instagramId'] ?? '').toString().trim();
-    final wavesCount = (widget.user['wavesReceivedCount'] as num?)?.toInt() ?? 0;
     final isMe = uid == widget.currentUid;
 
     return InkWell(
@@ -2282,45 +1654,117 @@ class _PeerListTileState extends State<_PeerListTile> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         child: Row(
           children: [
+            // Avatar + status badge
             Stack(
+              clipBehavior: Clip.none,
               children: [
-                CircleAvatar(
-                  radius: 22,
-                  backgroundColor: U.primary.withValues(alpha: 0.12),
-                  backgroundImage: photoUrl != null && photoUrl.isNotEmpty
-                      ? CachedNetworkImageProvider(photoUrl)
-                      : null,
-                  child: photoUrl == null || photoUrl.isEmpty
-                      ? Text(
-                          displayName.isEmpty ? 'U' : displayName[0].toUpperCase(),
-                          style: GoogleFonts.outfit(
-                            color: U.primary,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
+                if (widget.vibe != null &&
+                    widget.vibe!.mediaUrl != null &&
+                    widget.vibe!.mediaUrl!.isNotEmpty) ...[
+                  // Squared status media container
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: U.card,
+                      borderRadius: BorderRadius.circular(13),
+                      border: Border.all(
+                        color: U.primary,
+                        width: 1.8,
+                      ),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(11),
+                      child: CachedNetworkImage(
+                        imageUrl: widget.vibe!.mediaUrl!,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          color: U.surface,
+                          alignment: Alignment.center,
+                          child: SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.8,
+                              valueColor: AlwaysStoppedAnimation<Color>(U.primary),
+                            ),
                           ),
-                        )
-                      : null,
-                ),
-                if (widget.vibe != null)
+                        ),
+                        errorWidget: (context, url, error) => Icon(Icons.broken_image_rounded, size: 18, color: U.sub),
+                      ),
+                    ),
+                  ),
+                  // Reduced-size profile icon overlay
                   Positioned(
                     right: -2,
                     bottom: -2,
                     child: Container(
-                      padding: const EdgeInsets.all(2),
                       decoration: BoxDecoration(
-                        color: U.surface,
                         shape: BoxShape.circle,
-                        border: Border.all(color: U.card, width: 1.5),
+                        border: Border.all(color: U.surface, width: 1.4),
                       ),
-                      child: Text(
-                        widget.vibe!.emoji,
-                        style: const TextStyle(fontSize: 9.5),
+                      child: CircleAvatar(
+                        radius: 8.5,
+                        backgroundColor: U.primary.withValues(alpha: 0.12),
+                        backgroundImage: photoUrl != null && photoUrl.isNotEmpty
+                            ? CachedNetworkImageProvider(photoUrl)
+                            : null,
+                        child: photoUrl == null || photoUrl.isEmpty
+                            ? Text(
+                                displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
+                                style: GoogleFonts.outfit(
+                                  color: U.primary,
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              )
+                            : null,
                       ),
                     ),
                   ),
+                  Positioned(
+                    top: -6,
+                    right: -8,
+                    child: ThoughtCloudBadge(
+                      vibe: widget.vibe,
+                      avatarRadius: 26,
+                      compact: true,
+                    ),
+                  ),
+                ] else ...[
+                  CircleAvatar(
+                    radius: 26,
+                    backgroundColor: U.primary.withValues(alpha: 0.12),
+                    backgroundImage: photoUrl != null && photoUrl.isNotEmpty
+                        ? CachedNetworkImageProvider(photoUrl)
+                        : null,
+                    child: photoUrl == null || photoUrl.isEmpty
+                        ? Text(
+                            displayName.isEmpty ? 'U' : displayName[0].toUpperCase(),
+                            style: GoogleFonts.outfit(
+                              color: U.primary,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          )
+                        : null,
+                  ),
+                  if (widget.vibe != null)
+                    Positioned(
+                      top: -6,
+                      right: -8,
+                      child: ThoughtCloudBadge(
+                        vibe: widget.vibe,
+                        avatarRadius: 26,
+                        compact: true,
+                      ),
+                    ),
+                ],
               ],
             ),
             const SizedBox(width: 14),
+
+            // Info Column
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2335,7 +1779,7 @@ class _PeerListTileState extends State<_PeerListTile> {
                           style: GoogleFonts.outfit(
                             color: U.text,
                             fontSize: 14,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
@@ -2370,14 +1814,10 @@ class _PeerListTileState extends State<_PeerListTile> {
                           ),
                         ),
                       ],
-                      if (wavesCount > 0) ...[
-                        const SizedBox(width: 5),
-                        WaveCountBadge(count: wavesCount, compact: true),
-                      ],
                     ],
                   ),
                   if (widget.vibe != null) ...[
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 2),
                     Text(
                       '${widget.vibe!.emoji} ${widget.vibe!.text}',
                       style: GoogleFonts.outfit(
@@ -2389,7 +1829,7 @@ class _PeerListTileState extends State<_PeerListTile> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ] else if (bio.isNotEmpty) ...[
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 2),
                     Text(
                       bio,
                       style: GoogleFonts.outfit(color: U.sub, fontSize: 11.5),
@@ -2401,35 +1841,25 @@ class _PeerListTileState extends State<_PeerListTile> {
               ),
             ),
             const SizedBox(width: 10),
+
+            // Actions
             if (!isMe) ...[
-              GestureDetector(
-                onTap: _handleWave,
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: _hasWaved
-                        ? U.primary.withValues(alpha: 0.1)
-                        : U.surface,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: _hasWaved
-                          ? U.primary.withValues(alpha: 0.35)
-                          : U.border,
-                      width: 0.8,
-                    ),
-                  ),
-                  child: const Text('👋', style: TextStyle(fontSize: 12)),
-                ),
+              UtopiaWaveButton(
+                hasWaved: _hasWaved,
+                onWave: _handleWave,
+                variant: WaveButtonVariant.iconOnly,
+                width: 30,
+                height: 30,
               ),
               const SizedBox(width: 8),
               StreamBuilder<FollowStatus>(
-                stream: _followService.followStatusStream(widget.currentUid, uid),
+                stream: widget.followService.followStatusStream(widget.currentUid, uid),
                 builder: (context, statusSnap) {
                   final status = statusSnap.data ?? FollowStatus.notFollowing;
-                  return _MinimalFollowButton(
+                  return _InlineFollowButton(
                     status: status,
-                    loading: _loading,
-                    onTap: () => _toggleFollow(status),
+                    loading: _loadingFollow,
+                    onTap: () => _handleFollow(status),
                   );
                 },
               ),
@@ -2441,11 +1871,11 @@ class _PeerListTileState extends State<_PeerListTile> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MINIMAL FOLLOW BUTTON
-// ─────────────────────────────────────────────────────────────────────────────
-class _MinimalFollowButton extends StatelessWidget {
-  const _MinimalFollowButton({
+// ────────────────────────────────────────────────────────────────────────────
+// INLINE FOLLOW BUTTON
+// ────────────────────────────────────────────────────────────────────────────
+class _InlineFollowButton extends StatelessWidget {
+  const _InlineFollowButton({
     required this.status,
     required this.loading,
     required this.onTap,
@@ -2487,25 +1917,22 @@ class _MinimalFollowButton extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5.5),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
           color: bg,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(10),
           border: bordered ? Border.all(color: U.border, width: 0.8) : null,
         ),
         child: Center(
           child: loading
-              ? const UtopiaLoader(scale: 0.25)
-              : FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    style: GoogleFonts.outfit(
-                      color: fg,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
+              ? const UtopiaLoader(scale: 0.22)
+              : Text(
+                  label,
+                  maxLines: 1,
+                  style: GoogleFonts.outfit(
+                    color: fg,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
         ),
@@ -2514,16 +1941,16 @@ class _MinimalFollowButton extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SET VIBE BOTTOM SHEET (Refined Modal)
-// ─────────────────────────────────────────────────────────────────────────────
-class _SetVibeSheet extends StatefulWidget {
-  const _SetVibeSheet({
+// ────────────────────────────────────────────────────────────────────────────
+// SET CAMPUS STATUS BOTTOM SHEET (Streamlined & Human)
+// ────────────────────────────────────────────────────────────────────────────
+class _SetStatusSheet extends StatefulWidget {
+  const _SetStatusSheet({
     required this.initialVibe,
     required this.currentUserName,
     required this.currentUserPhoto,
-    required this.onVibeSaved,
-    required this.onVibeCleared,
+    required this.onStatusSaved,
+    required this.onStatusCleared,
   });
 
   final CampusVibe? initialVibe;
@@ -2533,69 +1960,213 @@ class _SetVibeSheet extends StatefulWidget {
     String emoji,
     String text,
     String? location,
-    String? statusTag,
     int durationHours,
-  ) onVibeSaved;
-  final VoidCallback onVibeCleared;
+    String? mediaUrl,
+  ) onStatusSaved;
+  final VoidCallback onStatusCleared;
 
   @override
-  State<_SetVibeSheet> createState() => _SetVibeSheetState();
+  State<_SetStatusSheet> createState() => _SetStatusSheetState();
 }
 
-class _SetVibeSheetState extends State<_SetVibeSheet> {
-  late final TextEditingController _customTextController;
+class _SetStatusSheetState extends State<_SetStatusSheet> {
+  late final TextEditingController _textController;
   late String _selectedEmoji;
   String? _selectedLocation;
-  String? _selectedStatusTag;
   int _selectedDurationHours = 24;
-  String _selectedCategory = 'All';
+  String? _selectedMediaUrl;
+
+  static const List<String> _emojis = [
+    '📚', '🏛️', '🫠', '☕', '💻', '🏃', '🔋', '✍️',
+    '🎧', '📖', '🔬', '🥪', '🤝', '🏠', '💡', '✨',
+  ];
+
+  static const List<String> _spots = [
+    'Library', 'Canteen', 'Lab', 'Classroom', 'Hostel', 'Campus Grounds', 'Sports Complex',
+  ];
+
+  static const List<Map<String, String>> _presets = [
+    {'emoji': '📚', 'text': 'Studying (allegedly)'},
+    {'emoji': '🏛️', 'text': 'Here for the attendance'},
+    {'emoji': '🫠', 'text': 'Brain is buffering'},
+    {'emoji': '☕', 'text': 'Fueled by caffeine'},
+    {'emoji': '💻', 'text': 'Fighting runtime errors'},
+    {'emoji': '🏃', 'text': 'Sprinting to lecture'},
+    {'emoji': '🔋', 'text': 'Social battery at 1%'},
+    {'emoji': '✍️', 'text': 'Speedrunning assignments'},
+    {'emoji': '🎧', 'text': 'Focus mode'},
+    {'emoji': '📖', 'text': 'In the library'},
+    {'emoji': '🔬', 'text': 'In the lab'},
+    {'emoji': '🥪', 'text': 'Canteen run'},
+    {'emoji': '🤝', 'text': 'Group study'},
+    {'emoji': '🏠', 'text': 'Hibernating at hostel'},
+  ];
 
   @override
   void initState() {
     super.initState();
-    _selectedEmoji = widget.initialVibe?.emoji ?? '🎧';
-    _customTextController = TextEditingController(text: widget.initialVibe?.text ?? '');
+    _selectedEmoji = widget.initialVibe?.emoji ?? '📚';
+    _textController = TextEditingController(text: widget.initialVibe?.text ?? '');
     _selectedLocation = widget.initialVibe?.location;
-    _selectedStatusTag = widget.initialVibe?.statusTag;
     _selectedDurationHours = widget.initialVibe?.durationHours ?? 24;
-    _customTextController.addListener(() {
+    _selectedMediaUrl = widget.initialVibe?.mediaUrl;
+    _textController.addListener(() {
       if (mounted) setState(() {});
     });
   }
 
   @override
   void dispose() {
-    _customTextController.dispose();
+    _textController.dispose();
     super.dispose();
   }
 
   void _save() {
-    final text = _customTextController.text.trim();
-    if (text.isEmpty) return;
+    final text = _textController.text.trim();
+    if (text.isEmpty && (_selectedMediaUrl == null || _selectedMediaUrl!.isEmpty)) return;
     HapticFeedback.selectionClick();
-    widget.onVibeSaved(
-      _selectedEmoji,
+    final hasMedia = _selectedMediaUrl != null && _selectedMediaUrl!.isNotEmpty;
+    widget.onStatusSaved(
+      hasMedia ? '' : _selectedEmoji,
       text,
       _selectedLocation,
-      _selectedStatusTag,
       _selectedDurationHours,
+      _selectedMediaUrl,
     );
     Navigator.pop(context);
   }
 
   void _clear() {
     HapticFeedback.lightImpact();
-    widget.onVibeCleared();
+    widget.onStatusCleared();
     Navigator.pop(context);
+  }
+
+  void _openMediaPicker() {
+    ChatMediaPickerSheet.show(
+      context,
+      onSelectGif: (url) {
+        setState(() => _selectedMediaUrl = url);
+      },
+      onSelectSticker: (url) {
+        setState(() => _selectedMediaUrl = url);
+      },
+      onSelectEmoji: (emoji) {
+        setState(() => _selectedEmoji = emoji);
+      },
+    );
+  }
+
+  void _openCustomEmojiDialog() {
+    final emojiController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final currentInput = emojiController.text.trim();
+          final previewEmoji = currentInput.isNotEmpty
+              ? currentInput.characters.first
+              : _selectedEmoji;
+
+          return AlertDialog(
+            backgroundColor: U.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
+              children: [
+                Icon(Icons.emoji_emotions_outlined, color: U.primary, size: 22),
+                const SizedBox(width: 8),
+                Text(
+                  'Choose Any Emoji',
+                  style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w700, fontSize: 17),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Pick or type any emoji from your keyboard',
+                  style: GoogleFonts.outfit(color: U.sub, fontSize: 12.5),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  width: 68,
+                  height: 68,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: U.card,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: U.primary, width: 1.5),
+                  ),
+                  child: Text(
+                    previewEmoji,
+                    style: const TextStyle(fontSize: 32),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: emojiController,
+                  autofocus: true,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 22),
+                  decoration: InputDecoration(
+                    hintText: 'Type any emoji here...',
+                    hintStyle: GoogleFonts.outfit(color: U.sub, fontSize: 13),
+                    filled: true,
+                    fillColor: U.card,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: U.border),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: U.primary, width: 1.5),
+                    ),
+                  ),
+                  onChanged: (val) {
+                    setDialogState(() {});
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('Cancel', style: GoogleFonts.outfit(color: U.sub, fontWeight: FontWeight.w600)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: U.primary,
+                  foregroundColor: U.getContrastColor(U.primary),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  elevation: 0,
+                ),
+                onPressed: () {
+                  final text = emojiController.text.trim();
+                  if (text.isNotEmpty) {
+                    HapticFeedback.selectionClick();
+                    setState(() {
+                      _selectedEmoji = text.characters.first;
+                    });
+                  }
+                  Navigator.pop(ctx);
+                },
+                child: Text('Apply', style: GoogleFonts.outfit(fontWeight: FontWeight.w700)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final hasActiveVibe = widget.initialVibe != null;
-    final currentText = _customTextController.text.trim();
-    final isTextEmpty = currentText.isEmpty;
-    final activePresets = PeopleInteractionService.categorizedVibes[_selectedCategory] ??
-        PeopleInteractionService.presetVibes;
+    final hasActive = widget.initialVibe != null;
+    final currentText = _textController.text.trim();
+    final hasMedia = _selectedMediaUrl != null && _selectedMediaUrl!.isNotEmpty;
+    final isEmpty = currentText.isEmpty && !hasMedia;
 
     return SafeArea(
       top: false,
@@ -2631,7 +2202,7 @@ class _SetVibeSheetState extends State<_SetVibeSheet> {
               Row(
                 children: [
                   Text(
-                    'Campus Vibe',
+                    'Campus Status',
                     style: GoogleFonts.outfit(
                       color: U.text,
                       fontSize: 18,
@@ -2639,11 +2210,11 @@ class _SetVibeSheetState extends State<_SetVibeSheet> {
                     ),
                   ),
                   const Spacer(),
-                  if (hasActiveVibe)
-                    TextButton(
-                      onPressed: _clear,
+                  if (hasActive)
+                    GestureDetector(
+                      onTap: _clear,
                       child: Text(
-                        'Clear Vibe',
+                        'Clear Status',
                         style: GoogleFonts.outfit(
                           color: U.red,
                           fontWeight: FontWeight.w600,
@@ -2653,423 +2224,407 @@ class _SetVibeSheetState extends State<_SetVibeSheet> {
                     ),
                 ],
               ),
+              const SizedBox(height: 2),
               Text(
-                'Broadcast what you are currently working on with peers.',
+                'Let classmates know what you are currently up to.',
                 style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
               ),
               const SizedBox(height: 16),
 
-              // ─── 1. Live Preview Card ──────────────────────────────────────
+              // Main Status Input Card
               Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: U.card,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: U.primary.withValues(alpha: 0.3), width: 0.9),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isEmpty ? U.border : U.primary.withValues(alpha: 0.4),
+                    width: isEmpty ? 0.8 : 1.2,
+                  ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Row(
-                      children: [
-                        Stack(
+                    if (!hasMedia) ...[
+                      GestureDetector(
+                        onTap: _openCustomEmojiDialog,
+                        child: Stack(
                           children: [
-                            CircleAvatar(
-                              radius: 18,
-                              backgroundColor: U.primary.withValues(alpha: 0.15),
-                              backgroundImage: widget.currentUserPhoto != null &&
-                                      widget.currentUserPhoto!.isNotEmpty
-                                  ? CachedNetworkImageProvider(widget.currentUserPhoto!)
-                                  : null,
-                              child: widget.currentUserPhoto == null ||
-                                      widget.currentUserPhoto!.isEmpty
-                                  ? Text(
-                                      widget.currentUserName.isEmpty
-                                          ? 'U'
-                                          : widget.currentUserName[0].toUpperCase(),
-                                      style: GoogleFonts.outfit(
-                                        color: U.primary,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    )
-                                  : null,
+                            Container(
+                              width: 44,
+                              height: 44,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: U.surface,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: U.border, width: 0.8),
+                              ),
+                              child: Text(
+                                _selectedEmoji,
+                                style: const TextStyle(fontSize: 22),
+                              ),
                             ),
                             Positioned(
-                              right: -2,
-                              bottom: -2,
+                              right: 2,
+                              bottom: 2,
                               child: Container(
                                 padding: const EdgeInsets.all(2),
                                 decoration: BoxDecoration(
-                                  color: U.surface,
+                                  color: U.primary,
                                   shape: BoxShape.circle,
-                                  border: Border.all(color: U.card, width: 1),
                                 ),
-                                child: Text(
-                                  _selectedEmoji,
-                                  style: const TextStyle(fontSize: 9),
+                                child: Icon(
+                                  Icons.edit,
+                                  size: 8,
+                                  color: U.getContrastColor(U.primary),
                                 ),
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                widget.currentUserName,
-                                style: GoogleFonts.outfit(
-                                  color: U.text,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Text(
-                                isTextEmpty
-                                    ? 'What are you working on or doing?'
-                                    : '$_selectedEmoji $currentText',
-                                style: GoogleFonts.outfit(
-                                  color: isTextEmpty ? U.sub : U.primary,
-                                  fontSize: 12.5,
-                                  fontWeight: isTextEmpty ? FontWeight.w400 : FontWeight.w600,
-                                  fontStyle: isTextEmpty ? FontStyle.italic : FontStyle.normal,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
+                      ),
+                      const SizedBox(width: 10),
+                    ] else ...[
+                      Container(
+                        width: 36,
+                        height: 36,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: U.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(9),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
-                          decoration: BoxDecoration(
-                            color: U.primary.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            'PREVIEW',
-                            style: GoogleFonts.outfit(
-                              color: U.primary,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
+                        child: Icon(Icons.edit_note_rounded, size: 20, color: U.primary),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    Expanded(
+                      child: TextField(
+                        controller: _textController,
+                        autofocus: widget.initialVibe == null && !hasMedia,
+                        style: GoogleFonts.outfit(color: U.text, fontSize: 14, fontWeight: FontWeight.w500),
+                        maxLength: 50,
+                        decoration: InputDecoration(
+                          hintText: hasMedia ? 'Add a caption (optional)...' : 'What are you up to?',
+                          hintStyle: GoogleFonts.outfit(color: U.sub.withValues(alpha: 0.7), fontSize: 13.5),
+                          border: InputBorder.none,
+                          isDense: true,
+                          counterText: '',
+                          contentPadding: const EdgeInsets.symmetric(vertical: 8),
                         ),
-                      ],
+                      ),
                     ),
-                    if (_selectedStatusTag != null ||
-                        _selectedLocation != null ||
-                        _selectedDurationHours != 24) ...[
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        children: [
-                          if (_selectedStatusTag != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                              decoration: BoxDecoration(
-                                color: U.surface,
-                                borderRadius: BorderRadius.circular(7),
-                                border: Border.all(color: U.border),
-                              ),
-                              child: Text(
-                                _selectedStatusTag!,
-                                style: GoogleFonts.outfit(
-                                  color: U.text,
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w600,
+                    if (_textController.text.isNotEmpty)
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          _textController.clear();
+                          setState(() {});
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(4.0),
+                          child: Icon(Icons.cancel_rounded, size: 18, color: U.sub),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // Attached GIF / Sticker Preview or Add Button
+              if (hasMedia)
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: U.card,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: U.primary.withValues(alpha: 0.4), width: 1.2),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          width: 58,
+                          height: 58,
+                          color: U.surface,
+                          child: CachedNetworkImage(
+                            imageUrl: _selectedMediaUrl!,
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) => Center(
+                              child: SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(U.primary),
                                 ),
                               ),
                             ),
-                          if (_selectedLocation != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                              decoration: BoxDecoration(
-                                color: U.surface,
-                                borderRadius: BorderRadius.circular(7),
-                                border: Border.all(color: U.border),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.location_on_outlined,
-                                    size: 11,
-                                    color: U.primary,
-                                  ),
-                                  const SizedBox(width: 3),
-                                  Text(
-                                    _selectedLocation!,
-                                    style: GoogleFonts.outfit(
-                                      color: U.text,
-                                      fontSize: 10.5,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                            decoration: BoxDecoration(
-                              color: U.surface,
-                              borderRadius: BorderRadius.circular(7),
-                              border: Border.all(color: U.border),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
+                            errorWidget: (context, url, error) => Icon(Icons.broken_image_rounded, size: 20, color: U.sub),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
                               children: [
-                                Icon(Icons.timer_outlined, size: 11, color: U.sub),
-                                const SizedBox(width: 3),
+                                Icon(Icons.auto_awesome, size: 13, color: U.primary),
+                                const SizedBox(width: 4),
                                 Text(
-                                  _selectedDurationHours >= 24
-                                      ? '24 Hours'
-                                      : '${_selectedDurationHours}h',
+                                  'Attached Media',
                                   style: GoogleFonts.outfit(
-                                    color: U.text,
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w600,
+                                    color: U.primary,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ],
                             ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Rendered squared in status view',
+                              style: GoogleFonts.outfit(color: U.sub, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: _openMediaPicker,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: U.surface,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: U.border, width: 0.8),
                           ),
-                        ],
+                          child: Text(
+                            'Change',
+                            style: GoogleFonts.outfit(color: U.text, fontSize: 11.5, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          setState(() => _selectedMediaUrl = null);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            color: U.red.withValues(alpha: 0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.close_rounded, size: 15, color: U.red),
+                        ),
                       ),
                     ],
-                  ],
+                  ),
+                )
+              else ...[
+                GestureDetector(
+                  onTap: _openMediaPicker,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: U.card,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: U.border, width: 0.8),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.gif_box_outlined, size: 19, color: U.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Add GIF or Sticker',
+                          style: GoogleFonts.outfit(
+                            color: U.primary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '• GIPHY & Packs',
+                          style: GoogleFonts.outfit(color: U.sub, fontSize: 11, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 12),
 
-              // ─── 2. Emoji Selector ──────────────────────────────────────────
-              Text(
-                'SELECT EMOJI',
-                style: GoogleFonts.outfit(
-                  color: U.sub,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
+                // Quick Emoji Selection Bar
+                SizedBox(
+                  height: 38,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    children: [
+                      // If current selected emoji is custom (not in _emojis), show it first
+                      if (!_emojis.contains(_selectedEmoji)) ...[
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            width: 38,
+                            height: 38,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: U.primary.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: U.primary, width: 1.4),
+                            ),
+                            child: Text(_selectedEmoji, style: const TextStyle(fontSize: 18)),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      for (final emoji in _emojis) ...[
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            setState(() => _selectedEmoji = emoji);
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            width: 38,
+                            height: 38,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: _selectedEmoji == emoji ? U.primary.withValues(alpha: 0.15) : U.card,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _selectedEmoji == emoji ? U.primary : U.border,
+                                width: _selectedEmoji == emoji ? 1.4 : 0.8,
+                              ),
+                            ),
+                            child: Text(emoji, style: const TextStyle(fontSize: 18)),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      // Custom emoji / Keyboard button
+                      GestureDetector(
+                        onTap: _openCustomEmojiDialog,
+                        child: Container(
+                          width: 38,
+                          height: 38,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: U.card,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: U.border, width: 0.8),
+                          ),
+                          child: Icon(Icons.add_reaction_outlined, size: 18, color: U.primary),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 40,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: PeopleInteractionService.popularEmojis.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 6),
-                  itemBuilder: (context, index) {
-                    final emoji = PeopleInteractionService.popularEmojis[index];
-                    final isSelected = _selectedEmoji == emoji;
+                const SizedBox(height: 16),
+
+                // Quick presets section
+                Text(
+                  'PRESETS',
+                  style: GoogleFonts.outfit(
+                    color: U.sub,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: _presets.map((p) {
+                    final isSelected = _selectedEmoji == p['emoji'] && _textController.text == p['text'];
                     return GestureDetector(
                       onTap: () {
                         HapticFeedback.selectionClick();
-                        setState(() => _selectedEmoji = emoji);
+                        setState(() {
+                          _selectedEmoji = p['emoji']!;
+                          _textController.text = p['text']!;
+                        });
                       },
-                      child: Container(
-                        width: 38,
-                        height: 38,
-                        alignment: Alignment.center,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
-                          color: isSelected ? U.primary.withValues(alpha: 0.15) : U.card,
-                          borderRadius: BorderRadius.circular(12),
+                          color: isSelected ? U.primary.withValues(alpha: 0.14) : U.card,
+                          borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: isSelected ? U.primary : U.border,
-                            width: isSelected ? 1.4 : 0.8,
+                            width: isSelected ? 1.2 : 0.7,
                           ),
                         ),
-                        child: Text(emoji, style: const TextStyle(fontSize: 18)),
+                        child: Text(
+                          '${p['emoji']} ${p['text']}',
+                          style: GoogleFonts.outfit(
+                            color: isSelected ? U.primary : U.text,
+                            fontSize: 12,
+                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                          ),
+                        ),
                       ),
                     );
-                  },
+                  }).toList(),
                 ),
-              ),
+              ],
               const SizedBox(height: 16),
 
-              // ─── 3. Custom Text Input ───────────────────────────────────────
-              Text(
-                'VIBE STATUS',
-                style: GoogleFonts.outfit(
-                  color: U.sub,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: U.card,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: U.border),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: U.surface,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        _selectedEmoji,
-                        style: const TextStyle(fontSize: 18),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        controller: _customTextController,
-                        autofocus: widget.initialVibe == null,
-                        style: GoogleFonts.outfit(color: U.text, fontSize: 13.5),
-                        maxLength: 40,
-                        decoration: InputDecoration(
-                          hintText: 'e.g. Grinding DSA in Lab 2',
-                          hintStyle: GoogleFonts.outfit(color: U.sub, fontSize: 13),
-                          border: InputBorder.none,
-                          counterText: '${_customTextController.text.length}/40',
-                          counterStyle: GoogleFonts.outfit(color: U.sub, fontSize: 10),
-                        ),
-                      ),
-                    ),
-                    if (_customTextController.text.isNotEmpty)
-                      IconButton(
-                        icon: const Icon(Icons.clear_rounded, size: 16),
-                        color: U.sub,
-                        onPressed: () {
-                          _customTextController.clear();
-                          setState(() {});
-                        },
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // ─── 4. Availability Tag ────────────────────────────────────────
+              // Location Spot selector
               Row(
                 children: [
                   Text(
-                    'AVAILABILITY',
+                    'LOCATION (OPTIONAL)',
                     style: GoogleFonts.outfit(
                       color: U.sub,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (_selectedStatusTag != null)
-                    GestureDetector(
-                      onTap: () => setState(() => _selectedStatusTag = null),
-                      child: Text(
-                        'Clear',
-                        style: GoogleFonts.outfit(
-                          color: U.sub,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 7,
-                runSpacing: 7,
-                children: PeopleInteractionService.statusTags.map((tag) {
-                  final isSelected = _selectedStatusTag == tag;
-                  return GestureDetector(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() {
-                        _selectedStatusTag = isSelected ? null : tag;
-                      });
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: isSelected ? U.primary.withValues(alpha: 0.14) : U.card,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isSelected ? U.primary : U.border,
-                          width: isSelected ? 1.2 : 0.8,
-                        ),
-                      ),
-                      child: Text(
-                        tag,
-                        style: GoogleFonts.outfit(
-                          color: isSelected ? U.primary : U.text,
-                          fontSize: 11.5,
-                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-
-              // ─── 5. Campus Location ────────────────────────────────────────
-              Row(
-                children: [
-                  Text(
-                    'LOCATION',
-                    style: GoogleFonts.outfit(
-                      color: U.sub,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
                       letterSpacing: 0.8,
                     ),
                   ),
                   const Spacer(),
                   if (_selectedLocation != null)
                     GestureDetector(
-                      onTap: () => setState(() => _selectedLocation = null),
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _selectedLocation = null);
+                      },
                       child: Text(
                         'Clear',
-                        style: GoogleFonts.outfit(
-                          color: U.sub,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: GoogleFonts.outfit(color: U.primary, fontSize: 11.5, fontWeight: FontWeight.w600),
                       ),
                     ),
                 ],
               ),
               const SizedBox(height: 8),
               Wrap(
-                spacing: 7,
-                runSpacing: 7,
-                children: PeopleInteractionService.campusSpots.map((spot) {
+                spacing: 6,
+                runSpacing: 6,
+                children: _spots.map((spot) {
                   final isSelected = _selectedLocation == spot;
                   return GestureDetector(
                     onTap: () {
                       HapticFeedback.selectionClick();
-                      setState(() {
-                        _selectedLocation = isSelected ? null : spot;
-                      });
+                      setState(() => _selectedLocation = isSelected ? null : spot);
                     },
-                    child: Container(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
-                        color: isSelected
-                            ? U.primary.withValues(alpha: 0.14)
-                            : U.card,
-                        borderRadius: BorderRadius.circular(12),
+                        color: isSelected ? U.primary.withValues(alpha: 0.14) : U.card,
+                        borderRadius: BorderRadius.circular(10),
                         border: Border.all(
                           color: isSelected ? U.primary : U.border,
-                          width: isSelected ? 1.2 : 0.8,
+                          width: isSelected ? 1.2 : 0.7,
                         ),
                       ),
                       child: Row(
@@ -3077,7 +2632,7 @@ class _SetVibeSheetState extends State<_SetVibeSheet> {
                         children: [
                           Icon(
                             Icons.location_on_outlined,
-                            size: 12,
+                            size: 13,
                             color: isSelected ? U.primary : U.sub,
                           ),
                           const SizedBox(width: 4),
@@ -3097,13 +2652,13 @@ class _SetVibeSheetState extends State<_SetVibeSheet> {
               ),
               const SizedBox(height: 16),
 
-              // ─── 6. Expiry Duration ─────────────────────────────────────────
+              // Duration selector
               Text(
-                'ACTIVE DURATION',
+                'EXPIRES IN',
                 style: GoogleFonts.outfit(
                   color: U.sub,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
                   letterSpacing: 0.8,
                 ),
               ),
@@ -3117,31 +2672,24 @@ class _SetVibeSheetState extends State<_SetVibeSheet> {
                           HapticFeedback.selectionClick();
                           setState(() => _selectedDurationHours = dur);
                         },
-                        child: Container(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
                           padding: const EdgeInsets.symmetric(vertical: 8),
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: _selectedDurationHours == dur
-                                ? U.primary.withValues(alpha: 0.14)
-                                : U.card,
-                            borderRadius: BorderRadius.circular(12),
+                            color: _selectedDurationHours == dur ? U.primary.withValues(alpha: 0.14) : U.card,
+                            borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: _selectedDurationHours == dur
-                                  ? U.primary
-                                  : U.border,
-                              width: _selectedDurationHours == dur ? 1.2 : 0.8,
+                              color: _selectedDurationHours == dur ? U.primary : U.border,
+                              width: _selectedDurationHours == dur ? 1.2 : 0.7,
                             ),
                           ),
                           child: Text(
-                            dur == 24 ? '24h' : '${dur}h',
+                            dur == 24 ? 'Today (24h)' : '${dur}h',
                             style: GoogleFonts.outfit(
-                              color: _selectedDurationHours == dur
-                                  ? U.primary
-                                  : U.text,
+                              color: _selectedDurationHours == dur ? U.primary : U.text,
                               fontSize: 12,
-                              fontWeight: _selectedDurationHours == dur
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
+                              fontWeight: _selectedDurationHours == dur ? FontWeight.w700 : FontWeight.w500,
                             ),
                           ),
                         ),
@@ -3151,107 +2699,9 @@ class _SetVibeSheetState extends State<_SetVibeSheet> {
                   ],
                 ],
               ),
-              const SizedBox(height: 18),
-
-              // ─── 7. Presets ────────────────────────────────────────────────
-              Text(
-                'PRESETS',
-                style: GoogleFonts.outfit(
-                  color: U.sub,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              // Category Pills
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                child: Row(
-                  children: ['All', 'Study', 'Build', 'Social', 'Chill'].map((cat) {
-                    final isCatActive = _selectedCategory == cat;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: GestureDetector(
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          setState(() => _selectedCategory = cat);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: isCatActive ? U.primary : U.card,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: isCatActive ? Colors.transparent : U.border,
-                              width: 0.8,
-                            ),
-                          ),
-                          child: Text(
-                            cat,
-                            style: GoogleFonts.outfit(
-                              color: isCatActive ? U.getContrastColor(U.primary) : U.text,
-                              fontSize: 11.5,
-                              fontWeight: isCatActive ? FontWeight.w700 : FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const SizedBox(height: 10),
-
-              // Preset list
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: activePresets.map((preset) {
-                  final isSelected = _selectedEmoji == preset['emoji'] &&
-                      _customTextController.text == preset['text'];
-                  return GestureDetector(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() {
-                        _selectedEmoji = preset['emoji']!;
-                        _customTextController.text = preset['text']!;
-                      });
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: isSelected ? U.primary.withValues(alpha: 0.14) : U.card,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isSelected ? U.primary : U.border,
-                          width: isSelected ? 1.2 : 0.8,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(preset['emoji']!, style: const TextStyle(fontSize: 13)),
-                          const SizedBox(width: 5),
-                          Text(
-                            preset['text']!,
-                            style: GoogleFonts.outfit(
-                              color: isSelected ? U.primary : U.text,
-                              fontSize: 11.5,
-                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
               const SizedBox(height: 20),
 
-              // ─── 8. Save Button ────────────────────────────────────────────
+              // Save button
               SizedBox(
                 width: double.infinity,
                 height: 48,
@@ -3259,25 +2709,15 @@ class _SetVibeSheetState extends State<_SetVibeSheet> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: U.primary,
                     foregroundColor: U.getContrastColor(U.primary),
-                    disabledBackgroundColor: U.primary.withValues(alpha: 0.35),
+                    disabledBackgroundColor: U.primary.withValues(alpha: 0.3),
                     disabledForegroundColor: U.getContrastColor(U.primary).withValues(alpha: 0.6),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     elevation: 0,
                   ),
-                  onPressed: isTextEmpty ? null : _save,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _selectedEmoji,
-                        style: const TextStyle(fontSize: 16),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Broadcast Vibe',
-                        style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w700),
-                      ),
-                    ],
+                  onPressed: isEmpty ? null : _save,
+                  child: Text(
+                    hasActive ? 'Update Status' : 'Set Status',
+                    style: GoogleFonts.outfit(fontSize: 14.5, fontWeight: FontWeight.w700),
                   ),
                 ),
               ),
@@ -3289,68 +2729,65 @@ class _SetVibeSheetState extends State<_SetVibeSheet> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 // QUICK PEEK PROFILE SHEET
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 class _QuickPeekProfileSheet extends StatefulWidget {
   const _QuickPeekProfileSheet({
     required this.user,
     required this.vibe,
     required this.currentUid,
+    required this.interactionService,
+    required this.followService,
   });
 
   final Map<String, dynamic> user;
   final CampusVibe? vibe;
   final String currentUid;
+  final PeopleInteractionService interactionService;
+  final FollowService followService;
 
   @override
   State<_QuickPeekProfileSheet> createState() => _QuickPeekProfileSheetState();
 }
 
 class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
-  final FollowService _followService = FollowService();
-  final PeopleInteractionService _interactionService = PeopleInteractionService();
-
-  bool _loading = false;
+  bool _loadingFollow = false;
   bool _hasWaved = false;
 
   @override
   void initState() {
     super.initState();
-    _interactionService.hasWavedRecently(widget.user['uid'].toString()).then((waved) {
+    widget.interactionService.hasWavedRecently(widget.user['uid'].toString()).then((waved) {
       if (mounted) setState(() => _hasWaved = waved);
     });
   }
 
-  Future<void> _toggleFollow(FollowStatus status) async {
-    if (_loading) return;
-    setState(() => _loading = true);
+  Future<void> _handleFollow(FollowStatus status) async {
+    if (_loadingFollow) return;
+    setState(() => _loadingFollow = true);
     try {
-      await _followService.toggleFollow(widget.user['uid'].toString());
+      await widget.followService.toggleFollow(widget.user['uid'].toString());
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _loadingFollow = false);
     }
   }
 
-  Future<void> _wave() async {
+  Future<void> _handleWave() async {
     if (_hasWaved) return;
     setState(() => _hasWaved = true);
-    await _interactionService.sendWave(widget.user['uid'].toString());
+    await widget.interactionService.sendWave(widget.user['uid'].toString());
   }
 
-  Future<void> _openChat([String? icebreaker]) async {
+  Future<void> _openChat() async {
     final uid = widget.user['uid'].toString();
-    final canChat = await _followService.canChat(widget.currentUid, uid);
+    final canChat = await widget.followService.canChat(widget.currentUid, uid);
     if (!mounted) return;
     if (!canChat) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: U.card,
-          content: Text(
-            'You can message people you follow or who follow you.',
-            style: GoogleFonts.outfit(color: U.text, fontSize: 13),
-          ),
-        ),
+      showUtopiaSnackBar(
+        context,
+        message: 'You can message students you follow or who follow you.',
+        tone: UtopiaSnackBarTone.info,
       );
       return;
     }
@@ -3365,7 +2802,6 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
           displayName: cleanName,
           email: widget.user['email'] ?? '',
           photoUrl: widget.user['photoUrl']?.toString(),
-          initialText: icebreaker,
         ),
       ),
     );
@@ -3385,744 +2821,587 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
     final wavesCount = (widget.user['wavesReceivedCount'] as num?)?.toInt() ?? 0;
     final isMe = uid == widget.currentUid;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: U.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        border: Border.all(color: U.border, width: 0.8),
-      ),
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: U.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Header Profile Info
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 30,
-                backgroundColor: U.primary.withValues(alpha: 0.12),
-                backgroundImage: photoUrl != null && photoUrl.isNotEmpty
-                    ? CachedNetworkImageProvider(photoUrl)
-                    : null,
-                child: photoUrl == null || photoUrl.isEmpty
-                    ? Text(
-                        displayName.isEmpty ? 'U' : displayName[0].toUpperCase(),
-                        style: GoogleFonts.outfit(
-                          color: U.primary,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      )
-                    : null,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.outfit(
-                              color: U.text,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        if (isSuperuser) ...[
-                          const SizedBox(width: 4),
-                          const SuperUserBadge(size: 15),
-                        ],
-                      ],
-                    ),
-                    if (branch.isNotEmpty || instagramId.isNotEmpty || wavesCount > 0) ...[
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          if (branch.isNotEmpty)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                              decoration: BoxDecoration(
-                                color: U.card,
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: U.border, width: 0.6),
-                              ),
-                              child: Text(
-                                branch,
-                                style: GoogleFonts.outfit(color: U.sub, fontSize: 11, fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          if (instagramId.isNotEmpty)
-                            InstagramBadge(handle: instagramId, iconSize: 13, compact: true),
-                          if (wavesCount > 0)
-                            WaveCountBadge(count: wavesCount, compact: true),
-                        ],
-                      ),
-                    ],
-                  ],
+    return SafeArea(
+      top: false,
+      child: Container(
+        decoration: BoxDecoration(
+          color: U.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: U.border, width: 0.8),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: U.border,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-            ],
-          ),
-
-          // Active Vibe Banner
-          if (widget.vibe != null) ...[
-            const SizedBox(height: 14),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: U.card,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: U.primary.withValues(alpha: 0.3), width: 0.9),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(widget.vibe!.emoji, style: const TextStyle(fontSize: 18)),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          widget.vibe!.text,
-                          style: GoogleFonts.outfit(
-                            color: U.primary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (widget.vibe!.statusTag != null ||
-                      widget.vibe!.location != null ||
-                      widget.vibe!.durationHours != 24) ...[
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: [
-                        if (widget.vibe!.statusTag != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: U.surface,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: U.border),
-                            ),
-                            child: Text(
-                              widget.vibe!.statusTag!,
-                              style: GoogleFonts.outfit(
-                                color: U.text,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        if (widget.vibe!.location != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: U.surface,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: U.border),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.location_on_outlined,
-                                  size: 10.5,
-                                  color: U.primary,
-                                ),
-                                const SizedBox(width: 3),
-                                Text(
-                                  widget.vibe!.location!,
-                                  style: GoogleFonts.outfit(
-                                    color: U.text,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
             ),
-          ],
+            const SizedBox(height: 16),
 
-          if (bio.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Text(
-              bio,
-              style: GoogleFonts.outfit(color: U.text, fontSize: 13, height: 1.4),
-            ),
-          ],
+            // Profile Header Row & Status View
+            () {
+              final hasMediaVibe = widget.vibe != null &&
+                  widget.vibe!.mediaUrl != null &&
+                  widget.vibe!.mediaUrl!.isNotEmpty;
 
-          const SizedBox(height: 20),
-
-          // Action Buttons
-          if (!isMe)
-            StreamBuilder<bool>(
-              stream: _followService.canChatStream(widget.currentUid, uid),
-              builder: (context, chatSnap) {
-                final canChat = chatSnap.data ?? false;
-
-                return Row(
+              if (hasMediaVibe) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      flex: canChat ? 3 : 1,
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          side: BorderSide(
-                            color: _hasWaved ? U.primary.withValues(alpha: 0.4) : U.border,
-                          ),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    // Compact Profile Header (Reduced-size icon)
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: U.primary.withValues(alpha: 0.12),
+                          backgroundImage: photoUrl != null && photoUrl.isNotEmpty
+                              ? CachedNetworkImageProvider(photoUrl)
+                              : null,
+                          child: photoUrl == null || photoUrl.isEmpty
+                              ? Text(
+                                  displayName.isEmpty ? 'U' : displayName[0].toUpperCase(),
+                                  style: GoogleFonts.outfit(
+                                    color: U.primary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                )
+                              : null,
                         ),
-                        onPressed: _wave,
-                        child: Text(
-                          _hasWaved ? '👋 Waved' : '👋 Wave',
-                          style: GoogleFonts.outfit(
-                            color: _hasWaved ? U.primary : U.text,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-
-                    if (canChat) ...[
-                      Expanded(
-                        flex: 3,
-                        child: OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            side: BorderSide(color: U.border),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          ),
-                          onPressed: _openChat,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(Icons.chat_bubble_outline_rounded, size: 15, color: U.text),
-                              const SizedBox(width: 6),
-                              Text('Chat', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w700)),
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      displayName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.outfit(
+                                        color: U.text,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  if (isSuperuser) ...[
+                                    const SizedBox(width: 4),
+                                    const SuperUserBadge(size: 14),
+                                  ],
+                                ],
+                              ),
+                              if (branch.isNotEmpty)
+                                Text(
+                                  branch,
+                                  style: GoogleFonts.outfit(color: U.sub, fontSize: 10.5, fontWeight: FontWeight.w500),
+                                ),
                             ],
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-
-                    Expanded(
-                      flex: canChat ? 4 : 1,
-                      child: StreamBuilder<FollowStatus>(
-                        stream: _followService.followStatusStream(widget.currentUid, uid),
-                        builder: (context, statusSnap) {
-                          final status = statusSnap.data ?? FollowStatus.notFollowing;
-                          final isFollowing = status == FollowStatus.following;
-
-                          return ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: isFollowing ? U.card : U.primary,
-                              foregroundColor: isFollowing ? U.text : U.getContrastColor(U.primary),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                side: isFollowing ? BorderSide(color: U.border) : BorderSide.none,
-                              ),
-                            ),
-                            onPressed: () => _toggleFollow(status),
-                            child: Text(
-                              status == FollowStatus.notFollowing
-                                  ? 'Follow'
-                                  : status == FollowStatus.requested
-                                      ? 'Requested'
-                                      : 'Following',
-                              style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
-                            ),
-                          );
-                        },
-                      ),
+                        if (instagramId.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: InstagramBadge(handle: instagramId, iconSize: 13, compact: true),
+                          ),
+                        if (wavesCount > 0)
+                          WaveCountBadge(count: wavesCount, compact: true),
+                      ],
                     ),
-                  ],
-                );
-              },
-            ),
-        ],
-      ),
-    );
-  }
-}
+                    const SizedBox(height: 14),
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STUDY BUDDY ROULETTE DIALOG
-// ─────────────────────────────────────────────────────────────────────────────
-class _StudyBuddyRouletteDialog extends StatefulWidget {
-  const _StudyBuddyRouletteDialog({
-    required this.user,
-    required this.currentUid,
-    required this.onWave,
-  });
-
-  final Map<String, dynamic> user;
-  final String currentUid;
-  final VoidCallback onWave;
-
-  @override
-  State<_StudyBuddyRouletteDialog> createState() => _StudyBuddyRouletteDialogState();
-}
-
-class _StudyBuddyRouletteDialogState extends State<_StudyBuddyRouletteDialog> {
-  final FollowService _followService = FollowService();
-  bool _waved = false;
-  int _selectedCatIndex = 0;
-  late String _selectedStarter;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedStarter = IcebreakerData.categories.first.starters.first;
-  }
-
-  void _selectCategory(int index) {
-    HapticFeedback.selectionClick();
-    setState(() {
-      _selectedCatIndex = index;
-      _selectedStarter = IcebreakerData.categories[index].starters.first;
-    });
-  }
-
-  void _shufflePrompt() {
-    HapticFeedback.mediumImpact();
-    final cat = IcebreakerData.categories[_selectedCatIndex];
-    final starters = cat.starters;
-    final otherStarters = starters.where((s) => s != _selectedStarter).toList();
-    if (otherStarters.isNotEmpty) {
-      setState(() {
-        _selectedStarter = otherStarters[Random().nextInt(otherStarters.length)];
-      });
-    }
-  }
-
-  void _copyPrompt() {
-    HapticFeedback.lightImpact();
-    Clipboard.setData(ClipboardData(text: _selectedStarter));
-    showUtopiaSnackBar(context, message: 'Icebreaker prompt copied! 📋', tone: UtopiaSnackBarTone.success);
-  }
-
-  Future<void> _startChatWithIcebreaker() async {
-    final uid = widget.user['uid'].toString();
-    final canChat = await _followService.canChat(widget.currentUid, uid);
-    if (!mounted) return;
-    if (!canChat) {
-      _copyPrompt();
-      if (!_waved) {
-        setState(() => _waved = true);
-        widget.onWave();
-      }
-      showUtopiaSnackBar(
-        context,
-        message: 'Prompt copied & wave sent! Follow each other to chat.',
-        tone: UtopiaSnackBarTone.info,
-      );
-      return;
-    }
-    Navigator.pop(context);
-    final cleanName = UtopiaApp.sanitizeDisplayName(
-      (widget.user['displayName'] ?? 'Student').toString(),
-    );
-    Navigator.of(context).push(
-      buildForwardRoute(
-        ChatScreen(
-          otherUserId: uid,
-          displayName: cleanName,
-          email: widget.user['email'] ?? '',
-          photoUrl: widget.user['photoUrl']?.toString(),
-          initialText: _selectedStarter,
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final displayName = UtopiaApp.sanitizeDisplayName(
-      (widget.user['displayName'] ?? 'Student').toString(),
-    );
-    final photoUrl = widget.user['photoUrl']?.toString();
-    final branch = (widget.user['branch'] ?? '').toString().trim();
-    final bio = (widget.user['bio'] ?? '').toString().trim();
-    final wavesCount = (widget.user['wavesReceivedCount'] as num?)?.toInt() ?? 0;
-    final categories = IcebreakerData.categories;
-    final currentCat = categories[_selectedCatIndex.clamp(0, categories.length - 1)];
-
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      child: Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.85,
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-        decoration: BoxDecoration(
-          color: U.surface,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: U.primary.withValues(alpha: 0.3), width: 1.2),
-          boxShadow: [
-            BoxShadow(
-              color: U.primary.withValues(alpha: 0.12),
-              blurRadius: 28,
-              spreadRadius: 2,
-            ),
-          ],
-        ),
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: U.primary.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.casino_outlined, color: U.primary, size: 24),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Study Match',
-                style: GoogleFonts.outfit(
-                  color: U.text,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Serendipitous campus peer connection',
-                style: GoogleFonts.outfit(color: U.sub, fontSize: 11.5),
-              ),
-              const SizedBox(height: 14),
-
-              CircleAvatar(
-                radius: 30,
-                backgroundColor: U.primary.withValues(alpha: 0.12),
-                backgroundImage: photoUrl != null && photoUrl.isNotEmpty
-                    ? CachedNetworkImageProvider(photoUrl)
-                    : null,
-                child: photoUrl == null || photoUrl.isEmpty
-                    ? Text(
-                        displayName.isEmpty ? 'U' : displayName[0].toUpperCase(),
-                        style: GoogleFonts.outfit(color: U.primary, fontSize: 20, fontWeight: FontWeight.w700),
-                      )
-                    : null,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                displayName,
-                style: GoogleFonts.outfit(color: U.text, fontSize: 15, fontWeight: FontWeight.w700),
-              ),
-              if (branch.isNotEmpty || wavesCount > 0) ...[
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (branch.isNotEmpty) ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    // Squared Status View-Mode Container
+                    Center(
+                      child: Container(
+                        constraints: BoxConstraints(
+                          maxWidth: (MediaQuery.of(context).size.width - 40).clamp(200.0, 260.0),
+                          maxHeight: (MediaQuery.of(context).size.width - 40).clamp(200.0, 260.0),
+                        ),
                         decoration: BoxDecoration(
                           color: U.card,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: U.border, width: 0.6),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: U.primary.withValues(alpha: 0.35), width: 1.2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: U.primary.withValues(alpha: 0.08),
+                              blurRadius: 14,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
                         ),
-                        child: Text(
-                          branch,
-                          style: GoogleFonts.outfit(color: U.sub, fontSize: 10.5, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                    ],
-                    if (wavesCount > 0)
-                      WaveCountBadge(count: wavesCount, compact: true),
-                  ],
-                ),
-              ],
-              if (bio.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(
-                  bio,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.outfit(color: U.sub, fontSize: 11.5),
-                ),
-              ],
-
-              const SizedBox(height: 16),
-
-              // ── Interest-Driven Icebreaker Selector ──
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'SELECT AN ICEBREAKER 💡',
-                    style: GoogleFonts.outfit(
-                      color: U.sub,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: _shufflePrompt,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: U.card,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: U.border),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.shuffle_rounded, size: 11, color: Color(0xFFF59E0B)),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Shuffle',
-                            style: GoogleFonts.outfit(
-                              color: U.text,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w600,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: AspectRatio(
+                            aspectRatio: 1.0,
+                            child: CachedNetworkImage(
+                              imageUrl: widget.vibe!.mediaUrl!,
+                              fit: BoxFit.contain,
+                              placeholder: (context, url) => Container(
+                                color: U.surface,
+                                alignment: Alignment.center,
+                                child: SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(U.primary),
+                                  ),
+                                ),
+                              ),
+                              errorWidget: (context, url, error) => Center(
+                                child: Icon(Icons.broken_image_rounded, size: 32, color: U.sub),
+                              ),
                             ),
                           ),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
 
-              // Horizontal Category Chips
-              SizedBox(
-                height: 30,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: categories.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 6),
-                  itemBuilder: (context, index) {
-                    final cat = categories[index];
-                    final isSelected = index == _selectedCatIndex;
-                    return GestureDetector(
-                      onTap: () => _selectCategory(index),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 160),
-                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                    // Status Details / Caption
+                    if (widget.vibe!.text.isNotEmpty || widget.vibe!.location != null) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
-                          color: isSelected ? cat.color.withValues(alpha: 0.15) : U.card,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: isSelected ? cat.color : U.border,
-                            width: isSelected ? 1.3 : 0.8,
-                          ),
+                          color: U.card,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: U.primary.withValues(alpha: 0.25), width: 0.8),
                         ),
                         child: Row(
-                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(cat.emoji, style: const TextStyle(fontSize: 11)),
-                            const SizedBox(width: 4),
-                            Text(
-                              cat.title,
-                              style: GoogleFonts.outfit(
-                                color: isSelected ? cat.color : U.text,
-                                fontSize: 10.5,
-                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                            if (widget.vibe!.emoji.isNotEmpty && widget.vibe!.emoji != '✨') ...[
+                              Text(widget.vibe!.emoji, style: const TextStyle(fontSize: 16)),
+                              const SizedBox(width: 8),
+                            ],
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (widget.vibe!.text.isNotEmpty)
+                                    Text(
+                                      widget.vibe!.text,
+                                      style: GoogleFonts.outfit(
+                                        color: U.primary,
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  if (widget.vibe!.location != null)
+                                    Text(
+                                      '📍 ${widget.vibe!.location!}',
+                                      style: GoogleFonts.outfit(color: U.sub, fontSize: 11),
+                                    ),
+                                ],
                               ),
                             ),
                           ],
                         ),
                       ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 10),
-
-              // Active Selected Prompt Card
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: currentCat.color.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: currentCat.color.withValues(alpha: 0.35)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          '${currentCat.emoji} ${currentCat.title}',
-                          style: GoogleFonts.outfit(
-                            color: currentCat.color,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const Spacer(),
-                        GestureDetector(
-                          onTap: _copyPrompt,
-                          child: Icon(Icons.copy_rounded, size: 14, color: U.sub),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '"$_selectedStarter"',
-                      style: GoogleFonts.outfit(
-                        color: U.text,
-                        fontSize: 12.5,
-                        fontStyle: FontStyle.italic,
-                        height: 1.35,
-                      ),
-                    ),
+                    ],
                   ],
-                ),
-              ),
+                );
+              }
 
-              const SizedBox(height: 10),
-
-              // Other quick sentences in this category
-              ...currentCat.starters.where((s) => s != _selectedStarter).take(2).map((starter) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: InkWell(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _selectedStarter = starter);
-                    },
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
+              // Standard Profile Header Row (when no media status is applied)
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          CircleAvatar(
+                            radius: 35,
+                            backgroundColor: U.primary.withValues(alpha: 0.12),
+                            backgroundImage: photoUrl != null && photoUrl.isNotEmpty
+                                ? CachedNetworkImageProvider(photoUrl)
+                                : null,
+                            child: photoUrl == null || photoUrl.isEmpty
+                                ? Text(
+                                    displayName.isEmpty ? 'U' : displayName[0].toUpperCase(),
+                                    style: GoogleFonts.outfit(
+                                      color: U.primary,
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          if (widget.vibe != null)
+                            Positioned(
+                              top: -6,
+                              right: -8,
+                              child: ThoughtCloudBadge(
+                                vibe: widget.vibe,
+                                avatarRadius: 35,
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    displayName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.outfit(
+                                      color: U.text,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                if (isSuperuser) ...[
+                                  const SizedBox(width: 4),
+                                  const SuperUserBadge(size: 15),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                if (branch.isNotEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                    decoration: BoxDecoration(
+                                      color: U.card,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: U.border, width: 0.6),
+                                    ),
+                                    child: Text(
+                                      branch,
+                                      style: GoogleFonts.outfit(color: U.sub, fontSize: 11, fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                if (instagramId.isNotEmpty)
+                                  InstagramBadge(handle: instagramId, iconSize: 13, compact: true),
+                                if (wavesCount > 0)
+                                  WaveCountBadge(count: wavesCount, compact: true),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Active Status Card (text only)
+                  if (widget.vibe != null) ...[
+                    const SizedBox(height: 14),
+                    Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: U.card,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: U.border.withValues(alpha: 0.6)),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: U.primary.withValues(alpha: 0.3), width: 0.8),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.chat_bubble_outline_rounded, size: 12, color: U.sub),
+                          Text(widget.vibe!.emoji, style: const TextStyle(fontSize: 18)),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              starter,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.outfit(color: U.sub, fontSize: 11),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.vibe!.text,
+                                  style: GoogleFonts.outfit(
+                                    color: U.primary,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                if (widget.vibe!.location != null)
+                                  Text(
+                                    '📍 ${widget.vibe!.location!}',
+                                    style: GoogleFonts.outfit(color: U.sub, fontSize: 11),
+                                  ),
+                              ],
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                );
-              }),
+                  ],
+                ],
+              );
+            }(),
 
-              const SizedBox(height: 16),
+            // Bio
+            if (bio.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                bio,
+                style: GoogleFonts.outfit(color: U.text, fontSize: 13, height: 1.35),
+              ),
+            ],
 
-              // Action Buttons
+            const SizedBox(height: 18),
+
+            // Actions
+            if (!isMe)
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: U.border),
-                        padding: const EdgeInsets.symmetric(vertical: 11),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: () => Navigator.pop(context),
-                      child: Text('Close', style: GoogleFonts.outfit(color: U.sub, fontWeight: FontWeight.w600, fontSize: 13)),
+                    child: UtopiaWaveButton(
+                      hasWaved: _hasWaved,
+                      onWave: _handleWave,
+                      variant: WaveButtonVariant.outlined,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _waved ? const Color(0xFFF59E0B) : U.card,
-                        foregroundColor: _waved ? Colors.white : U.text,
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 11),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(color: _waved ? Colors.transparent : U.border),
-                        ),
-                        elevation: 0,
+                        side: BorderSide(color: U.border),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      onPressed: () {
-                        if (!_waved) {
-                          setState(() => _waved = true);
-                          widget.onWave();
-                        }
+                      onPressed: _openChat,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.chat_bubble_outline_rounded, size: 14, color: U.text),
+                          const SizedBox(width: 6),
+                          Text('Message', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w700)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: StreamBuilder<FollowStatus>(
+                      stream: widget.followService.followStatusStream(widget.currentUid, uid),
+                      builder: (context, statusSnap) {
+                        final status = statusSnap.data ?? FollowStatus.notFollowing;
+                        final isFollowing = status == FollowStatus.following;
+
+                        return ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isFollowing ? U.card : U.primary,
+                            foregroundColor: isFollowing ? U.text : U.getContrastColor(U.primary),
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: isFollowing ? BorderSide(color: U.border) : BorderSide.none,
+                            ),
+                          ),
+                          onPressed: () => _handleFollow(status),
+                          child: Text(
+                            status == FollowStatus.notFollowing
+                                ? 'Follow'
+                                : status == FollowStatus.requested
+                                    ? 'Requested'
+                                    : 'Following',
+                            style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+                          ),
+                        );
                       },
-                      child: Text(
-                        _waved ? 'Waved ✨' : 'Say Hi 👋',
-                        style: GoogleFonts.outfit(fontWeight: FontWeight.w700, fontSize: 13),
-                      ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-              // Chat with prompt button
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: U.primary,
-                    foregroundColor: U.getContrastColor(U.primary),
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+// ────────────────────────────────────────────────────────────────────────────
+// BRANCH PICKER SHEET
+// ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// BRANCH PICKER SHEET
+// ────────────────────────────────────────────────────────────────────────────
+class _BranchPickerSheet extends StatefulWidget {
+  const _BranchPickerSheet({
+    required this.selectedBranch,
+    this.branchCounts = const {},
+    this.totalCount = 0,
+    required this.onSelectBranch,
+  });
+
+  final String selectedBranch;
+  final Map<String, int> branchCounts;
+  final int totalCount;
+  final ValueChanged<String> onSelectBranch;
+
+  @override
+  State<_BranchPickerSheet> createState() => _BranchPickerSheetState();
+}
+
+class _BranchPickerSheetState extends State<_BranchPickerSheet> {
+  @override
+  Widget build(BuildContext context) {
+    final filtered = kBTechBranches;
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.75,
+        ),
+        decoration: BoxDecoration(
+          color: U.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: U.border, width: 0.8),
+        ),
+        padding: EdgeInsets.fromLTRB(20, 14, 20, MediaQuery.of(context).viewInsets.bottom + 20),
+        child: Material(
+          color: Colors.transparent,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: U.border,
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  onPressed: _startChatWithIcebreaker,
-                  icon: const Icon(Icons.chat_bubble_rounded, size: 15),
-                  label: Text(
-                    'Chat with this Icebreaker 💬',
-                    style: GoogleFonts.outfit(fontWeight: FontWeight.w700, fontSize: 13),
-                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Filter by Academic Branch',
+                style: GoogleFonts.outfit(
+                  color: U.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  physics: const BouncingScrollPhysics(),
+                  keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                  children: [
+                    ListTile(
+                      dense: true,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      tileColor: widget.selectedBranch == 'All' ? U.primary.withValues(alpha: 0.12) : null,
+                      title: Text(
+                        'All Branches',
+                        style: GoogleFonts.outfit(
+                          color: widget.selectedBranch == 'All' ? U.primary : U.text,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.totalCount > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: widget.selectedBranch == 'All'
+                                    ? U.primary.withValues(alpha: 0.18)
+                                    : U.card,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: U.border, width: 0.6),
+                              ),
+                              child: Text(
+                                '${widget.totalCount} members',
+                                style: GoogleFonts.outfit(
+                                  color: widget.selectedBranch == 'All' ? U.primary : U.sub,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          if (widget.selectedBranch == 'All') ...[
+                            const SizedBox(width: 6),
+                            Icon(Icons.check_circle_rounded, color: U.primary, size: 18),
+                          ],
+                        ],
+                      ),
+                      onTap: () {
+                        widget.onSelectBranch('All');
+                        Navigator.pop(context);
+                      },
+                    ),
+                    ...filtered.map((b) {
+                      final count = widget.branchCounts[b] ?? 0;
+                      final isSelected = widget.selectedBranch == b;
+                      return ListTile(
+                        dense: true,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        tileColor: isSelected ? U.primary.withValues(alpha: 0.12) : null,
+                        title: Text(
+                          b,
+                          style: GoogleFonts.outfit(
+                            color: isSelected ? U.primary : U.text,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? U.primary.withValues(alpha: 0.18)
+                                    : count > 0
+                                        ? U.card
+                                        : Colors.transparent,
+                                borderRadius: BorderRadius.circular(8),
+                                border: count > 0 ? Border.all(color: U.border, width: 0.6) : null,
+                              ),
+                              child: Text(
+                                count > 0 ? '$count ${count == 1 ? 'member' : 'members'}' : '0',
+                                style: GoogleFonts.outfit(
+                                  color: isSelected
+                                      ? U.primary
+                                      : count > 0
+                                          ? U.text
+                                          : U.sub.withValues(alpha: 0.5),
+                                  fontSize: 11,
+                                  fontWeight: count > 0 ? FontWeight.w600 : FontWeight.w400,
+                                ),
+                              ),
+                            ),
+                            if (isSelected) ...[
+                              const SizedBox(width: 6),
+                              Icon(Icons.check_circle_rounded, color: U.primary, size: 18),
+                            ],
+                          ],
+                        ),
+                        onTap: () {
+                          widget.onSelectBranch(b);
+                          Navigator.pop(context);
+                        },
+                      );
+                    }),
+                  ],
                 ),
               ),
             ],
@@ -4133,113 +3412,18 @@ class _StudyBuddyRouletteDialogState extends State<_StudyBuddyRouletteDialog> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SKELETON LOADING
-// ─────────────────────────────────────────────────────────────────────────────
-class _MinimalPeopleSkeleton extends StatelessWidget {
-  const _MinimalPeopleSkeleton();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          childAspectRatio: 0.80,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-        ),
-        itemCount: 6,
-        itemBuilder: (context, index) {
-          return Container(
-            decoration: BoxDecoration(
-              color: U.card,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: U.border),
-            ),
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: const [
-                SkeletonBox(height: 48, width: 48, radius: 24),
-                SizedBox(height: 12),
-                SkeletonBox(height: 13, width: 90, radius: 6),
-                SizedBox(height: 8),
-                SkeletonBox(height: 10, width: 60, radius: 5),
-                Spacer(),
-                SkeletonBox(height: 28, width: double.infinity, radius: 10),
-              ],
-            ),
-          ).animate(onPlay: (c) => c.repeat(reverse: true)).fade(
-                begin: 0.3,
-                end: 0.8,
-                duration: 800.ms,
-                delay: (index * 100).ms,
-              );
-        },
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// EMPTY STATE
-// ─────────────────────────────────────────────────────────────────────────────
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 36, color: U.sub.withValues(alpha: 0.5)),
-            const SizedBox(height: 14),
-            Text(
-              title,
-              style: GoogleFonts.outfit(
-                color: U.text,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              subtitle,
-              style: GoogleFonts.outfit(color: U.sub, fontSize: 12.5),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 // SET USER BRANCH BOTTOM SHEET
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 class _SetUserBranchSheet extends StatefulWidget {
   const _SetUserBranchSheet({
     required this.currentUid,
+    this.branchCounts = const {},
     required this.onBranchSaved,
   });
 
   final String currentUid;
+  final Map<String, int> branchCounts;
   final ValueChanged<String> onBranchSaved;
 
   @override
@@ -4274,7 +3458,7 @@ class _SetUserBranchSheetState extends State<_SetUserBranchSheet> {
       }
     } catch (e) {
       if (mounted) {
-        showUtopiaSnackBar(context, message: 'Failed to update branch: $e', tone: UtopiaSnackBarTone.error);
+        showUtopiaSnackBar(context, message: 'Failed to save branch: $e', tone: UtopiaSnackBarTone.error);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -4299,7 +3483,7 @@ class _SetUserBranchSheetState extends State<_SetUserBranchSheet> {
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           border: Border.all(color: U.border, width: 0.8),
         ),
-        padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(context).viewInsets.bottom + 20),
+        padding: EdgeInsets.fromLTRB(20, 14, 20, MediaQuery.of(context).viewInsets.bottom + 20),
         child: Material(
           color: Colors.transparent,
           child: Column(
@@ -4330,7 +3514,7 @@ class _SetUserBranchSheetState extends State<_SetUserBranchSheet> {
                 'Personalize your peer directory and campus connections.',
                 style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
 
               // Search field
               Container(
@@ -4358,18 +3542,10 @@ class _SetUserBranchSheetState extends State<_SetUserBranchSheet> {
                         onChanged: (v) => setState(() => _query = v.trim()),
                       ),
                     ),
-                    if (_query.isNotEmpty)
-                      GestureDetector(
-                        onTap: () {
-                          _filterController.clear();
-                          setState(() => _query = '');
-                        },
-                        child: Icon(Icons.close_rounded, color: U.sub, size: 16),
-                      ),
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
 
               Flexible(
                 child: ListView.separated(
@@ -4379,14 +3555,40 @@ class _SetUserBranchSheetState extends State<_SetUserBranchSheet> {
                   separatorBuilder: (context, _) => const SizedBox(height: 4),
                   itemBuilder: (context, index) {
                     final branch = filtered[index];
+                    final count = widget.branchCounts[branch] ?? 0;
                     return ListTile(
                       dense: true,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       title: Text(
                         branch,
                         style: GoogleFonts.outfit(color: U.text, fontSize: 13.5, fontWeight: FontWeight.w500),
                       ),
-                      trailing: Icon(Icons.chevron_right_rounded, color: U.sub, size: 18),
+                      subtitle: count > 0
+                          ? Text(
+                              '$count ${count == 1 ? 'student' : 'students'} in this branch',
+                              style: GoogleFonts.outfit(color: U.sub, fontSize: 11),
+                            )
+                          : null,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (count > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: U.card,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: U.border, width: 0.6),
+                              ),
+                              child: Text(
+                                '$count',
+                                style: GoogleFonts.outfit(color: U.primary, fontSize: 11, fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          const SizedBox(width: 4),
+                          Icon(Icons.chevron_right_rounded, color: U.sub, size: 18),
+                        ],
+                      ),
                       onTap: () => _selectBranch(branch),
                     );
                   },
@@ -4394,6 +3596,102 @@ class _SetUserBranchSheetState extends State<_SetUserBranchSheet> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SKELETON LOADING
+// ────────────────────────────────────────────────────────────────────────────
+class _PeopleSkeleton extends StatelessWidget {
+  const _PeopleSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          childAspectRatio: 0.70,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+        ),
+        itemCount: 6,
+        itemBuilder: (context, index) {
+          return Container(
+            decoration: BoxDecoration(
+              color: U.card,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: U.border),
+            ),
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: const [
+                SkeletonBox(height: 62, width: 62, radius: 31),
+                SizedBox(height: 10),
+                SkeletonBox(height: 14, width: 85, radius: 6),
+                SizedBox(height: 6),
+                SkeletonBox(height: 10, width: 60, radius: 5),
+                Spacer(),
+                SkeletonBox(height: 30, width: double.infinity, radius: 10),
+              ],
+            ),
+          ).animate(onPlay: (c) => c.repeat(reverse: true)).fade(
+                begin: 0.3,
+                end: 0.8,
+                duration: 800.ms,
+              );
+        },
+      ),
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// EMPTY STATE
+// ────────────────────────────────────────────────────────────────────────────
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 36, color: U.sub.withValues(alpha: 0.5)),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: GoogleFonts.outfit(
+                color: U.text,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
       ),
     );

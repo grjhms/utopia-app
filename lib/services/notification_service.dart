@@ -12,8 +12,10 @@ import '../firebase_options.dart';
 import '../main.dart';
 import 'platform_support.dart';
 import '../screens/chat_screen.dart';
+import '../screens/delve/delve_shell.dart';
 import '../screens/event_certificates_screen.dart';
 import '../screens/event_notifications_screen.dart';
+import '../screens/habit_tracker_screen.dart';
 import '../screens/timetable_screen.dart';
 import '../screens/uni_chat_screen.dart';
 import '../widgets/app_motion.dart';
@@ -130,6 +132,7 @@ class NotificationService {
   static final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
+  static bool _launchDetailsHandled = false;
   static bool isDialogShowing = false;
   static StreamSubscription<User?>? _authSubscription;
   static bool _isAppForeground = true;
@@ -145,6 +148,36 @@ class NotificationService {
     showBadge: true,
   );
 
+  /// Robust timezone initialization with graceful multi-tier fallback.
+  static Future<void> _ensureTimezone() async {
+    tz.initializeTimeZones();
+    try {
+      final res = await FlutterTimezone.getLocalTimezone();
+      final String timeZoneName = res.identifier;
+      tz.setLocalLocation(tz.getLocation(timeZoneName));
+    } catch (_) {
+      try {
+        tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
+      } catch (_) {
+        tz.setLocalLocation(tz.local);
+      }
+    }
+  }
+
+  /// Await navigatorKey.currentState availability for cold-start launch notifications.
+  static Future<NavigatorState?> _waitForNavigator({
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
+    final start = DateTime.now();
+    while (navigatorKey.currentState == null) {
+      if (DateTime.now().difference(start) > timeout) {
+        return null;
+      }
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    return navigatorKey.currentState;
+  }
+
   static Future<void> initialize() async {
     if (!PlatformSupport.supportsNotifications) {
       return;
@@ -153,13 +186,7 @@ class NotificationService {
       if (_initialized) {
         return;
       }
-      tz.initializeTimeZones();
-      try {
-        final String timeZoneName = (await FlutterTimezone.getLocalTimezone()).identifier;
-        tz.setLocalLocation(tz.getLocation(timeZoneName));
-      } catch (_) {
-        tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
-      }
+      await _ensureTimezone();
 
       const AndroidInitializationSettings androidSettings =
           AndroidInitializationSettings('ic_notification');
@@ -183,7 +210,7 @@ class NotificationService {
         initSettings,
         onDidReceiveNotificationResponse: (NotificationResponse response) {
           try {
-            if (response.payload != null) {
+            if (response.payload != null && response.payload!.isNotEmpty) {
               unawaited(_handleNotificationPayload(response.payload!));
             }
             if (response.actionId != null && response.payload != null) {
@@ -210,7 +237,8 @@ class NotificationService {
 
       final launchDetails = await _localNotifications
           .getNotificationAppLaunchDetails();
-      if (launchDetails?.didNotificationLaunchApp ?? false) {
+      if (!_launchDetailsHandled && (launchDetails?.didNotificationLaunchApp ?? false)) {
+        _launchDetailsHandled = true;
         final payload = launchDetails?.notificationResponse?.payload;
         if (payload != null && payload.isNotEmpty) {
           unawaited(_handleNotificationPayload(payload));
@@ -317,10 +345,17 @@ class NotificationService {
       RemoteMessage? initialMessage = await FirebaseMessaging.instance
           .getInitialMessage();
       if (initialMessage != null) {
-        try {
-          await _handleRemoteMessageInteraction(initialMessage);
-        } catch (e) {
-          debugPrint('Error handling initialMessage: $e');
+        final msgId = initialMessage.messageId ??
+            'fcm_${initialMessage.sentTime?.millisecondsSinceEpoch}';
+        final prefs = await SharedPreferences.getInstance();
+        final lastHandledMsgId = prefs.getString('last_handled_fcm_initial_msg_id');
+        if (msgId.isNotEmpty && msgId != lastHandledMsgId) {
+          await prefs.setString('last_handled_fcm_initial_msg_id', msgId);
+          try {
+            await _handleRemoteMessageInteraction(initialMessage);
+          } catch (e) {
+            debugPrint('Error handling initialMessage: $e');
+          }
         }
       }
       _initialized = true;
@@ -332,7 +367,14 @@ class NotificationService {
 
   static Future<void> _requestRuntimePermissions() async {
     try {
-      // 1. Firebase Messaging Permission (iOS & Android)
+      // 1. Android 13+ (API 33+) POST_NOTIFICATIONS permission
+      final androidPlugin = _localNotifications.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (androidPlugin != null) {
+        await androidPlugin.requestNotificationsPermission();
+      }
+
+      // 2. Firebase Messaging Permission (iOS & Android)
       await FirebaseMessaging.instance.requestPermission(
         alert: true,
         announcement: false,
@@ -342,13 +384,6 @@ class NotificationService {
         provisional: false,
         sound: true,
       );
-
-      // 2. Android 13+ (API 33+) POST_NOTIFICATIONS permission
-      final androidPlugin = _localNotifications.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
-      if (androidPlugin != null) {
-        await androidPlugin.requestNotificationsPermission();
-      }
     } catch (e) {
       debugPrint('Error requesting runtime permissions: $e');
     }
@@ -357,15 +392,17 @@ class NotificationService {
   static Future<bool> areNotificationPermissionsEnabled() async {
     if (!PlatformSupport.supportsNotifications) return true;
     try {
-      final settings = await FirebaseMessaging.instance.getNotificationSettings();
-      if (settings.authorizationStatus == AuthorizationStatus.denied) {
-        return false;
-      }
       final androidPlugin = _localNotifications.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
       if (androidPlugin != null) {
         final areEnabled = await androidPlugin.areNotificationsEnabled();
-        return areEnabled ?? true;
+        if (areEnabled != null) {
+          return areEnabled;
+        }
+      }
+      final settings = await FirebaseMessaging.instance.getNotificationSettings();
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        return false;
       }
       return true;
     } catch (e) {
@@ -459,32 +496,77 @@ class NotificationService {
       return;
     }
 
-    const details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'utopia_high_importance_v2',
-        'UTOPIA Notifications',
-        channelDescription: 'Live alerts, chat messages, and reminders from UTOPIA',
-        importance: Importance.max,
-        priority: Priority.high,
-        playSound: true,
-        enableVibration: true,
-        visibility: NotificationVisibility.public,
-        icon: 'ic_notification',
-        largeIcon: DrawableResourceAndroidBitmap('ic_notification_large'),
-      ),
+    final payloadString = jsonEncode({
+      'title': title,
+      'body': body,
+      'data': data ?? const <String, dynamic>{},
+    });
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      presentBanner: true,
+      presentList: true,
     );
 
-    await _localNotifications.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      title,
-      body,
-      details,
-      payload: jsonEncode({
-        'title': title,
-        'body': body,
-        'data': data ?? const <String, dynamic>{},
-      }),
-    );
+    // 1. Attempt display with large icon
+    try {
+      const details = NotificationDetails(
+        android: AndroidNotificationDetails(
+          'utopia_high_importance_v2',
+          'UTOPIA Notifications',
+          channelDescription: 'Live alerts, chat messages, and reminders from UTOPIA',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+          visibility: NotificationVisibility.public,
+          icon: 'ic_notification',
+          largeIcon: DrawableResourceAndroidBitmap('ic_notification_large'),
+        ),
+        iOS: iosDetails,
+      );
+
+      await _localNotifications.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        title,
+        body,
+        details,
+        payload: payloadString,
+      );
+      return;
+    } catch (e) {
+      debugPrint('NOTIF: Failed to show local notification with large icon: $e. Retrying without large icon...');
+    }
+
+    // 2. Fallback without large icon
+    try {
+      const details = NotificationDetails(
+        android: AndroidNotificationDetails(
+          'utopia_high_importance_v2',
+          'UTOPIA Notifications',
+          channelDescription: 'Live alerts, chat messages, and reminders from UTOPIA',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+          visibility: NotificationVisibility.public,
+          icon: 'ic_notification',
+        ),
+        iOS: iosDetails,
+      );
+
+      await _localNotifications.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        title,
+        body,
+        details,
+        payload: payloadString,
+      );
+    } catch (e) {
+      debugPrint('NOTIF: Failed to show fallback local notification: $e');
+    }
   }
 
   static Future<void> _handleNotificationPayload(String payload) async {
@@ -532,23 +614,26 @@ class NotificationService {
     required String body,
     required Map<String, dynamic> data,
   }) async {
+    final navigator = await _waitForNavigator();
+    if (navigator == null) {
+      debugPrint('NOTIF: Navigator not ready to handle notification interaction');
+      return;
+    }
+
     final type = (data['type'] ?? '').toString();
     if (type == 'uni_chat' || type == 'global_chat') {
       final universityId = (data['universityId'] ?? data['university_id'] ?? '').toString();
-      final navigator = navigatorKey.currentState;
-      if (navigator != null) {
-        await navigator.push(
-          MaterialPageRoute(
-            builder: (_) => UniChatScreen(
-              universityId: universityId.isNotEmpty
-                  ? universityId
-                  : (U.cachedUniversityId.isNotEmpty
-                      ? U.cachedUniversityId
-                      : 'support'),
-            ),
+      await navigator.push(
+        MaterialPageRoute(
+          builder: (_) => UniChatScreen(
+            universityId: universityId.isNotEmpty
+                ? universityId
+                : (U.cachedUniversityId.isNotEmpty
+                    ? U.cachedUniversityId
+                    : 'support'),
           ),
-        );
-      }
+        ),
+      );
       return;
     }
     if (type == 'chat') {
@@ -567,30 +652,33 @@ class NotificationService {
       return;
     }
     if (type == 'wave' || type == 'follow_request' || type == 'follow_accept' || type == 'general' || type == 'broadcast') {
-      final navigator = navigatorKey.currentState;
-      if (navigator != null) {
-        await navigator.push(
-          MaterialPageRoute(builder: (_) => const EventNotificationsScreen()),
-        );
-      }
+      await navigator.push(
+        MaterialPageRoute(builder: (_) => const EventNotificationsScreen()),
+      );
       return;
     }
     if (type == 'certificate') {
-      final navigator = navigatorKey.currentState;
-      if (navigator != null) {
-        await navigator.push(
-          MaterialPageRoute(builder: (_) => const EventCertificatesScreen()),
-        );
-      }
+      await navigator.push(
+        MaterialPageRoute(builder: (_) => const EventCertificatesScreen()),
+      );
       return;
     }
     if (type == 'timetable') {
-      final navigator = navigatorKey.currentState;
-      if (navigator != null) {
-        await navigator.push(
-          MaterialPageRoute(builder: (_) => const TimetableScreen()),
-        );
-      }
+      await navigator.push(
+        MaterialPageRoute(builder: (_) => const TimetableScreen()),
+      );
+      return;
+    }
+    if (type == 'delve_reminder' || type == 'delve') {
+      await navigator.push(
+        MaterialPageRoute(builder: (_) => const DelveShell()),
+      );
+      return;
+    }
+    if (type == 'focus_reminder' || type == 'focus') {
+      await navigator.push(
+        MaterialPageRoute(builder: (_) => const HabitTrackerScreen()),
+      );
       return;
     }
   }
@@ -604,12 +692,16 @@ class NotificationService {
     required String type, // 'chat', 'wave', 'follow_request', 'follow_accept', 'broadcast', 'general'
     String? chatId,
     Map<String, dynamic>? extraData,
+    bool allowSelf = false,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     final senderId = user?.uid ?? '';
     final senderName = user?.displayName ?? user?.email ?? 'Student';
     final senderPhotoUrl = user?.photoURL;
-    if (senderId.isEmpty || recipientId.isEmpty || recipientId == senderId) {
+    if (senderId.isEmpty || recipientId.isEmpty) {
+      return;
+    }
+    if (!allowSelf && recipientId == senderId && type != 'general') {
       return;
     }
 
@@ -639,9 +731,8 @@ class NotificationService {
     required String otherUserId,
     required String fallbackName,
   }) async {
-    final navigator = navigatorKey.currentState;
-    final context = navigatorKey.currentContext ?? navigator?.overlay?.context;
-    if (navigator == null || context == null) {
+    final navigator = await _waitForNavigator();
+    if (navigator == null) {
       return false;
     }
 
@@ -675,22 +766,11 @@ class NotificationService {
   static Future<void> sendPersonalTestNotification({
     required String message,
   }) async {
-    const platformChannelSpecifics = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'utopia_high_importance_v2',
-        'UTOPIA Notifications',
-        channelDescription: 'Morning alerts and writer broadcasts from UTOPIA',
-        importance: Importance.max,
-        priority: Priority.high,
-        playSound: true,
-        enableVibration: true,
-      ),
-    );
-    await _localNotifications.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      'Test Notification',
-      message,
-      platformChannelSpecifics,
+    await initialize();
+    await _showLocalNotification(
+      title: 'Test Notification',
+      body: message,
+      data: const <String, dynamic>{'type': 'general'},
     );
     debugPrint("NOTIF: Test notification sent");
   }
@@ -718,13 +798,7 @@ class NotificationService {
     try {
       // Ensure service is initialized
       await initialize();
-
-      // Ensure timezone is initialized
-      tz.initializeTimeZones();
-      try {
-        final String timeZoneName = (await FlutterTimezone.getLocalTimezone()).identifier;
-        tz.setLocalLocation(tz.getLocation(timeZoneName));
-      } catch (_) {}
+      await _ensureTimezone();
       final localLocation = tz.local;
 
       // Cancel all existing timetable notifications
@@ -855,6 +929,14 @@ class NotificationService {
       } catch (_) {}
     }
 
+    const darwinDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      presentBanner: true,
+      presentList: true,
+    );
+
     // 1. Try INEXACT scheduling WITH Large Icon (Standard Google Play compliant mode)
     try {
       await _localNotifications.zonedSchedule(
@@ -875,6 +957,7 @@ class NotificationService {
             largeIcon: const DrawableResourceAndroidBitmap('ic_notification_large'),
             actions: actions,
           ),
+          iOS: darwinDetails,
         ),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
@@ -907,6 +990,7 @@ class NotificationService {
             icon: 'ic_notification',
             actions: actions,
           ),
+          iOS: darwinDetails,
         ),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
@@ -1273,12 +1357,7 @@ class NotificationService {
     if (!PlatformSupport.supportsNotifications) return;
     try {
       await initialize();
-
-      tz.initializeTimeZones();
-      try {
-        final String timeZoneName = (await FlutterTimezone.getLocalTimezone()).identifier;
-        tz.setLocalLocation(tz.getLocation(timeZoneName));
-      } catch (_) {}
+      await _ensureTimezone();
       final localLocation = tz.local;
       final now = tz.TZDateTime.now(localLocation);
 
@@ -1354,6 +1433,191 @@ class NotificationService {
     } catch (e) {
       debugPrint('NOTIF: Failed to cancel Delve reminders: $e');
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cloud & Local Notification Clearance & Dismissal Synchronization
+  // ---------------------------------------------------------------------------
+
+  /// Fetches dismissed notification IDs merged from local preferences & Firestore user document.
+  static Future<Set<String>> getDismissedNotificationIds() async {
+    final Set<String> dismissed = {};
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final localList = prefs.getStringList('dismissed_notifications') ?? [];
+      dismissed.addAll(localList);
+
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null && uid.isNotEmpty) {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .get();
+        final cloudList = userDoc.data()?['dismissedNotificationIds'];
+        if (cloudList is List) {
+          for (final item in cloudList) {
+            if (item != null) dismissed.add(item.toString());
+          }
+          // Sync merged set back to local storage
+          await prefs.setStringList('dismissed_notifications', dismissed.toList());
+        }
+      }
+    } catch (e) {
+      debugPrint('NOTIF: Error getting dismissed notification IDs: $e');
+    }
+    return dismissed;
+  }
+
+  /// Fetches the timestamp of when notifications were last cleared across devices.
+  static Future<DateTime?> getLastNotificationsClearedAt() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final localStr = prefs.getString('last_notifications_cleared_at');
+      DateTime? localDate = localStr != null ? DateTime.tryParse(localStr) : null;
+
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null && uid.isNotEmpty) {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .get();
+        final rawCloud = userDoc.data()?['lastNotificationsClearedAt'];
+        DateTime? cloudDate;
+        if (rawCloud is Timestamp) {
+          cloudDate = rawCloud.toDate();
+        } else if (rawCloud is String) {
+          cloudDate = DateTime.tryParse(rawCloud);
+        }
+
+        if (cloudDate != null) {
+          if (localDate == null || cloudDate.isAfter(localDate)) {
+            localDate = cloudDate;
+            await prefs.setString('last_notifications_cleared_at', cloudDate.toIso8601String());
+          }
+        }
+      }
+      return localDate;
+    } catch (e) {
+      debugPrint('NOTIF: Error getting last notifications cleared timestamp: $e');
+      return null;
+    }
+  }
+
+  /// Dismiss a single notification/event/wave/certificate across local and cloud storage.
+  static Future<void> dismissNotification(String notifId) async {
+    if (notifId.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final localList = prefs.getStringList('dismissed_notifications') ?? [];
+      if (!localList.contains(notifId)) {
+        localList.add(notifId);
+        await prefs.setStringList('dismissed_notifications', localList);
+      }
+
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null && uid.isNotEmpty) {
+        // Persist to user profile in Firestore
+        await FirebaseFirestore.instance.collection('users').doc(uid).set({
+          'dismissedNotificationIds': FieldValue.arrayUnion([notifId]),
+        }, SetOptions(merge: true));
+
+        // Delete from Firestore notifications collection if it exists
+        try {
+          await FirebaseFirestore.instance.collection('notifications').doc(notifId).delete();
+        } catch (_) {}
+
+        // Delete from Firestore waves collection if it exists
+        try {
+          await FirebaseFirestore.instance.collection('waves').doc(notifId).delete();
+        } catch (_) {}
+      }
+    } catch (e) {
+      debugPrint('NOTIF: Error dismissing notification $notifId: $e');
+    }
+  }
+
+  /// Clear all notifications across local and cloud Firestore storage permanently.
+  static Future<void> clearAllNotifications({List<String>? additionalIds}) async {
+    try {
+      final now = DateTime.now();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('last_notifications_cleared_at', now.toIso8601String());
+
+      final localList = prefs.getStringList('dismissed_notifications') ?? [];
+      final Set<String> updated = Set.from(localList);
+      if (additionalIds != null && additionalIds.isNotEmpty) {
+        updated.addAll(additionalIds);
+      }
+      await prefs.setStringList('dismissed_notifications', updated.toList());
+
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null && uid.isNotEmpty) {
+        final Map<String, dynamic> updateData = {
+          'lastNotificationsClearedAt': FieldValue.serverTimestamp(),
+        };
+        if (updated.isNotEmpty) {
+          updateData['dismissedNotificationIds'] = FieldValue.arrayUnion(updated.toList());
+        }
+        await FirebaseFirestore.instance.collection('users').doc(uid).set(
+          updateData,
+          SetOptions(merge: true),
+        );
+
+        // Delete all in-app notifications for this recipient
+        try {
+          final notifsSnap = await FirebaseFirestore.instance
+              .collection('notifications')
+              .where('recipientId', isEqualTo: uid)
+              .get();
+          if (notifsSnap.docs.isNotEmpty) {
+            final batch = FirebaseFirestore.instance.batch();
+            for (final doc in notifsSnap.docs) {
+              batch.delete(doc.reference);
+            }
+            await batch.commit();
+          }
+        } catch (e) {
+          debugPrint('NOTIF: Error deleting notifications batch: $e');
+        }
+
+        // Delete all waves received for this user
+        try {
+          final wavesSnap = await FirebaseFirestore.instance
+              .collection('waves')
+              .where('receiverId', isEqualTo: uid)
+              .get();
+          if (wavesSnap.docs.isNotEmpty) {
+            final batch = FirebaseFirestore.instance.batch();
+            for (final doc in wavesSnap.docs) {
+              batch.delete(doc.reference);
+            }
+            await batch.commit();
+          }
+        } catch (e) {
+          debugPrint('NOTIF: Error deleting waves batch: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('NOTIF: Error in clearAllNotifications: $e');
+    }
+  }
+
+  /// Check if a notification item is dismissed either by ID or by clear timestamp.
+  static bool isNotificationDismissed(
+    String? id, {
+    DateTime? createdAt,
+    Set<String>? dismissedIds,
+    DateTime? lastClearedAt,
+  }) {
+    if (id != null && id.isNotEmpty && dismissedIds != null && dismissedIds.contains(id)) {
+      return true;
+    }
+    if (lastClearedAt != null && createdAt != null) {
+      if (createdAt.isBefore(lastClearedAt) || createdAt.isAtSameMomentAs(lastClearedAt)) {
+        return true;
+      }
+    }
+    return false;
   }
 }
 

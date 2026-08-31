@@ -8,9 +8,10 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../main.dart';
 import '../services/follow_service.dart';
+import '../services/people_interaction_service.dart';
 import '../widgets/app_motion.dart';
 import '../widgets/instagram_badge.dart';
-import '../widgets/wave_count_badge.dart';
+import '../widgets/thought_cloud_badge.dart';
 import 'chat_screen.dart';
 import 'followers_following_screen.dart';
 
@@ -111,6 +112,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           final branch = (userData['branch'] ?? '').toString().trim();
           final instagramId = (userData['instagramId'] ?? '').toString().trim();
 
+          CampusVibe? vibe;
+          if (userData['vibe'] != null) {
+            final parsed = CampusVibe.fromMap(widget.uid, userData);
+            if ((parsed.text.isNotEmpty || (parsed.mediaUrl != null && parsed.mediaUrl!.isNotEmpty)) && !parsed.isExpired) {
+              vibe = parsed;
+            }
+          }
+
           return CustomScrollView(
             slivers: [
                       // ── App bar ──────────────────────────────────────────
@@ -148,48 +157,62 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
                                   // Avatar
-                                  GestureDetector(
-                                    onTap: () {
-                                      if (photoUrl != null && photoUrl.isNotEmpty) {
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute(
-                                            builder: (_) => Scaffold(
-                                              backgroundColor: Colors.black,
-                                              appBar: AppBar(
-                                                backgroundColor: Colors.black,
-                                                iconTheme: const IconThemeData(color: Colors.white),
-                                              ),
-                                              body: Center(
-                                                child: InteractiveViewer(
-                                                  child: CachedNetworkImage(imageUrl: photoUrl),
+                                  Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      GestureDetector(
+                                        onTap: () {
+                                          if (photoUrl != null && photoUrl.isNotEmpty) {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (_) => Scaffold(
+                                                  backgroundColor: Colors.black,
+                                                  appBar: AppBar(
+                                                    backgroundColor: Colors.black,
+                                                    iconTheme: const IconThemeData(color: Colors.white),
+                                                  ),
+                                                  body: Center(
+                                                    child: InteractiveViewer(
+                                                      child: CachedNetworkImage(imageUrl: photoUrl),
+                                                    ),
+                                                  ),
                                                 ),
                                               ),
-                                            ),
-                                          ),
-                                        );
-                                      }
-                                    },
-                                    child: CircleAvatar(
-                                      radius: 44,
-                                      backgroundColor:
-                                          U.primary.withValues(alpha: 0.15),
-                                      backgroundImage:
-                                          photoUrl != null && photoUrl.isNotEmpty
-                                              ? CachedNetworkImageProvider(photoUrl)
+                                            );
+                                          }
+                                        },
+                                        child: CircleAvatar(
+                                          radius: 44,
+                                          backgroundColor:
+                                              U.primary.withValues(alpha: 0.15),
+                                          backgroundImage:
+                                              photoUrl != null && photoUrl.isNotEmpty
+                                                  ? CachedNetworkImageProvider(photoUrl)
+                                                  : null,
+                                          child: photoUrl == null || photoUrl.isEmpty
+                                              ? Text(
+                                                  displayName.isEmpty
+                                                      ? 'U'
+                                                      : displayName[0].toUpperCase(),
+                                                  style: GoogleFonts.outfit(
+                                                    color: U.primary,
+                                                    fontSize: 32,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                )
                                               : null,
-                                      child: photoUrl == null || photoUrl.isEmpty
-                                          ? Text(
-                                              displayName.isEmpty
-                                                  ? 'U'
-                                                  : displayName[0].toUpperCase(),
-                                              style: GoogleFonts.outfit(
-                                                color: U.primary,
-                                                fontSize: 32,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            )
-                                          : null,
-                                    ),
+                                        ),
+                                      ),
+                                      if (vibe != null)
+                                        Positioned(
+                                          top: -6,
+                                          right: -8,
+                                          child: ThoughtCloudBadge(
+                                            vibe: vibe,
+                                            avatarRadius: 44,
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                   const SizedBox(width: 24),
 
@@ -285,7 +308,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                        ),
                                      ),
                                    ],
-                                   if (branch.isNotEmpty || instagramId.isNotEmpty || ((userData['wavesReceivedCount'] as num?)?.toInt() ?? 0) > 0) ...[
+                                   if (branch.isNotEmpty || instagramId.isNotEmpty) ...[
                                      const SizedBox(height: 10),
                                      Wrap(
                                        spacing: 8,
@@ -321,9 +344,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                            ),
                                          if (instagramId.isNotEmpty)
                                            InstagramBadge(handle: instagramId),
-                                         WaveCountBadge(
-                                           count: (userData['wavesReceivedCount'] as num?)?.toInt() ?? 0,
-                                         ),
                                        ],
                                      ),
                                    ],

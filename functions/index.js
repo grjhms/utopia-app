@@ -192,10 +192,10 @@ exports.onWaveCreated = onDocumentCreated(
 
     if (!receiverId || receiverId === senderId) return;
 
-    const title = isReply ? "Wave Back 👋" : "Wave Received 👋";
+    const title = isReply ? "Wave Back" : "Wave Received";
     const body = isReply
-      ? `${senderName} waved back at you! 👋`
-      : `${senderName} waved at you! Tap to wave back 👋`;
+      ? `${senderName} waved back at you!`
+      : `${senderName} waved at you! Tap to wave back`;
 
     await sendPushToUser(
       receiverId,

@@ -4,10 +4,8 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
-import '../widgets/utopia_snackbar.dart';
 import 'university_selection_screen.dart';
 import 'iaa_screen.dart'; // ignore: unused_import
 import 'attendance_screen.dart'; // ignore: unused_import
@@ -19,9 +17,11 @@ import 'events_screen.dart';
 import 'event_notifications_screen.dart';
 import '../services/cache_service.dart';
 import '../services/event_service.dart';
+import '../services/notification_service.dart';
 import '../models/event_model.dart';
 import 'community_notes_screen.dart'; // ignore: unused_import
 import 'classes_screen.dart';
+import 'timetable_screen.dart';
 
 class UniversityScreen extends StatefulWidget {
   const UniversityScreen({super.key});
@@ -45,8 +45,8 @@ class _UniversityScreenState extends State<UniversityScreen> {
 
   Future<void> _loadNotificationCount() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final dismissedIds = prefs.getStringList('dismissed_notifications') ?? [];
+      final dismissedIds = await NotificationService.getDismissedNotificationIds();
+      final lastClearedAt = await NotificationService.getLastNotificationsClearedAt();
 
       final results = await Future.wait([
         EventService.instance.getEndingSoonEvents(limit: 5),
@@ -54,9 +54,24 @@ class _UniversityScreenState extends State<UniversityScreen> {
         EventService.instance.getMyCertificates(),
       ]);
 
-      final endingSoon = (results[0] as List<EventModel>).where((e) => !dismissedIds.contains(e.id)).toList();
-      final newEvents = (results[1] as List<EventModel>).where((e) => !dismissedIds.contains(e.id)).toList();
-      final certificates = (results[2] as List<EventCertificate>).where((c) => !dismissedIds.contains(c.id)).toList();
+      final endingSoon = (results[0] as List<EventModel>).where((e) => !NotificationService.isNotificationDismissed(
+            e.id,
+            dismissedIds: dismissedIds,
+            lastClearedAt: lastClearedAt,
+            createdAt: e.createdAt ?? e.date,
+          )).toList();
+      final newEvents = (results[1] as List<EventModel>).where((e) => !NotificationService.isNotificationDismissed(
+            e.id,
+            dismissedIds: dismissedIds,
+            lastClearedAt: lastClearedAt,
+            createdAt: e.createdAt ?? e.date,
+          )).toList();
+      final certificates = (results[2] as List<EventCertificate>).where((c) => !NotificationService.isNotificationDismissed(
+            c.id,
+            dismissedIds: dismissedIds,
+            lastClearedAt: lastClearedAt,
+            createdAt: c.issuedAt,
+          )).toList();
 
       if (mounted) {
         setState(() {
@@ -251,18 +266,14 @@ class _UniversityScreenState extends State<UniversityScreen> {
       ),
       _CardItem(
         title: 'Timetable',
-        subtitle: 'Feature disabled',
+        subtitle: 'View & customize\nclass schedule',
         icon: Icons.calendar_month_rounded,
-        color: Colors.grey,
-        isDisabled: true,
+        color: theme.lavender,
         delay: 250,
-        onTap: () {
-          showUtopiaSnackBar(
-            context,
-            message: 'Timetable feature is currently muted & disabled.',
-            tone: UtopiaSnackBarTone.info,
-          );
-        },
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const TimetableScreen()),
+        ),
       ),
     ];
 

@@ -460,14 +460,18 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
                     return;
                   }
                   showUtopiaSnackBar(context, message: 'Sending test push...', tone: UtopiaSnackBarTone.info);
+                  await NotificationService.sendPersonalTestNotification(
+                    message: 'Live push & system notifications are working on this device!',
+                  );
                   await NotificationService.dispatchPushNotification(
                     recipientId: user.uid,
                     title: 'UTOPIA Live Test 👋',
                     message: 'Live push notification is working on this device!',
                     type: 'general',
+                    allowSelf: true,
                   );
                   if (context.mounted) {
-                    showUtopiaSnackBar(context, message: 'Push dispatched! Check your notification tray.', tone: UtopiaSnackBarTone.success);
+                    showUtopiaSnackBar(context, message: 'Test notification triggered! Check your notification tray.', tone: UtopiaSnackBarTone.success);
                   }
                 },
               ),

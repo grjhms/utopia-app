@@ -18,6 +18,7 @@ import 'community_notes_screen.dart';
 import 'event_notifications_screen.dart';
 import '../models/event_model.dart';
 import '../services/event_service.dart';
+import '../services/notification_service.dart';
 import '../widgets/app_motion.dart';
 import '../widgets/minimal_news_pill.dart';
 import '../services/focus_supabase_service.dart';
@@ -170,8 +171,8 @@ class _FocusScreenState extends State<FocusScreen> {
   Future<void> _loadNotificationCount() async {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      final prefs = await SharedPreferences.getInstance();
-      final dismissedIds = prefs.getStringList('dismissed_notifications') ?? [];
+      final dismissedIds = await NotificationService.getDismissedNotificationIds();
+      final lastClearedAt = await NotificationService.getLastNotificationsClearedAt();
 
       int socialCount = 0;
       if (uid.isNotEmpty) {
@@ -180,7 +181,6 @@ class _FocusScreenState extends State<FocusScreen> {
               .collection('follows')
               .where('followingId', isEqualTo: uid)
               .where('status', isEqualTo: 'pending')
-              .count()
               .get();
           final unseenWaves = await FirebaseFirestore.instance
               .collection('waves')
@@ -193,10 +193,33 @@ class _FocusScreenState extends State<FocusScreen> {
               .limit(10)
               .get();
 
-          final validWaves = unseenWaves.docs.where((d) => !dismissedIds.contains(d.id)).length;
-          final validNotifs = unreadNotifs.docs.where((d) => !dismissedIds.contains(d.id)).length;
+          final validReqs = pendingReqs.docs.where((d) => !NotificationService.isNotificationDismissed(
+                d.id,
+                dismissedIds: dismissedIds,
+                lastClearedAt: lastClearedAt,
+              )).length;
 
-          socialCount = (pendingReqs.count ?? 0) + validWaves + validNotifs;
+          final validWaves = unseenWaves.docs.where((d) {
+            final createdAt = (d.data()['createdAt'] as Timestamp?)?.toDate();
+            return !NotificationService.isNotificationDismissed(
+              d.id,
+              dismissedIds: dismissedIds,
+              lastClearedAt: lastClearedAt,
+              createdAt: createdAt,
+            );
+          }).length;
+
+          final validNotifs = unreadNotifs.docs.where((d) {
+            final createdAt = (d.data()['createdAt'] as Timestamp?)?.toDate();
+            return !NotificationService.isNotificationDismissed(
+              d.id,
+              dismissedIds: dismissedIds,
+              lastClearedAt: lastClearedAt,
+              createdAt: createdAt,
+            );
+          }).length;
+
+          socialCount = validReqs + validWaves + validNotifs;
         } catch (_) {}
       }
 
@@ -206,9 +229,24 @@ class _FocusScreenState extends State<FocusScreen> {
         EventService.instance.getMyCertificates(),
       ]);
 
-      final endingSoon = (results[0] as List<EventModel>).where((e) => !dismissedIds.contains(e.id)).toList();
-      final newEvents = (results[1] as List<EventModel>).where((e) => !dismissedIds.contains(e.id)).toList();
-      final certificates = (results[2] as List<EventCertificate>).where((c) => !dismissedIds.contains(c.id)).toList();
+      final endingSoon = (results[0] as List<EventModel>).where((e) => !NotificationService.isNotificationDismissed(
+            e.id,
+            dismissedIds: dismissedIds,
+            lastClearedAt: lastClearedAt,
+            createdAt: e.createdAt ?? e.date,
+          )).toList();
+      final newEvents = (results[1] as List<EventModel>).where((e) => !NotificationService.isNotificationDismissed(
+            e.id,
+            dismissedIds: dismissedIds,
+            lastClearedAt: lastClearedAt,
+            createdAt: e.createdAt ?? e.date,
+          )).toList();
+      final certificates = (results[2] as List<EventCertificate>).where((c) => !NotificationService.isNotificationDismissed(
+            c.id,
+            dismissedIds: dismissedIds,
+            lastClearedAt: lastClearedAt,
+            createdAt: c.issuedAt,
+          )).toList();
 
       if (mounted) {
         setState(() {

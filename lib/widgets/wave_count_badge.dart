@@ -48,10 +48,7 @@ class WaveCountBadge extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(
-              '👋',
-              style: TextStyle(fontSize: iconSize * 0.85, height: 1.1),
-            ),
+            Text('👋', style: TextStyle(fontSize: iconSize * 0.85, height: 1.1)),
             const SizedBox(width: 3),
             Text(
               countStr,
@@ -81,10 +78,7 @@ class WaveCountBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            '👋',
-            style: TextStyle(fontSize: iconSize, height: 1.1),
-          ),
+          Text('👋', style: TextStyle(fontSize: iconSize, height: 1.1)),
           const SizedBox(width: 4),
           Text(
             countStr,

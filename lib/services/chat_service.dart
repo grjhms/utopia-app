@@ -176,10 +176,13 @@ class ChatService {
     required String otherUserId,
     required String text,
     Map<String, dynamic>? replyTo,
+    String? mediaUrl,
+    String? mediaType,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     final trimmed = text.trim();
-    if (user == null || trimmed.isEmpty) {
+    final isMedia = mediaUrl != null && mediaUrl.isNotEmpty;
+    if (user == null || (trimmed.isEmpty && !isMedia)) {
       return;
     }
 
@@ -187,16 +190,22 @@ class ChatService {
     final chatRef = _firestore.collection('chats').doc(chatId);
     final messageRef = chatRef.collection('messages').doc();
     final sentAt = Timestamp.now();
-    final previewText = trimmed;
+    final previewText = isMedia
+        ? (mediaType == 'gif' ? '👾 GIF' : (mediaType == 'sticker' ? '🎨 Sticker' : 'Media'))
+        : trimmed;
 
     try {
       final batch = _firestore.batch();
       final messageData = <String, dynamic>{
         'senderId': user.uid,
-        'text': trimmed,
+        'text': isMedia && trimmed.isEmpty ? previewText : trimmed,
         'timestamp': sentAt,
         'read': false,
       };
+      if (isMedia) {
+        messageData['mediaUrl'] = mediaUrl;
+        messageData['mediaType'] = mediaType ?? 'gif';
+      }
       if (replyTo != null) {
         messageData['replyTo'] = replyTo;
       }
@@ -205,7 +214,7 @@ class ChatService {
 
       batch.set(chatRef, {
         'participants': [user.uid, otherUserId]..sort(),
-        'lastMessageRaw': trimmed,
+        'lastMessageRaw': previewText,
         'lastMessage': previewText,
         'lastMessageTime': sentAt,
         'unreadCount_${user.uid}': 0,
@@ -215,6 +224,22 @@ class ChatService {
     } catch (e) {
       rethrow;
     }
+  }
+
+  Future<void> sendMedia({
+    required String otherUserId,
+    required String mediaUrl,
+    required String mediaType,
+    Map<String, dynamic>? replyTo,
+  }) async {
+    final preview = mediaType == 'gif' ? '👾 GIF' : '🎨 Sticker';
+    return sendMessage(
+      otherUserId: otherUserId,
+      text: preview,
+      replyTo: replyTo,
+      mediaUrl: mediaUrl,
+      mediaType: mediaType,
+    );
   }
 
   Future<void> sendNoteShare({
@@ -434,6 +459,8 @@ class ChatService {
         'edited': false,
         'editedAt': FieldValue.delete(),
         'noteShare': FieldValue.delete(),
+        'mediaUrl': FieldValue.delete(),
+        'mediaType': FieldValue.delete(),
       });
       await _refreshChatMeta(chatId);
     } catch (e) {
@@ -455,11 +482,14 @@ class ChatService {
     }
 
     final latestTimestamp = latest['timestamp'];
+    final mediaType = latest['mediaType'] as String?;
     final rawText = (latest['text'] ?? '').toString();
-    final previewText = rawText;
+    final previewText = mediaType != null && mediaType.isNotEmpty
+        ? (mediaType == 'gif' ? '👾 GIF' : (mediaType == 'sticker' ? '🎨 Sticker' : 'Media'))
+        : rawText;
 
     await chatRef.set({
-      'lastMessageRaw': rawText,
+      'lastMessageRaw': previewText,
       'lastMessage': previewText,
       'lastMessageTime': latestTimestamp,
     }, SetOptions(merge: true));

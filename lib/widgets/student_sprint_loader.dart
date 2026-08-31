@@ -1373,7 +1373,7 @@ class _StudentSprintPainter extends CustomPainter {
     // 0.00 -> 0.08: Deep Sleep in Bed
     // 0.08 -> 0.16: Awakening & Sitting Up in Bed (sitBlend: 0.0 -> 1.0)
     // 0.16 -> 0.28: Fluid Leap Out of Bed into Running Lane (leapBlend: 0.0 -> 1.0)
-    // 0.28 -> 0.95: Full Campus Sprint
+    // 0.28 -> 0.95: Full Campus Sprint (runBlend: 0.0 -> 1.0)
     // 0.95 -> 1.00: Gliding Up the Steps (arriveBlend: 0.0 -> 1.0)
 
     final sitT = ((progress - 0.08) / 0.08).clamp(0.0, 1.0);
@@ -1424,16 +1424,16 @@ class _StudentSprintPainter extends CustomPainter {
     if (alpha <= 0.01) return;
 
     // Blanket slides back as student sits up and jumps
-    final blanketX = homeX + 60 + sitBlend * 14 + leapBlend * 20;
+    final blanketX = homeX + 58 + sitBlend * 14 + leapBlend * 22;
     final blanketY = groundY - 37 + sitBlend * 10;
-    final blanketW = 48 - sitBlend * 16;
-    final blanketH = 33 - sitBlend * 8;
+    final blanketW = 50 - sitBlend * 16;
+    final blanketH = 34 - sitBlend * 8;
 
     final blanketPaint = Paint()
       ..color = primaryColor.withValues(alpha: alpha)
       ..style = PaintingStyle.fill;
     final blanketRect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(blanketX, blanketY, blanketW.clamp(16.0, 50.0), blanketH.clamp(14.0, 35.0)),
+      Rect.fromLTWH(blanketX, blanketY, blanketW.clamp(16.0, 52.0), blanketH.clamp(14.0, 36.0)),
       const Radius.circular(6),
     );
     canvas.drawRRect(blanketRect, blanketPaint);
@@ -1450,203 +1450,372 @@ class _StudentSprintPainter extends CustomPainter {
     required double phi,
     required double homeX,
   }) {
-    // Torso lean angle (0 = flat lying down, pi/2 = sitting upright, 0.28 rad = running forward lean)
+    // Torso spine angle from upward vertical (0 = straight up, + = forward lean into run)
     double torsoAngle;
     if (progress < 0.08) {
-      torsoAngle = 0.0; // flat
+      // Resting horizontally in bed towards pillow
+      torsoAngle = -math.pi * 0.44;
     } else if (progress < 0.16) {
-      torsoAngle = sitBlend * (math.pi * 0.48); // sits up towards 85 degrees
+      // Sitting up smoothly towards 85 degrees
+      torsoAngle = -math.pi * 0.44 * (1.0 - sitBlend) + 0.06 * sitBlend;
     } else {
-      // Blends smoothly from 85 degrees upright into 16 degrees forward sprint lean
-      final sprintLean = 0.28;
-      torsoAngle = (math.pi * 0.48) + leapBlend * (sprintLean - (math.pi * 0.48));
+      // Blends into athletic forward sprint lean (~15 degrees = 0.26 rad)
+      const sprintLean = 0.26;
+      torsoAngle = 0.06 + leapBlend * (sprintLean - 0.06);
     }
 
-    final bounce = runBlend * (math.sin(phi * 2) * 5.5);
+    // Harmonic 2-phase pelvic vertical oscillation (authentic human running bounce)
+    final bounce = runBlend * (math.sin(phi * 2) * 4.2);
     final hip = Offset(pos.dx, pos.dy + bounce);
+
+    // Anatomical chest & shoulder pivot
     final chest = Offset(
-      hip.dx + 26 * math.sin(torsoAngle),
-      hip.dy - 30 * math.cos(torsoAngle),
+      hip.dx + 22.0 * math.sin(torsoAngle),
+      hip.dy - 24.0 * math.cos(torsoAngle),
+    );
+
+    // Anatomical neck & head center
+    final neck = Offset(
+      chest.dx + 4.5 * math.sin(torsoAngle),
+      chest.dy - 4.5 * math.cos(torsoAngle),
     );
     final headCenter = Offset(
-      chest.dx + 12 * math.sin(torsoAngle),
-      chest.dy - 16 * math.cos(torsoAngle),
+      neck.dx + 8.5 * math.sin(torsoAngle),
+      neck.dy - 8.5 * math.cos(torsoAngle),
     );
 
-    // Dust particles when running fast
-    if (runBlend >= 0.8 && math.sin(phi).abs() > 0.75 && progress < 0.95) {
-      final dustPaint = Paint()..color = (isDark ? Colors.white24 : Colors.black12)..style = PaintingStyle.fill;
-      final dustX = hip.dx - 18 - (runPhase * 20 % 15);
-      canvas.drawCircle(Offset(dustX, groundY - 2), 4.5, dustPaint);
+    // Dynamic dust puffs kicked up behind athletic sneakers during fast sprint
+    if (runBlend >= 0.75 && progress < 0.95) {
+      final dustOpacity = (isDark ? 0.22 : 0.14) * runBlend;
+      final dustPaint = Paint()
+        ..color = (isDark ? Colors.white : Colors.black).withValues(alpha: dustOpacity)
+        ..style = PaintingStyle.fill;
+      for (var i = 0; i < 2; i++) {
+        final dPhase = (runPhase * 2.0 + i * 0.5) % 1.0;
+        final dustX = hip.dx - 14.0 - dPhase * 26.0;
+        final dustY = groundY - 2.0 - dPhase * 5.0;
+        final dustRadius = 2.5 + dPhase * 3.5;
+        canvas.drawCircle(Offset(dustX, dustY), dustRadius, dustPaint);
+      }
     }
 
-    // 1. Back Arm
+    // ── LAYER 1: BACK ARM (Swinging in opposition to front leg) ──
     if (runBlend > 0.05) {
+      final backArmAngle = (0.65 * math.sin(phi) + 0.20) * runBlend;
       _drawArm(
         canvas,
-        shoulder: Offset(chest.dx - 2, chest.dy + 2),
-        phaseAngle: -math.sin(phi) * 0.85 * runBlend + 0.2,
+        shoulder: Offset(chest.dx - 3.0, chest.dy + 1.0),
+        armAngle: backArmAngle,
         isFront: false,
+        runBlend: runBlend,
+        phi: phi,
       );
     }
 
-    // 2. Back Leg
+    // ── LAYER 2: BACK LEG (Human Stride with 180° phase offset) ──
     if (runBlend > 0.05) {
       _drawLeg(
         canvas,
-        hip: Offset(hip.dx - 3, hip.dy),
-        phaseAngle: math.sin(phi) * runBlend,
+        hip: Offset(hip.dx - 2.5, hip.dy),
+        phaseAngle: phi + math.pi,
         isFront: false,
+        runBlend: runBlend,
+        groundY: groundY,
       );
     }
 
-    // 3. Torso
+    // ── LAYER 3: ERGONOMIC COLLEGE BACKPACK ──
+    if (leapBlend > 0.05) {
+      final bpAlpha = leapBlend.clamp(0.0, 1.0);
+      final backpackLag = runBlend * (math.sin(phi - 0.7) * 3.0);
+      final backpackCenter = Offset(
+        chest.dx - 13.0 * leapBlend * math.cos(torsoAngle),
+        chest.dy + 2.0 + backpackLag,
+      );
+
+      final backpackPaint = Paint()
+        ..color = const Color(0xFFF97316).withValues(alpha: bpAlpha)
+        ..style = PaintingStyle.fill;
+      final backpackBorder = Paint()
+        ..color = const Color(0xFFEA580C).withValues(alpha: bpAlpha)
+        ..strokeWidth = 1.2
+        ..style = PaintingStyle.stroke;
+
+      final backpackRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: backpackCenter,
+          width: 17.0 * leapBlend,
+          height: 25.0 * leapBlend,
+        ),
+        Radius.circular(6.0 * leapBlend),
+      );
+      canvas.drawRRect(backpackRect, backpackPaint);
+      canvas.drawRRect(backpackRect, backpackBorder);
+
+      // Backpack Front Pocket & Reflector Stripe
+      final pocketPaint = Paint()
+        ..color = const Color(0xFFC2410C).withValues(alpha: bpAlpha)
+        ..style = PaintingStyle.fill;
+      final pocketRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          backpackCenter.dx - 7.0 * leapBlend,
+          backpackCenter.dy + 1.0,
+          11.0 * leapBlend,
+          9.0 * leapBlend,
+        ),
+        Radius.circular(3.0 * leapBlend),
+      );
+      canvas.drawRRect(pocketRect, pocketPaint);
+
+      final reflectorPaint = Paint()
+        ..color = const Color(0xFFFEF08A).withValues(alpha: bpAlpha * 0.85)
+        ..strokeWidth = 1.6 * leapBlend
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(
+        backpackCenter + Offset(-6.0 * leapBlend, 3.0),
+        backpackCenter + Offset(2.0 * leapBlend, 3.0),
+        reflectorPaint,
+      );
+
+      // Backpack Shoulder Straps
+      final strapPaint = Paint()
+        ..color = const Color(0xFF9A3412).withValues(alpha: bpAlpha)
+        ..strokeWidth = 3.0 * leapBlend
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(backpackCenter + Offset(4.0 * leapBlend, -7.0 * leapBlend), chest, strapPaint);
+    }
+
+    // ── LAYER 4: ATHLETIC TORSO & VARSITY HOODIE ──
     final torsoPaint = Paint()
       ..color = primaryColor
-      ..strokeWidth = 13.0
+      ..strokeWidth = 12.0
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
     canvas.drawLine(hip, chest, torsoPaint);
 
     if (runBlend > 0.3) {
-      final hoodieDetail = Paint()
-        ..color = Colors.white.withValues(alpha: 0.35 * runBlend)
-        ..strokeWidth = 2.0
+      // Athletic hoodie zipper & seamline
+      final zipperPaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.40 * runBlend)
+        ..strokeWidth = 1.8
         ..strokeCap = StrokeCap.round;
-      canvas.drawLine(Offset(chest.dx - 2, chest.dy + 3), Offset(hip.dx - 1, hip.dy - 3), hoodieDetail);
+      canvas.drawLine(
+        Offset(chest.dx - 1.5, chest.dy + 2.0),
+        Offset(hip.dx - 1.0, hip.dy - 2.0),
+        zipperPaint,
+      );
 
       // Micro-Animation: Swinging College ID Card Lanyard
-      final lanyardSwing = math.sin(phi - 0.4) * 4.0 * runBlend;
-      final lanyardPaint = Paint()..color = const Color(0xFF38BDF8)..strokeWidth = 1.2;
-      canvas.drawLine(chest, chest + Offset(2 + lanyardSwing, 12), lanyardPaint);
-      final idCardPaint = Paint()..color = Colors.white;
-      canvas.drawRect(Rect.fromLTWH(chest.dx + 2 + lanyardSwing - 2, chest.dy + 12, 4, 6), idCardPaint);
-    }
-
-    // 4. Backpack (Smoothly fades in and scales onto shoulders during leap)
-    if (leapBlend > 0.05) {
-      final bpAlpha = leapBlend.clamp(0.0, 1.0);
-      final backpackLag = runBlend * (math.sin(phi - 0.6) * 3.5);
-      final backpackCenter = Offset(chest.dx - 14 * leapBlend, chest.dy + 3 + backpackLag);
-
-      final backpackPaint = Paint()
-        ..color = const Color(0xFFF97316).withValues(alpha: bpAlpha)
-        ..style = PaintingStyle.fill;
-      final backpackRect = RRect.fromRectAndRadius(
-        Rect.fromCenter(center: backpackCenter, width: 18 * leapBlend, height: 26 * leapBlend),
-        Radius.circular(7 * leapBlend),
-      );
-      canvas.drawRRect(backpackRect, backpackPaint);
-
-      final strapPaint = Paint()
-        ..color = const Color(0xFFC2410C).withValues(alpha: bpAlpha)
-        ..strokeWidth = 3.5 * leapBlend
+      final lanyardSwing = math.sin(phi - 0.4) * 3.5 * runBlend;
+      final lanyardPaint = Paint()
+        ..color = const Color(0xFF38BDF8)
+        ..strokeWidth = 1.4
         ..strokeCap = StrokeCap.round;
-      canvas.drawLine(backpackCenter + Offset(5 * leapBlend, -6 * leapBlend), chest, strapPaint);
+      canvas.drawLine(chest, chest + Offset(2.0 + lanyardSwing, 12.0), lanyardPaint);
+
+      final idCardPaint = Paint()..color = Colors.white;
+      final idBorder = Paint()
+        ..color = const Color(0xFF0284C7)
+        ..strokeWidth = 0.8
+        ..style = PaintingStyle.stroke;
+      final idRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(chest.dx + 2.0 + lanyardSwing - 2.5, chest.dy + 12.0, 5.0, 7.0),
+        const Radius.circular(1.0),
+      );
+      canvas.drawRRect(idRect, idCardPaint);
+      canvas.drawRRect(idRect, idBorder);
     }
 
-    // 5. Front Leg
+    // ── LAYER 5: FRONT LEG (Human Stride) ──
     if (runBlend > 0.05) {
       _drawLeg(
         canvas,
-        hip: Offset(hip.dx + 3, hip.dy),
-        phaseAngle: -math.sin(phi) * runBlend,
+        hip: Offset(hip.dx + 2.5, hip.dy),
+        phaseAngle: phi,
         isFront: true,
+        runBlend: runBlend,
+        groundY: groundY,
       );
     } else {
-      // In bed legs lying/tucked
-      final inBedLeg = Paint()
-        ..color = isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B)
-        ..strokeWidth = 5.5
+      // In bed relaxed tucked legs
+      final inBedPants = Paint()
+        ..color = isDark ? const Color(0xFF1E293B) : const Color(0xFF0F172A)
+        ..strokeWidth = 6.0
         ..strokeCap = StrokeCap.round;
-      canvas.drawLine(hip, Offset(hip.dx + 18, hip.dy + 6), inBedLeg);
+      canvas.drawLine(hip, Offset(hip.dx + 18.0, hip.dy + 5.0), inBedPants);
     }
 
-    // 6. Head & Facial Expressions (Sleeping -> Shock -> Determined Sprint)
-    final skinPaint = Paint()..color = const Color(0xFFFCD34D);
-    canvas.drawCircle(headCenter, 10.0, skinPaint);
+    // ── LAYER 6: ANATOMICAL NECK & HEAD ──
+    final neckPaint = Paint()
+      ..color = const Color(0xFFEAB308)
+      ..strokeWidth = 5.2
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(chest, neck, neckPaint);
 
+    final skinPaint = Paint()..color = const Color(0xFFFCD34D);
+    canvas.drawCircle(headCenter, 9.8, skinPaint);
+
+    // Ear contour
+    final earPaint = Paint()..color = const Color(0xFFF59E0B);
+    canvas.drawCircle(headCenter + const Offset(-4.2, 1.0), 2.2, earPaint);
+
+    // ── LAYER 7: FACIAL EXPRESSIONS & HEADWEAR ──
     if (progress < 0.08) {
-      // Sleeping peaceful closed curved eyelid
+      // ── STAGE A: PEACEFUL SLEEP IN BED ──
       final eyePaint = Paint()
         ..color = const Color(0xFF0F172A)
         ..strokeWidth = 1.6
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round;
       final eyePath = Path()
-        ..moveTo(headCenter.dx - 1, headCenter.dy)
-        ..quadraticBezierTo(headCenter.dx + 2, headCenter.dy + 2, headCenter.dx + 5, headCenter.dy);
+        ..moveTo(headCenter.dx - 1.0, headCenter.dy)
+        ..quadraticBezierTo(headCenter.dx + 2.0, headCenter.dy + 2.0, headCenter.dx + 5.0, headCenter.dy);
       canvas.drawPath(eyePath, eyePaint);
 
-      // Bedhead hair
-      final hairPaint = Paint()..color = const Color(0xFF78350F);
-      canvas.drawCircle(headCenter + const Offset(-4, -6), 6.5, hairPaint);
-      canvas.drawCircle(headCenter + const Offset(1, -8), 5.5, hairPaint);
+      // Cozy Bedhead Hair
+      final hairPaint = Paint()..color = const Color(0xFF78350F)..style = PaintingStyle.fill;
+      canvas.drawCircle(headCenter + const Offset(-4.0, -5.0), 6.5, hairPaint);
+      canvas.drawCircle(headCenter + const Offset(1.0, -7.0), 5.5, hairPaint);
 
-      // Floating Zzz
+      // Floating Zzz's
       final zPaint = Paint()
         ..color = primaryColor.withValues(alpha: 0.85)
         ..strokeWidth = 1.8
         ..strokeCap = StrokeCap.round
         ..style = PaintingStyle.stroke;
-      final z1 = Offset(headCenter.dx + 16 + math.sin(phi) * 3, headCenter.dy - 12 - runPhase * 12);
-      final z2 = Offset(headCenter.dx + 26 + math.sin(phi + 1) * 3, headCenter.dy - 22 - runPhase * 14);
+      final z1 = Offset(headCenter.dx + 16.0 + math.sin(phi) * 3.0, headCenter.dy - 12.0 - runPhase * 12.0);
+      final z2 = Offset(headCenter.dx + 26.0 + math.sin(phi + 1.0) * 3.0, headCenter.dy - 22.0 - runPhase * 14.0);
       _drawLetterZ(canvas, z1, 6.0, zPaint);
       _drawLetterZ(canvas, z2, 8.5, zPaint);
     } else if (progress < 0.18) {
-      // Shocked Wide Eyes & Panic Sweat (O_O 💦)
+      // ── STAGE B: SHOCKED WAKING UP (O_O 💦 !) ──
       final eyeWhite = Paint()..color = Colors.white;
       final eyePupil = Paint()..color = const Color(0xFF0F172A);
-      canvas.drawCircle(Offset(headCenter.dx - 2, headCenter.dy - 1), 3.2, eyeWhite);
-      canvas.drawCircle(Offset(headCenter.dx + 4, headCenter.dy - 1), 3.2, eyeWhite);
-      canvas.drawCircle(Offset(headCenter.dx - 1.5, headCenter.dy - 1), 1.7, eyePupil);
-      canvas.drawCircle(Offset(headCenter.dx + 4.5, headCenter.dy - 1), 1.7, eyePupil);
+      canvas.drawCircle(Offset(headCenter.dx - 2.0, headCenter.dy - 1.0), 3.2, eyeWhite);
+      canvas.drawCircle(Offset(headCenter.dx + 4.0, headCenter.dy - 1.0), 3.2, eyeWhite);
+      canvas.drawCircle(Offset(headCenter.dx - 1.5, headCenter.dy - 1.0), 1.8, eyePupil);
+      canvas.drawCircle(Offset(headCenter.dx + 4.5, headCenter.dy - 1.0), 1.8, eyePupil);
 
       // Shocked Open Mouth
       final mouthPaint = Paint()..color = const Color(0xFF991B1B);
-      canvas.drawOval(Rect.fromCenter(center: Offset(headCenter.dx + 1.5, headCenter.dy + 5), width: 3.5, height: 4.5), mouthPaint);
+      canvas.drawOval(Rect.fromCenter(center: Offset(headCenter.dx + 1.5, headCenter.dy + 5.0), width: 3.5, height: 4.8), mouthPaint);
 
-      // Panic Sweat Drops (💦)
+      // Panic Sweat Droplets
       final sweatPaint = Paint()..color = const Color(0xFF60A5FA);
-      canvas.drawCircle(Offset(headCenter.dx + 13, headCenter.dy - 8), 2.4, sweatPaint);
-      canvas.drawCircle(Offset(headCenter.dx + 17, headCenter.dy - 2), 1.8, sweatPaint);
+      canvas.drawCircle(Offset(headCenter.dx + 13.0, headCenter.dy - 8.0), 2.4, sweatPaint);
+      canvas.drawCircle(Offset(headCenter.dx + 17.0, headCenter.dy - 2.0), 1.8, sweatPaint);
 
-      // Exclamation Mark Bubble (!)
+      // Comic Exclamation Mark Bubble (!)
       final bubblePaint = Paint()..color = const Color(0xFFEF4444);
-      canvas.drawCircle(Offset(headCenter.dx + 16, headCenter.dy - 22), 4.8, bubblePaint);
-      final exclPaint = Paint()..color = Colors.white..strokeWidth = 1.5..strokeCap = StrokeCap.round;
-      canvas.drawLine(Offset(headCenter.dx + 16, headCenter.dy - 24), Offset(headCenter.dx + 16, headCenter.dy - 21), exclPaint);
-      canvas.drawCircle(Offset(headCenter.dx + 16, headCenter.dy - 19.5), 0.8, Paint()..color = Colors.white);
+      canvas.drawCircle(Offset(headCenter.dx + 16.0, headCenter.dy - 22.0), 5.0, bubblePaint);
+      final exclPaint = Paint()..color = Colors.white..strokeWidth = 1.6..strokeCap = StrokeCap.round;
+      canvas.drawLine(Offset(headCenter.dx + 16.0, headCenter.dy - 24.5), Offset(headCenter.dx + 16.0, headCenter.dy - 21.0), exclPaint);
+      canvas.drawCircle(Offset(headCenter.dx + 16.0, headCenter.dy - 19.2), 0.9, Paint()..color = Colors.white);
     } else {
-      // Determined Sprint Face & Visor Cap
+      // ── STAGE C: DETERMINED ATHLETIC RUNNER (FORWARD VISOR CAP & EXPRESSION) ──
+      final hairPaint = Paint()..color = const Color(0xFF78350F)..style = PaintingStyle.fill;
+      canvas.drawCircle(headCenter + const Offset(-4.0, -3.0), 7.0, hairPaint);
+
+      // Hair wind tufts blowing backwards
+      if (runBlend > 0.3) {
+        final tuftPath = Path()
+          ..moveTo(headCenter.dx - 7.0, headCenter.dy - 2.0)
+          ..lineTo(headCenter.dx - 15.0 - runBlend * 3.0, headCenter.dy - 1.0 + math.sin(phi * 3) * 1.5)
+          ..lineTo(headCenter.dx - 7.0, headCenter.dy + 3.0)
+          ..close();
+        canvas.drawPath(tuftPath, hairPaint);
+      }
+
       final capPaint = Paint()
         ..color = isDark ? const Color(0xFF38BDF8) : const Color(0xFF0284C7)
         ..style = PaintingStyle.fill;
+
+      // Cap Crown (sits snugly over upper skull)
       canvas.drawArc(
-        Rect.fromCircle(center: headCenter, radius: 10.5),
-        math.pi * 0.85,
-        math.pi * 1.0,
+        Rect.fromCircle(center: headCenter, radius: 10.3),
+        math.pi * 0.82,
+        math.pi * 1.08,
         true,
         capPaint,
       );
+
+      // Cap Top Button
+      canvas.drawCircle(headCenter + const Offset(0.0, -10.4), 1.8, Paint()..color = const Color(0xFF0369A1));
+
+      // AERODYNAMIC FORWARD-FACING VISOR (Points FORWARD in +X direction towards campus!)
       final visorPath = Path()
-        ..moveTo(headCenter.dx - 9, headCenter.dy - 3)
-        ..quadraticBezierTo(headCenter.dx - 18, headCenter.dy - 1, headCenter.dx - 20, headCenter.dy + 3)
-        ..lineTo(headCenter.dx - 9, headCenter.dy + 2)
+        ..moveTo(headCenter.dx + 4.0, headCenter.dy - 4.0)
+        ..quadraticBezierTo(
+          headCenter.dx + 11.0,
+          headCenter.dy - 3.5,
+          headCenter.dx + 16.5,
+          headCenter.dy + 0.5,
+        )
+        ..quadraticBezierTo(
+          headCenter.dx + 10.0,
+          headCenter.dy + 0.5,
+          headCenter.dx + 4.5,
+          headCenter.dy - 1.0,
+        )
         ..close();
       canvas.drawPath(visorPath, capPaint);
 
-      final eyePaint = Paint()..color = const Color(0xFF0F172A);
-      canvas.drawCircle(Offset(headCenter.dx + 5, headCenter.dy - 1), 1.8, eyePaint);
+      // Under-visor subtle aerodynamic shade
+      final visorShadow = Paint()
+        ..color = Colors.black26
+        ..strokeWidth = 1.2;
+      canvas.drawLine(
+        Offset(headCenter.dx + 4.5, headCenter.dy - 0.5),
+        Offset(headCenter.dx + 14.5, headCenter.dy + 0.8),
+        visorShadow,
+      );
+
+      // Determined Focused Eye & Eyebrow
+      final pupilPaint = Paint()..color = const Color(0xFF0F172A);
+      canvas.drawCircle(Offset(headCenter.dx + 5.0, headCenter.dy - 0.5), 2.0, pupilPaint);
+      canvas.drawCircle(Offset(headCenter.dx + 5.8, headCenter.dy - 1.2), 0.7, Paint()..color = Colors.white);
+
+      final browPaint = Paint()
+        ..color = const Color(0xFF0F172A)
+        ..strokeWidth = 1.6
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(
+        Offset(headCenter.dx + 2.5, headCenter.dy - 3.5),
+        Offset(headCenter.dx + 7.5, headCenter.dy - 2.0),
+        browPaint,
+      );
+
+      // Determined Grit Mouth
+      final mouthPaint = Paint()
+        ..color = const Color(0xFF991B1B)
+        ..strokeWidth = 1.4
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(
+        Offset(headCenter.dx + 4.0, headCenter.dy + 4.5),
+        Offset(headCenter.dx + 7.0, headCenter.dy + 3.8),
+        mouthPaint,
+      );
+
+      // Flying sweat beads trailing in the sprint wind
+      if (runBlend > 0.4) {
+        final sweatPaint = Paint()..color = const Color(0xFF38BDF8).withValues(alpha: 0.85);
+        final sw1 = Offset(headCenter.dx - 12.0 - (runPhase * 16 % 12), headCenter.dy - 2.0 + math.sin(phi * 2) * 1.5);
+        final sw2 = Offset(headCenter.dx - 18.0 - (runPhase * 20 % 14), headCenter.dy + 3.0 + math.cos(phi * 2) * 1.5);
+        canvas.drawCircle(sw1, 1.8, sweatPaint);
+        canvas.drawCircle(sw2, 1.3, sweatPaint);
+      }
     }
 
-    // 7. Front Arm (Swinging notebook or reaching)
+    // ── LAYER 8: FRONT ARM (Pumping with Attendance Register) ──
     if (runBlend > 0.05) {
+      final frontArmAngle = (-0.65 * math.sin(phi) + 0.20) * runBlend;
       _drawArm(
         canvas,
-        shoulder: Offset(chest.dx + 3, chest.dy),
-        phaseAngle: math.sin(phi) * 0.85 * runBlend + 0.2,
+        shoulder: Offset(chest.dx + 3.5, chest.dy - 1.0),
+        armAngle: frontArmAngle,
         isFront: true,
+        runBlend: runBlend,
+        phi: phi,
       );
     }
   }
@@ -1920,9 +2089,15 @@ class _StudentSprintPainter extends CustomPainter {
     canvas.drawLine(const Offset(7, -28), const Offset(11, -24), eyePaint);
     canvas.drawLine(const Offset(11, -28), const Offset(7, -24), eyePaint);
 
-    // Cap
+    // Cap with bill
     final capPaint = Paint()..color = const Color(0xFF38BDF8);
-    canvas.drawCircle(const Offset(8, -32), 6.0, capPaint);
+    canvas.drawCircle(const Offset(8, -32), 6.5, capPaint);
+    final capBill = Path()
+      ..moveTo(12, -32)
+      ..lineTo(19, -29)
+      ..lineTo(14, -27)
+      ..close();
+    canvas.drawPath(capBill, capPaint);
 
     // Limbs
     final legPaint = Paint()
@@ -1931,6 +2106,11 @@ class _StudentSprintPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(const Offset(-4, 8), const Offset(-18, 16), legPaint);
     canvas.drawLine(const Offset(-4, 8), const Offset(14, 22), legPaint);
+
+    // Shoes
+    final shoePaint = Paint()..color = const Color(0xFFEF4444)..strokeWidth = 4.5..strokeCap = StrokeCap.round;
+    canvas.drawLine(const Offset(-18, 16), const Offset(-24, 18), shoePaint);
+    canvas.drawLine(const Offset(14, 22), const Offset(20, 24), shoePaint);
 
     final armPaint = Paint()
       ..color = primaryColor
@@ -1978,128 +2158,218 @@ class _StudentSprintPainter extends CustomPainter {
     required Offset hip,
     required double phaseAngle,
     required bool isFront,
+    required double runBlend,
+    required double groundY,
   }) {
-    const thighLen = 19.0;
-    const shinLen = 19.0;
+    const thighLen = 17.5;
+    const shinLen = 17.5;
 
-    final hipAngle = phaseAngle * 0.75 + 0.18;
+    // 1. Thigh angle from vertical downward (positive = forward, negative = backward)
+    // Amplitude ~0.60 rad (~34.4 deg), forward lean bias ~0.12 rad (~6.9 deg)
+    final theta = phaseAngle;
+    final thighAngle = (0.60 * math.sin(theta) + 0.12) * runBlend;
 
-    final kneeBend = phaseAngle > 0
-        ? (0.4 + phaseAngle * 0.8)
-        : (0.15 + (-phaseAngle) * 0.35);
+    // 2. Human knee flexion (knee ONLY bends backward: beta_knee >= 0)
+    // Recovery swing folds heel up towards glute (peaks when sin(theta - 0.4) is negative)
+    final recSwing = math.sin(theta - 0.4);
+    final double kneeBend;
+    if (recSwing < 0) {
+      // High heel recovery fold (up to ~75 deg)
+      kneeBend = (0.18 + 1.15 * math.pow(-recSwing, 1.35)) * runBlend;
+    } else {
+      // Ground stance / push-off shock absorption (10 deg to 24 deg)
+      kneeBend = (0.18 + 0.24 * math.sin(theta).clamp(0.0, 1.0)) * runBlend;
+    }
 
+    // 3. Knee joint position
     final knee = Offset(
-      hip.dx + thighLen * math.sin(hipAngle),
-      hip.dy + thighLen * math.cos(hipAngle),
+      hip.dx + thighLen * math.sin(thighAngle),
+      hip.dy + thighLen * math.cos(thighAngle),
     );
 
-    final shinAngle = hipAngle - kneeBend;
+    // 4. Shin & Ankle (Strictly posterior flexion: shinAngle = thighAngle - kneeBend)
+    final shinAngle = thighAngle - kneeBend;
     final ankle = Offset(
-      knee.dx - shinLen * math.sin(shinAngle),
+      knee.dx + shinLen * math.sin(shinAngle),
       knee.dy + shinLen * math.cos(shinAngle),
     );
 
-    final legColor = isFront
-        ? (isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B))
-        : (isDark ? const Color(0xFF64748B) : const Color(0xFF64748B));
+    // 5. Draw Upper Thigh & Pants
+    final pantsColor = isFront
+        ? (isDark ? const Color(0xFF1E293B) : const Color(0xFF0F172A))
+        : (isDark ? const Color(0xFF0F172A) : const Color(0xFF334155));
 
     final pantsPaint = Paint()
-      ..color = legColor
-      ..strokeWidth = isFront ? 6.5 : 5.5
+      ..color = pantsColor
+      ..strokeWidth = isFront ? 7.0 : 5.8
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
 
     canvas.drawLine(hip, knee, pantsPaint);
-    canvas.drawLine(knee, ankle, pantsPaint);
 
-    final shoePaint = Paint()
+    // Contrasting sporty side stripe on front thigh
+    if (isFront && runBlend > 0.3) {
+      final stripePaint = Paint()
+        ..color = primaryColor.withValues(alpha: 0.85)
+        ..strokeWidth = 1.6
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(
+        Offset(hip.dx + 1.2, hip.dy + 1.0),
+        Offset(knee.dx + 1.0, knee.dy - 2.0),
+        stripePaint,
+      );
+    }
+
+    // 6. Draw Lower Leg / Shin
+    final calfPaint = Paint()
+      ..color = pantsColor
+      ..strokeWidth = isFront ? 5.8 : 4.8
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+
+    canvas.drawLine(knee, ankle, calfPaint);
+
+    // Athletic Sock Cuff
+    final sockPaint = Paint()
+      ..color = Colors.white.withValues(alpha: isFront ? 0.95 : 0.7)
+      ..strokeWidth = isFront ? 4.8 : 4.0
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(ankle + Offset(-math.sin(shinAngle) * 3.5, -math.cos(shinAngle) * 3.5), ankle, sockPaint);
+
+    // 7. Athletic Running Sneaker with Dynamic Foot Rotation
+    final double footAngle;
+    if (math.sin(theta) < -0.2) {
+      footAngle = shinAngle + 0.35 * runBlend; // plantarflexed push-off
+    } else {
+      footAngle = 0.08 + (shinAngle * 0.3) * runBlend; // level runner foot
+    }
+
+    const toeLen = 10.0;
+    const heelLen = 4.0;
+    final toe = Offset(
+      ankle.dx + toeLen * math.cos(footAngle),
+      ankle.dy + toeLen * math.sin(footAngle),
+    );
+    final heel = Offset(
+      ankle.dx - heelLen * math.cos(footAngle),
+      ankle.dy - heelLen * math.sin(footAngle),
+    );
+
+    // Sneaker Upper Body
+    final shoeUpper = Paint()
       ..color = isFront ? const Color(0xFFEF4444) : const Color(0xFFDC2626)
-      ..strokeWidth = 5.0
+      ..strokeWidth = isFront ? 5.2 : 4.2
       ..strokeCap = StrokeCap.round;
-    final toe = Offset(ankle.dx + 8, ankle.dy + 2);
-    canvas.drawLine(ankle, toe, shoePaint);
+    canvas.drawLine(heel, toe, shoeUpper);
 
+    // White Running Outsole / Midsole Cushion
+    final soleOffset = Offset(-math.sin(footAngle) * 2.2, math.cos(footAngle) * 2.2);
     final solePaint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 2.0
+      ..color = Colors.white.withValues(alpha: isFront ? 0.95 : 0.75)
+      ..strokeWidth = isFront ? 2.4 : 2.0
       ..strokeCap = StrokeCap.round;
-    canvas.drawLine(ankle + const Offset(-1, 2.5), toe + const Offset(1, 2.5), solePaint);
+    canvas.drawLine(heel + soleOffset, toe + soleOffset, solePaint);
+
+    // Sneaker Laces Accent
+    if (isFront) {
+      final lacePaint = Paint()
+        ..color = Colors.white
+        ..strokeWidth = 1.4
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(ankle + const Offset(1.5, -1.0), ankle + const Offset(4.5, 0.5), lacePaint);
+    }
   }
 
   void _drawArm(
     Canvas canvas, {
     required Offset shoulder,
-    required double phaseAngle,
+    required double armAngle,
     required bool isFront,
+    required double runBlend,
+    required double phi,
   }) {
-    const armLen = 14.0;
-    final armAngle = phaseAngle;
+    const upperArmLen = 13.5;
+    const forearmLen = 13.5;
 
+    // Shoulder to Elbow (swinging in anti-phase with legs)
     final elbow = Offset(
-      shoulder.dx + armLen * math.sin(armAngle),
-      shoulder.dy + armLen * math.cos(armAngle),
+      shoulder.dx + upperArmLen * math.sin(armAngle),
+      shoulder.dy + upperArmLen * math.cos(armAngle),
     );
 
-    final forearmAngle = armAngle - 0.75;
+    // Human Sprinter Elbow is naturally bent at ~80 deg forward-upward
+    final forearmAngle = armAngle + 1.42 * runBlend;
     final hand = Offset(
-      elbow.dx + armLen * math.sin(forearmAngle),
-      elbow.dy - armLen * math.cos(forearmAngle),
+      elbow.dx + forearmLen * math.sin(forearmAngle),
+      elbow.dy + forearmLen * math.cos(forearmAngle),
     );
 
-    final armColor = isFront
+    final sleeveColor = isFront
         ? primaryColor
-        : primaryColor.withValues(alpha: 0.65);
+        : primaryColor.withValues(alpha: 0.70);
 
-    final armPaint = Paint()
-      ..color = armColor
+    final bicepPaint = Paint()
+      ..color = sleeveColor
       ..strokeWidth = isFront ? 5.5 : 4.5
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
 
-    canvas.drawLine(shoulder, elbow, armPaint);
-    canvas.drawLine(elbow, hand, armPaint);
+    canvas.drawLine(shoulder, elbow, bicepPaint);
 
-    final handPaint = Paint()
+    final forearmPaint = Paint()
+      ..color = sleeveColor
+      ..strokeWidth = isFront ? 4.8 : 4.0
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+
+    canvas.drawLine(elbow, hand, forearmPaint);
+
+    // Runner's Hand / Fist
+    final skinHandPaint = Paint()
       ..color = const Color(0xFFFCD34D)
       ..style = PaintingStyle.fill;
-    canvas.drawCircle(hand, 3.5, handPaint);
+    canvas.drawCircle(hand, isFront ? 3.4 : 3.0, skinHandPaint);
 
-    if (isFront) {
+    // Front Hand holds the Official Attendance Register / Folder
+    if (isFront && runBlend > 0.15) {
       canvas.save();
       canvas.translate(hand.dx, hand.dy);
-      canvas.rotate(0.35);
+      canvas.rotate(0.28 + math.sin(phi) * 0.08);
 
-      final bookPaint = Paint()
+      // Attendance Folder Body (Emerald / Accent)
+      final folderPaint = Paint()
         ..color = accentColor
         ..style = PaintingStyle.fill;
-      final bookRect = RRect.fromRectAndRadius(
-        const Rect.fromLTWH(-4, -13, 16, 20),
-        const Radius.circular(2.5),
+      final folderRect = RRect.fromRectAndRadius(
+        const Rect.fromLTWH(-5, -14, 18, 22),
+        const Radius.circular(3.0),
       );
-      canvas.drawRRect(bookRect, bookPaint);
+      canvas.drawRRect(folderRect, folderPaint);
 
-      final paperPaint = Paint()..color = Colors.white;
-      canvas.drawRect(const Rect.fromLTWH(8, -11, 2.5, 16), paperPaint);
+      // White Paper Sheets extending slightly
+      final sheetPaint = Paint()..color = Colors.white;
+      canvas.drawRect(const Rect.fromLTWH(8.5, -12, 3.0, 18), sheetPaint);
 
-      // Micro-Animation: Fluttering corner of notebook page in wind
-      final flutter = math.sin(phaseAngle * 4) * 2.0;
+      // Micro-Animation: Fluttering Corner in Wind
+      final flutter = math.sin(phi * 4) * 2.2;
       final flutterCorner = Path()
-        ..moveTo(10.5, -11)
-        ..lineTo(10.5 + flutter, -7)
-        ..lineTo(8.5, -11)
+        ..moveTo(11.5, -12)
+        ..lineTo(11.5 + flutter, -8)
+        ..lineTo(8.5, -12)
         ..close();
       canvas.drawPath(flutterCorner, Paint()..color = Colors.white70);
 
-      final checkPaint = Paint()
+      // Attendance Present Checkmark (✓)
+      final tickPaint = Paint()
         ..color = Colors.white
-        ..strokeWidth = 1.8
+        ..strokeWidth = 2.0
         ..strokeCap = StrokeCap.round
         ..style = PaintingStyle.stroke;
-      final checkPath = Path()
-        ..moveTo(-1, -3)
-        ..lineTo(2, 0)
-        ..lineTo(6, -6);
-      canvas.drawPath(checkPath, checkPaint);
+      final tickPath = Path()
+        ..moveTo(-1.5, -3)
+        ..lineTo(2.0, 1.0)
+        ..lineTo(7.0, -6.0);
+      canvas.drawPath(tickPath, tickPaint);
 
       canvas.restore();
     }

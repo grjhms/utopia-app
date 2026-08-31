@@ -205,19 +205,17 @@ class _LibraryHomeScreenState extends State<LibraryHomeScreen> {
                 children: [
                   const SizedBox(width: 44),
                   const SizedBox(width: 18),
-                  Opacity(
-                    opacity: 0.4,
-                    child: _HeaderButton(
-                      icon: Icons.calendar_month_rounded,
-                      tooltip: 'Timetable (Disabled)',
-                      onTap: () {
-                        showUtopiaSnackBar(
-                          context,
-                          message: 'Timetable feature is currently muted & disabled.',
-                          tone: UtopiaSnackBarTone.info,
-                        );
-                      },
-                    ),
+                  _HeaderButton(
+                    icon: Icons.calendar_month_rounded,
+                    tooltip: 'Timetable',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const TimetableScreen(),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),

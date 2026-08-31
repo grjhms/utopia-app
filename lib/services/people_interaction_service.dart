@@ -2,8 +2,8 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/wave_haptics.dart';
 
 class CampusVibe {
   const CampusVibe({
@@ -18,6 +18,7 @@ class CampusVibe {
     this.location,
     this.statusTag,
     this.durationHours = 24,
+    this.mediaUrl,
   });
 
   final String uid;
@@ -31,6 +32,7 @@ class CampusVibe {
   final String? location;
   final String? statusTag;
   final int durationHours;
+  final String? mediaUrl;
 
   factory CampusVibe.fromMap(String uid, Map<String, dynamic> data) {
     Map<String, dynamic> vibeMap = {};
@@ -58,6 +60,7 @@ class CampusVibe {
 
     final loc = vibeMap['location']?.toString().trim();
     final tag = vibeMap['statusTag']?.toString().trim();
+    final media = (vibeMap['mediaUrl'] ?? vibeMap['gifUrl'] ?? vibeMap['stickerUrl'])?.toString().trim();
 
     return CampusVibe(
       uid: uid,
@@ -71,6 +74,7 @@ class CampusVibe {
       location: (loc != null && loc.isNotEmpty) ? loc : null,
       statusTag: (tag != null && tag.isNotEmpty) ? tag : null,
       durationHours: durationHours > 0 ? durationHours : 24,
+      mediaUrl: (media != null && media.isNotEmpty) ? media : null,
     );
   }
 
@@ -143,94 +147,86 @@ class PeopleInteractionService {
 
   // Availability / Collaboration Badges
   static const List<String> statusTags = [
-    '🟢 Open to Join',
-    '🟡 Deep Focus',
-    '☕ Break Time',
-    '🧠 Study Session',
-    '🔴 DND / Exam Prep',
+    '🟢 Open to collaborate',
+    '🟡 In focus mode',
+    '☕ Taking a break',
+    '📚 Studying together',
+    '🔴 Do not disturb',
   ];
 
   // Categorized Presets for Campus Vibes
   static const Map<String, List<Map<String, String>>> categorizedVibes = {
     'All': [
-      {'emoji': '🎧', 'text': 'In the zone / Grinding DSA'},
-      {'emoji': '☕', 'text': 'Canteen run / Need coffee'},
-      {'emoji': '💻', 'text': 'Building projects / Coding'},
-      {'emoji': '📚', 'text': 'Library 2nd floor'},
-      {'emoji': '😴', 'text': 'Running on 3h of sleep'},
-      {'emoji': '🎮', 'text': 'Chilling / Game on'},
-      {'emoji': '🍕', 'text': 'Hungry / Food hunt'},
-      {'emoji': '🚀', 'text': 'Cooking something big'},
-      {'emoji': '🔥', 'text': 'Final sprint before deadline'},
-      {'emoji': '🎯', 'text': 'Target locked / Deep focus'},
-      {'emoji': '🧠', 'text': 'Solving hard leetcode / bugs'},
-      {'emoji': '🎨', 'text': 'UI/UX design sprint'},
-      {'emoji': '🧋', 'text': 'Need a quick chai break'},
-      {'emoji': '🎵', 'text': 'Blasting favorite playlist'},
+      {'emoji': '📚', 'text': 'Studying (allegedly)'},
+      {'emoji': '🏛️', 'text': 'Here for the attendance'},
+      {'emoji': '🫠', 'text': 'Brain is buffering'},
+      {'emoji': '☕', 'text': 'Fueled by caffeine'},
+      {'emoji': '💻', 'text': 'Fighting runtime errors'},
+      {'emoji': '🏃', 'text': 'Sprinting to lecture'},
+      {'emoji': '🔋', 'text': 'Social battery at 1%'},
+      {'emoji': '✍️', 'text': 'Speedrunning assignments'},
+      {'emoji': '🎧', 'text': 'Focus mode'},
+      {'emoji': '📖', 'text': 'In the library'},
+      {'emoji': '🔬', 'text': 'In the lab'},
+      {'emoji': '🥪', 'text': 'Canteen run'},
+      {'emoji': '🤝', 'text': 'Group study'},
+      {'emoji': '🏠', 'text': 'Hibernating at hostel'},
     ],
     'Study': [
-      {'emoji': '🎧', 'text': 'In the zone / Grinding DSA'},
-      {'emoji': '📚', 'text': 'Library 2nd floor'},
-      {'emoji': '🎯', 'text': 'Target locked / Deep focus'},
-      {'emoji': '🧠', 'text': 'Solving hard leetcode / bugs'},
-      {'emoji': '📝', 'text': 'Prepping for midterms / GATE'},
-      {'emoji': '📖', 'text': 'Assignment rush mode'},
+      {'emoji': '📚', 'text': 'Studying (allegedly)'},
+      {'emoji': '✍️', 'text': 'Speedrunning assignments'},
+      {'emoji': '📖', 'text': 'In the library'},
+      {'emoji': '🎧', 'text': 'Focus mode'},
+      {'emoji': '🤝', 'text': 'Group study'},
+      {'emoji': '🏛️', 'text': 'Here for the attendance'},
     ],
-    'Build': [
-      {'emoji': '💻', 'text': 'Building projects / Coding'},
-      {'emoji': '🚀', 'text': 'Cooking something big'},
-      {'emoji': '🎨', 'text': 'UI/UX design sprint'},
-      {'emoji': '🤖', 'text': 'Experimenting with AI / Agents'},
-      {'emoji': '⚡', 'text': 'Debugging mysterious bugs'},
-      {'emoji': '🛠️', 'text': 'Refactoring the backend'},
+    'Work': [
+      {'emoji': '💻', 'text': 'Fighting runtime errors'},
+      {'emoji': '🔬', 'text': 'In the lab'},
+      {'emoji': '🫠', 'text': 'Brain is buffering'},
+      {'emoji': '💡', 'text': 'Brainstorming'},
+      {'emoji': '🛠️', 'text': 'Lab practical'},
     ],
-    'Social': [
-      {'emoji': '☕', 'text': 'Canteen run / Need coffee'},
-      {'emoji': '🍕', 'text': 'Hungry / Food hunt'},
-      {'emoji': '🧋', 'text': 'Need a quick chai break'},
-      {'emoji': '🗣️', 'text': 'Free hour / Chilling at lawn'},
-      {'emoji': '🍿', 'text': 'Post-lecture hangout'},
-    ],
-    'Chill': [
-      {'emoji': '🎮', 'text': 'Chilling / Game on'},
-      {'emoji': '😴', 'text': 'Running on 3h of sleep'},
-      {'emoji': '🎵', 'text': 'Blasting favorite playlist'},
-      {'emoji': '🏃‍♂️', 'text': 'Gym grind / Playing sports'},
-      {'emoji': '🌙', 'text': 'Late night recharge vibes'},
-      {'emoji': '🏖️', 'text': 'Weekend mode initiated'},
+    'Break': [
+      {'emoji': '☕', 'text': 'Fueled by caffeine'},
+      {'emoji': '🥪', 'text': 'Canteen run'},
+      {'emoji': '🔋', 'text': 'Social battery at 1%'},
+      {'emoji': '🏃', 'text': 'Sprinting to lecture'},
+      {'emoji': '🏠', 'text': 'Hibernating at hostel'},
+      {'emoji': '🎮', 'text': 'Relaxing'},
     ],
   };
 
-  // Preset Gen-Z Campus Vibes (flat list)
+  // Preset Campus Vibes (flat list)
   static const List<Map<String, String>> presetVibes = [
-    {'emoji': '🎧', 'text': 'In the zone / Grinding DSA'},
-    {'emoji': '☕', 'text': 'Canteen run / Need coffee'},
-    {'emoji': '💻', 'text': 'Building projects / Coding'},
-    {'emoji': '📚', 'text': 'Library 2nd floor'},
-    {'emoji': '😴', 'text': 'Running on 3h of sleep'},
-    {'emoji': '🎮', 'text': 'Chilling / Game on'},
-    {'emoji': '🍕', 'text': 'Hungry / Food hunt'},
-    {'emoji': '🚀', 'text': 'Cooking something big'},
-    {'emoji': '🔥', 'text': 'Final sprint before deadline'},
-    {'emoji': '🎯', 'text': 'Target locked / Deep focus'},
-    {'emoji': '🧠', 'text': 'Solving hard leetcode / bugs'},
-    {'emoji': '🎨', 'text': 'UI/UX design sprint'},
-    {'emoji': '🧋', 'text': 'Need a quick chai break'},
-    {'emoji': '🎵', 'text': 'Blasting favorite playlist'},
+    {'emoji': '📚', 'text': 'Studying (allegedly)'},
+    {'emoji': '🏛️', 'text': 'Here for the attendance'},
+    {'emoji': '🫠', 'text': 'Brain is buffering'},
+    {'emoji': '☕', 'text': 'Fueled by caffeine'},
+    {'emoji': '💻', 'text': 'Fighting runtime errors'},
+    {'emoji': '🏃', 'text': 'Sprinting to lecture'},
+    {'emoji': '🔋', 'text': 'Social battery at 1%'},
+    {'emoji': '✍️', 'text': 'Speedrunning assignments'},
+    {'emoji': '🎧', 'text': 'Focus mode'},
+    {'emoji': '📖', 'text': 'In the library'},
+    {'emoji': '🔬', 'text': 'In the lab'},
+    {'emoji': '🥪', 'text': 'Canteen run'},
+    {'emoji': '🤝', 'text': 'Group study'},
+    {'emoji': '🏠', 'text': 'Hibernating at hostel'},
   ];
 
-  // Daily Rotating Gen-Z Campus Sparks (Templates for superusers & default pool)
+  // Daily Rotating Campus Sparks (Templates for superusers & default pool)
   static final List<SparkQuestion> sparkPool = [
     const SparkQuestion(
       id: 'spark_grind_time',
       question: 'Your peak productivity hours? ⚡',
-      options: ['Late-night owl 🦉', 'Early-morning grinder 🌅', 'Panic 2h before deadline ⏳'],
+      options: ['Night time 🌙', 'Early morning 🌅', 'Afternoon focus ☀️'],
       category: 'Study Habit',
     ),
     const SparkQuestion(
       id: 'spark_tech_pref',
       question: 'If building a project right now, you choose... 💻',
-      options: ['Mobile app with Flutter 📱', 'AI / LLM Powered Agent 🤖', 'Full-stack Web app 🌐'],
+      options: ['Mobile app with Flutter 📱', 'AI / LLM Application 🤖', 'Full-stack Web app 🌐'],
       category: 'Tech & Dev',
     ),
     const SparkQuestion(
@@ -242,55 +238,55 @@ class PeopleInteractionService {
     const SparkQuestion(
       id: 'spark_study_audio',
       question: 'What is playing in your headphones while studying? 🎧',
-      options: ['Lofi & Synthwave 🎶', 'Energetic Hip-Hop / Rock 🎸', 'Complete absolute silence 🤫'],
+      options: ['Lofi & Ambient 🎶', 'Energetic Beats & Rock 🎸', 'Complete silence 🤫'],
       category: 'Campus Vibe',
     ),
     const SparkQuestion(
       id: 'spark_gaming_vibe',
-      question: 'Favorite way to decompress after lectures? 🎮',
-      options: ['Competitive FPS / Esports 🎯', 'Cozy / Story-driven games 🕹️', 'Streaming anime & shows 🍿'],
-      category: 'Gaming',
+      question: 'Favorite way to decompress after classes? 🎮',
+      options: ['Playing video games 🎯', 'Watching shows / movies 🍿', 'Going for a walk / workout 🏃'],
+      category: 'Campus Life',
     ),
     const SparkQuestion(
       id: 'spark_canteen_pick',
       question: 'Go-to campus refuel order? ☕',
-      options: ['Cold coffee + samosa ☕', 'Maggi & Chai 🍜', 'Energy drink & chips ⚡'],
+      options: ['Coffee & Snack ☕', 'Chai & Samosa 🧋', 'Juice & Sandwich 🥪'],
       category: 'Campus Food',
     ),
     const SparkQuestion(
       id: 'spark_design_aesthetic',
-      question: 'Your UI/UX design philosophy? 🎨',
-      options: ['Ultra Dark Minimalist 🖤', 'Clean Apple-like Glassmorphism 🪟', 'Vibrant Neo-Brutalist 🌈'],
+      question: 'Your preferred UI design style? 🎨',
+      options: ['Minimalist Dark 🖤', 'Clean & Modern Glassmorphism 🪟', 'Vibrant & Colorful 🌈'],
       category: 'Design',
     ),
     const SparkQuestion(
       id: 'spark_group_study',
-      question: 'Group study sessions usually turn into... 🗣️',
-      options: ['10% study, 90% gossip & reels 🍿', 'High focus & joint problem solving 🧠', 'Existential crisis together 💀'],
-      category: 'College Life',
+      question: 'Your ideal study environment? 📚',
+      options: ['Quiet corner in the library 📖', 'Active group study session 🤝', 'Study desk at home / hostel 🏠'],
+      category: 'Study Habit',
     ),
     const SparkQuestion(
       id: 'spark_startup_vibe',
-      question: 'If you founded a startup tomorrow, it would be in... 🚀',
-      options: ['AI Developer Tools 🤖', 'EdTech / Student Life 🎓', 'Gaming & Social Media 👾'],
-      category: 'Startups',
+      question: 'If you started a project tomorrow, what field? 🚀',
+      options: ['AI & Developer Tools 🤖', 'Student & Campus Life 🎓', 'Health & Productivity 💡'],
+      category: 'Projects',
     ),
     const SparkQuestion(
       id: 'spark_exam_prep',
-      question: 'How do you prepare for midterms? 📝',
-      options: ['One-shot YouTube video at 2x ⏩', 'Studying Utopia community notes 📖', 'Praying to RNG gods 🙏'],
+      question: 'How do you prepare for exams? 📝',
+      options: ['Reviewing lecture slides & notes 📖', 'Solving past papers & practice ✍️', 'Group review with classmates 🤝'],
       category: 'Academics',
     ),
     const SparkQuestion(
       id: 'spark_music_genre',
       question: 'Top playlist on your daily commute? 🎵',
-      options: ['Indie & Acoustic 🎸', 'EDM & House 🔊', 'Hip-Hop & R&B 🎤'],
+      options: ['Indie & Acoustic 🎸', 'Electronic & Synth 🔊', 'Hip-Hop & R&B 🎤'],
       category: 'Music',
     ),
     const SparkQuestion(
       id: 'spark_fitness_grind',
       question: 'Your campus fitness routine? 🏃‍♂️',
-      options: ['Gym weightlifting 💪', 'Sports (Football / Badminton) 🏸', 'Walking between campus blocks 🚶'],
+      options: ['Gym & Weight training 💪', 'Campus Sports (Football / Badminton) 🏸', 'Evening walks / Running 🚶'],
       category: 'Fitness',
     ),
   ];
@@ -356,6 +352,7 @@ class PeopleInteractionService {
     String? location,
     String? statusTag,
     int durationHours = 24,
+    String? mediaUrl,
   }) async {
     if (_currentUid.isEmpty) return;
 
@@ -370,6 +367,9 @@ class PeopleInteractionService {
     }
     if (statusTag != null && statusTag.isNotEmpty) {
       vibeData['statusTag'] = statusTag;
+    }
+    if (mediaUrl != null && mediaUrl.isNotEmpty) {
+      vibeData['mediaUrl'] = mediaUrl;
     }
 
     await _db.collection('users').doc(_currentUid).set({
@@ -395,7 +395,7 @@ class PeopleInteractionService {
         final data = doc.data();
         if (data['vibe'] != null && data['vibe'] is Map) {
           final vibe = CampusVibe.fromMap(doc.id, data);
-          if (vibe.text.isNotEmpty && !vibe.isExpired) {
+          if ((vibe.text.isNotEmpty || (vibe.mediaUrl != null && vibe.mediaUrl!.isNotEmpty)) && !vibe.isExpired) {
             vibes.add(vibe);
           }
         }
@@ -423,9 +423,11 @@ class PeopleInteractionService {
     final now = DateTime.now();
     final todayStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 
-    try {
-      HapticFeedback.mediumImpact();
-    } catch (_) {}
+    if (isReply) {
+      WaveHaptics.waveBack();
+    } else {
+      WaveHaptics.wave();
+    }
 
     // Record locally in preferences for instant UI response
     final prefs = await SharedPreferences.getInstance();

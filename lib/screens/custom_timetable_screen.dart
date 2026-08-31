@@ -118,7 +118,32 @@ class _CustomTimetableScreenState extends State<CustomTimetableScreen>
     return '$hourStr:$minuteStr $periodStr';
   }
 
-  Future<void> _editPeriodTime(int periodIndex) async {
+  Future<void> _editSingleTime(int periodIndex, bool isStart) async {
+    final current = _periods[periodIndex];
+    final defaultHour = isStart ? (9 + periodIndex) % 24 : (10 + periodIndex) % 24;
+    final initial = _parseTimeOfDay(
+      isStart ? current.start : current.end,
+      TimeOfDay(hour: defaultHour, minute: 0),
+    );
+
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initial,
+      helpText: 'Select ${isStart ? "Start" : "End"} Time for P${periodIndex + 1}',
+    );
+    if (picked == null || !mounted) return;
+
+    final newStr = _formatTimeOfDay(picked);
+    setState(() {
+      _periods[periodIndex] = TimetablePeriod(
+        period: periodIndex + 1,
+        start: isStart ? newStr : current.start,
+        end: isStart ? current.end : newStr,
+      );
+    });
+  }
+
+  Future<void> _editPeriodBothTimes(int periodIndex) async {
     final current = _periods[periodIndex];
     final initialStart = _parseTimeOfDay(
       current.start,
@@ -161,7 +186,7 @@ class _CustomTimetableScreenState extends State<CustomTimetableScreen>
       String start = '04:20 PM';
       String end = '05:10 PM';
       if (_periods.isNotEmpty) {
-        start = _periods.last.end;
+        start = _periods.last.end.isNotEmpty ? _periods.last.end : '04:20 PM';
         final lastEndTime = _parseTimeOfDay(
           start,
           const TimeOfDay(hour: 16, minute: 20),
@@ -176,6 +201,7 @@ class _CustomTimetableScreenState extends State<CustomTimetableScreen>
       }
       _periods.add(TimetablePeriod(period: nextNum, start: start, end: end));
       for (final day in _dayKeys) {
+        _controllers[day] ??= [];
         _controllers[day]!.add(TextEditingController());
       }
     });
@@ -193,12 +219,83 @@ class _CustomTimetableScreenState extends State<CustomTimetableScreen>
         );
       }
       for (final day in _dayKeys) {
-        if (index < _controllers[day]!.length) {
+        if (_controllers[day] != null && index < _controllers[day]!.length) {
           final ctrl = _controllers[day]!.removeAt(index);
           ctrl.dispose();
         }
       }
     });
+  }
+
+  void _copyDayToAll(String currentDay) {
+    final sourceControllers = _controllers[currentDay];
+    if (sourceControllers == null) return;
+
+    setState(() {
+      for (final day in _dayKeys) {
+        if (day == currentDay) continue;
+        final targetControllers = _controllers[day] ?? [];
+        for (int i = 0; i < sourceControllers.length && i < targetControllers.length; i++) {
+          targetControllers[i].text = sourceControllers[i].text;
+        }
+      }
+    });
+
+    showUtopiaSnackBar(
+      context,
+      message: 'Copied $currentDay schedule to all other days!',
+      tone: UtopiaSnackBarTone.success,
+    );
+  }
+
+  void _clearDay(String currentDay) {
+    final controllers = _controllers[currentDay];
+    if (controllers == null) return;
+
+    setState(() {
+      for (final c in controllers) {
+        c.clear();
+      }
+    });
+
+    showUtopiaSnackBar(
+      context,
+      message: 'Cleared all classes for $currentDay',
+      tone: UtopiaSnackBarTone.info,
+    );
+  }
+
+  void _resetPeriodsToDefault() {
+    setState(() {
+      _periods = List.from(_defaultPeriods);
+      for (final day in _dayKeys) {
+        final existing = _controllers[day] ?? [];
+        while (existing.length < _periods.length) {
+          existing.add(TextEditingController());
+        }
+        while (existing.length > _periods.length) {
+          final c = existing.removeLast();
+          c.dispose();
+        }
+        _controllers[day] = existing;
+      }
+    });
+  }
+
+  Set<String> _getUniqueExistingSubjects() {
+    final set = <String>{};
+    for (final day in _dayKeys) {
+      final list = _controllers[day];
+      if (list != null) {
+        for (final c in list) {
+          final val = c.text.trim();
+          if (val.isNotEmpty && val.length > 1) {
+            set.add(val);
+          }
+        }
+      }
+    }
+    return set;
   }
 
   void _showManagePeriodsSheet() {
@@ -250,7 +347,7 @@ class _CustomTimetableScreenState extends State<CustomTimetableScreen>
                     ],
                   ),
                   Text(
-                    'Tap any start or end time to change period timings.',
+                    'Tap any start or end time to freely customize your period schedule.',
                     style: GoogleFonts.outfit(fontSize: 13, color: U.sub),
                   ),
                   const SizedBox(height: 16),
@@ -412,32 +509,64 @@ class _CustomTimetableScreenState extends State<CustomTimetableScreen>
                     ),
                   ),
                   const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: U.primary,
-                        side: BorderSide(
-                          color: U.primary.withValues(alpha: 0.5),
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 48,
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: U.primary,
+                              side: BorderSide(
+                                color: U.primary.withValues(alpha: 0.5),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            onPressed: () {
+                              _addPeriod();
+                              setModalState(() {});
+                            },
+                            icon: const Icon(Icons.add_rounded),
+                            label: Text(
+                              'Add Slot',
+                              style: GoogleFonts.outfit(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                      onPressed: () {
-                        _addPeriod();
-                        setModalState(() {});
-                      },
-                      icon: const Icon(Icons.add_rounded),
-                      label: Text(
-                        'Add Period Slot',
-                        style: GoogleFonts.outfit(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        height: 48,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: U.sub,
+                            side: BorderSide(
+                              color: U.border,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          onPressed: () {
+                            _resetPeriodsToDefault();
+                            setModalState(() {});
+                          },
+                          icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                          label: Text(
+                            'Reset',
+                            style: GoogleFonts.outfit(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
                 ],
               ),
@@ -453,7 +582,7 @@ class _CustomTimetableScreenState extends State<CustomTimetableScreen>
     try {
       final List<TimetableDay> week = [];
       for (final day in _dayKeys) {
-        final slots = _controllers[day]!.map((c) => c.text.trim()).toList();
+        final slots = (_controllers[day] ?? []).map((c) => c.text.trim()).toList();
         week.add(TimetableDay(day: day, slots: slots));
       }
 
@@ -464,14 +593,14 @@ class _CustomTimetableScreenState extends State<CustomTimetableScreen>
       if (!mounted) return;
       showUtopiaSnackBar(
         context,
-        message: 'Custom Timetable Saved!',
+        message: 'Timetable Saved Successfully!',
         tone: UtopiaSnackBarTone.success,
       );
       Navigator.pop(context, true);
     } catch (e) {
       showUtopiaSnackBar(
         context,
-        message: 'Failed to save timetable',
+        message: 'Failed to save timetable: $e',
         tone: UtopiaSnackBarTone.error,
       );
     } finally {
@@ -482,99 +611,231 @@ class _CustomTimetableScreenState extends State<CustomTimetableScreen>
   Widget _buildDayEditor(String day) {
     final controllers = _controllers[day] ?? [];
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final suggestions = _getUniqueExistingSubjects();
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(20),
-      itemCount: _periods.length,
-      itemBuilder: (context, index) {
-        final p = _periods[index];
-        final controller =
-            index < controllers.length ? controllers[index] : null;
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: isDark ? U.card : U.surface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: U.border),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                decoration: BoxDecoration(
-                  color: U.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10),
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Row(
+              children: [
+                ActionChip(
+                  avatar: const Icon(Icons.copy_rounded, size: 14),
+                  label: Text('Copy to all days', style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.w600)),
+                  backgroundColor: U.primary.withValues(alpha: 0.08),
+                  side: BorderSide(color: U.primary.withValues(alpha: 0.25)),
+                  labelStyle: TextStyle(color: U.primary),
+                  onPressed: () => _copyDayToAll(day),
                 ),
-                child: Text(
-                  'P${p.period}',
+                const SizedBox(width: 8),
+                ActionChip(
+                  avatar: Icon(Icons.clear_all_rounded, size: 15, color: U.sub),
+                  label: Text('Clear day', style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.w500)),
+                  backgroundColor: U.surface,
+                  side: BorderSide(color: U.border),
+                  labelStyle: TextStyle(color: U.sub),
+                  onPressed: () => _clearDay(day),
+                ),
+                const Spacer(),
+                Text(
+                  '${_periods.length} Periods',
                   style: GoogleFonts.outfit(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: U.primary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: U.sub,
                   ),
                 ),
+              ],
+            ),
+          ),
+        ),
+        if (suggestions.isNotEmpty)
+          SliverToBoxAdapter(
+            child: SizedBox(
+              height: 38,
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                scrollDirection: Axis.horizontal,
+                itemCount: suggestions.length,
+                separatorBuilder: (context, index) => const SizedBox(width: 8),
+                itemBuilder: (context, i) {
+                  final subj = suggestions.elementAt(i);
+                  return GestureDetector(
+                    onTap: () {
+                      // Autofill the first empty controller on this day
+                      for (final c in controllers) {
+                        if (c.text.trim().isEmpty) {
+                          c.text = subj;
+                          setState(() {});
+                          return;
+                        }
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: U.card,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: U.border.withValues(alpha: 0.8)),
+                      ),
+                      alignment: Alignment.center,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.add_rounded, size: 12, color: U.primary),
+                          const SizedBox(width: 4),
+                          Text(
+                            subj,
+                            style: GoogleFonts.outfit(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: U.text,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
-              const SizedBox(width: 8),
-              InkWell(
-                onTap: () => _editPeriodTime(index),
-                borderRadius: BorderRadius.circular(10),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
+            ),
+          ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                final p = _periods[index];
+                final controller =
+                    index < controllers.length ? controllers[index] : null;
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   decoration: BoxDecoration(
-                    color: U.bg,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: U.border.withValues(alpha: 0.8)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.access_time_rounded,
-                        size: 13,
-                        color: U.primary,
+                    color: isDark ? U.card : U.surface,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: U.border.withValues(alpha: 0.7)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.02),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
                       ),
-                      const SizedBox(width: 5),
-                      Text(
-                        '${p.start.isEmpty ? '--' : p.start} - ${p.end.isEmpty ? '--' : p.end}',
-                        style: GoogleFonts.outfit(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: U.text,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.edit_rounded, size: 12, color: U.sub),
                     ],
                   ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  style: GoogleFonts.outfit(
-                    fontSize: 15,
-                    color: U.text,
-                    fontWeight: FontWeight.w500,
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: U.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'P${p.period}',
+                          style: GoogleFonts.outfit(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: U.primary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      // Flexible Timing Capsule: tap start or end independently
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: U.bg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: U.border.withValues(alpha: 0.8)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            InkWell(
+                              onTap: () => _editSingleTime(index, true),
+                              borderRadius: BorderRadius.circular(6),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                child: Text(
+                                  p.start.isEmpty ? 'Start' : p.start,
+                                  style: GoogleFonts.outfit(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: U.text,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '-',
+                              style: GoogleFonts.outfit(
+                                fontSize: 11,
+                                color: U.sub,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            InkWell(
+                              onTap: () => _editSingleTime(index, false),
+                              borderRadius: BorderRadius.circular(6),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                child: Text(
+                                  p.end.isEmpty ? 'End' : p.end,
+                                  style: GoogleFonts.outfit(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: U.text,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            InkWell(
+                              onTap: () => _editPeriodBothTimes(index),
+                              child: Padding(
+                                padding: const EdgeInsets.only(left: 2),
+                                child: Icon(Icons.edit_rounded, size: 12, color: U.primary),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: controller,
+                          style: GoogleFonts.outfit(
+                            fontSize: 15,
+                            color: U.text,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: 'Free / Subject Name',
+                            hintStyle: GoogleFonts.outfit(
+                              fontSize: 14,
+                              color: U.sub.withValues(alpha: 0.7),
+                              fontWeight: FontWeight.w400,
+                            ),
+                            border: InputBorder.none,
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  decoration: InputDecoration(
-                    hintText: 'Free Period',
-                    hintStyle: GoogleFonts.outfit(fontSize: 15, color: U.sub),
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ),
-            ],
+                );
+              },
+              childCount: _periods.length,
+            ),
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 
@@ -585,11 +846,36 @@ class _CustomTimetableScreenState extends State<CustomTimetableScreen>
       appBar: AppBar(
         backgroundColor: U.bg,
         foregroundColor: U.text,
-        title: const Text('Custom Timetable'),
+        elevation: 0,
+        leadingWidth: 70,
+        leading: Center(
+          child: GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: U.surface,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: U.border, width: 0.5),
+              ),
+              child: Icon(Icons.arrow_back_rounded, color: U.primary, size: 18),
+            ),
+          ),
+        ),
+        title: Text(
+          'Custom Timetable',
+          style: GoogleFonts.playfairDisplay(
+            fontSize: 24,
+            fontWeight: FontWeight.w700,
+            color: U.text,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.tune_rounded),
-            tooltip: 'Manage Timings',
+            tooltip: 'Manage Periods & Timings',
             onPressed: _showManagePeriodsSheet,
           ),
         ],

@@ -354,7 +354,7 @@ class _TimetableScreenState extends State<TimetableScreen>
             ),
             trailing: Switch(
               value: _notifEnabled,
-              activeColor: U.primary,
+              activeThumbColor: U.primary,
               onChanged: _toggleNotif,
             ),
           ),
@@ -469,105 +469,114 @@ class _TimetableScreenState extends State<TimetableScreen>
       itemCount: dayData.slots.length,
       itemBuilder: (context, index) {
         final subject = dayData.slots[index].trim();
-        if (subject.isEmpty)
+        if (subject.isEmpty) {
           return const SizedBox.shrink(); // skip free periods
+        }
 
         TimetablePeriod? period;
         if (index < _userTimetable!.periods.length) {
           period = _userTimetable!.periods[index];
         }
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          decoration: BoxDecoration(
-            color: U.card,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: U.border.withValues(alpha: 0.5)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.03),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              // Beautiful timeline period capsule
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: U.primary.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: U.primary.withValues(alpha: 0.2),
-                    width: 1.5,
-                  ),
+        return GestureDetector(
+          onTap: _openEditTimetable,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            decoration: BoxDecoration(
+              color: U.card,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: U.border.withValues(alpha: 0.5)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
                 ),
-                child: Text(
-                  'P${period?.period ?? index + 1}',
-                  style: GoogleFonts.outfit(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: U.primary,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              // Subtle colored vertical divider
-              Container(
-                width: 1.5,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: U.border.withValues(alpha: 0.6),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-              ),
-              const SizedBox(width: 16),
-              // Subject Details and Timings
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      subject,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.outfit(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: U.text,
-                        letterSpacing: -0.2,
-                      ),
+              ],
+            ),
+            child: Row(
+              children: [
+                // Beautiful timeline period capsule
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: U.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: U.primary.withValues(alpha: 0.2),
+                      width: 1.5,
                     ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.schedule_rounded,
-                          size: 13,
-                          color: U.sub,
+                  ),
+                  child: Text(
+                    'P${period?.period ?? index + 1}',
+                    style: GoogleFonts.outfit(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: U.primary,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                // Subtle colored vertical divider
+                Container(
+                  width: 1.5,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: U.border.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                // Subject Details and Timings
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        subject,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.outfit(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: U.text,
+                          letterSpacing: -0.2,
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          period != null
-                              ? '${period.start} - ${period.end}'
-                              : 'Duration --',
-                          style: GoogleFonts.outfit(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.schedule_rounded,
+                            size: 13,
                             color: U.sub,
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                          const SizedBox(width: 6),
+                          Text(
+                            period != null
+                                ? '${period.start} - ${period.end}'
+                                : 'Duration --',
+                            style: GoogleFonts.outfit(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: U.sub,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                Icon(
+                  Icons.edit_outlined,
+                  size: 16,
+                  color: U.sub.withValues(alpha: 0.5),
+                ),
+              ],
+            ),
           ),
         )
         .animate()
@@ -611,45 +620,79 @@ class _TimetableScreenState extends State<TimetableScreen>
             letterSpacing: -0.5,
           ),
         ),
+        actions: [
+          if (_userTimetable != null) ...[
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'Edit Timetable & Timings',
+              onPressed: _openEditTimetable,
+            ),
+            IconButton(
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: 'Timetable Settings',
+              onPressed: () {
+                showModalBottomSheet(
+                  context: context,
+                  backgroundColor: Colors.transparent,
+                  isScrollControlled: true,
+                  builder: (context) => _buildSettingsSheet(),
+                );
+              },
+            ),
+          ],
+        ],
+        bottom: _userTimetable == null
+            ? null
+            : PreferredSize(
+                preferredSize: const Size.fromHeight(74),
+                child: Container(
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: U.card,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: U.border.withValues(alpha: 0.5)),
+                    ),
+                    child: TabBar(
+                      controller: _tabController,
+                      isScrollable: true,
+                      tabAlignment: TabAlignment.start,
+                      labelColor: U.bg,
+                      unselectedLabelColor: U.sub,
+                      indicator: BoxDecoration(
+                        color: U.primary,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      dividerColor: Colors.transparent,
+                      splashBorderRadius: BorderRadius.circular(999),
+                      labelPadding: const EdgeInsets.symmetric(horizontal: 18),
+                      labelStyle: GoogleFonts.outfit(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      unselectedLabelStyle: GoogleFonts.outfit(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      tabs: _dayLabels
+                          .map((label) => Tab(text: label))
+                          .toList(),
+                    ),
+                  ),
+                ),
+              ),
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.grey.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
+      body: _loading
+          ? const Center(child: UtopiaLoader(scale: 0.7))
+          : _userTimetable == null
+              ? _buildEmptyState()
+              : TabBarView(
+                  controller: _tabController,
+                  children: _dayLabels.map(_buildDayView).toList(),
                 ),
-                child: Icon(Icons.calendar_month_rounded, color: U.dim, size: 48),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'Feature Currently Disabled',
-                style: GoogleFonts.plusJakartaSans(
-                  color: U.text,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'The Timetable feature is currently muted and disabled by administration.',
-                style: GoogleFonts.plusJakartaSans(
-                  color: U.sub,
-                  fontSize: 13,
-                  height: 1.4,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

@@ -5,16 +5,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
 import '../models/event_model.dart';
 import '../services/event_service.dart';
 import '../services/follow_service.dart';
+import '../services/notification_service.dart';
 import '../services/people_interaction_service.dart';
 import '../widgets/app_motion.dart';
 import '../widgets/utopia_loader.dart';
 import '../widgets/utopia_snackbar.dart';
+import '../widgets/utopia_wave_button.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'chat_screen.dart';
 import 'event_certificates_screen.dart';
@@ -43,7 +44,8 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
   List<Map<String, dynamic>> _pendingFollowRequests = [];
   List<Map<String, dynamic>> _waves = [];
 
-  List<String> _dismissedIds = [];
+  Set<String> _dismissedIds = {};
+  DateTime? _lastClearedAt;
   bool _isLoading = true;
   StreamSubscription? _notifSub;
   StreamSubscription? _requestsSub;
@@ -68,8 +70,8 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
   }
 
   Future<void> _loadDismissedAndData() async {
-    final prefs = await SharedPreferences.getInstance();
-    _dismissedIds = prefs.getStringList('dismissed_notifications') ?? [];
+    _dismissedIds = await NotificationService.getDismissedNotificationIds();
+    _lastClearedAt = await NotificationService.getLastNotificationsClearedAt();
     _setupSubscriptions();
     _sparkService.syncMyWavesCount();
     await _loadEventsAndCertificates();
@@ -84,7 +86,11 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
       if (mounted) {
         setState(() {
           _pendingFollowRequests = requests
-              .where((r) => !_dismissedIds.contains(r['requestDocId']))
+              .where((r) => !NotificationService.isNotificationDismissed(
+                    r['requestDocId']?.toString(),
+                    dismissedIds: _dismissedIds,
+                    lastClearedAt: _lastClearedAt,
+                  ))
               .toList();
         });
       }
@@ -98,7 +104,12 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
       if (mounted) {
         setState(() {
           _waves = wavesList
-              .where((w) => !_dismissedIds.contains(w['waveId']))
+              .where((w) => !NotificationService.isNotificationDismissed(
+                    w['waveId']?.toString(),
+                    dismissedIds: _dismissedIds,
+                    lastClearedAt: _lastClearedAt,
+                    createdAt: (w['createdAt'] as Timestamp?)?.toDate(),
+                  ))
               .toList();
         });
       }
@@ -117,7 +128,12 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
       if (mounted) {
         final list = snapshot.docs
             .map((d) => d.data())
-            .where((n) => !_dismissedIds.contains(n['id']))
+            .where((n) => !NotificationService.isNotificationDismissed(
+                  n['id']?.toString(),
+                  dismissedIds: _dismissedIds,
+                  lastClearedAt: _lastClearedAt,
+                  createdAt: (n['createdAt'] as Timestamp?)?.toDate(),
+                ))
             .toList();
         list.sort((a, b) {
           final aTime = (a['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
@@ -144,13 +160,28 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
       if (mounted) {
         setState(() {
           _endingSoon = (results[0] as List<EventModel>)
-              .where((e) => !_dismissedIds.contains(e.id))
+              .where((e) => !NotificationService.isNotificationDismissed(
+                    e.id,
+                    dismissedIds: _dismissedIds,
+                    lastClearedAt: _lastClearedAt,
+                    createdAt: e.createdAt ?? e.date,
+                  ))
               .toList();
           _newEvents = (results[1] as List<EventModel>)
-              .where((e) => !_dismissedIds.contains(e.id))
+              .where((e) => !NotificationService.isNotificationDismissed(
+                    e.id,
+                    dismissedIds: _dismissedIds,
+                    lastClearedAt: _lastClearedAt,
+                    createdAt: e.createdAt ?? e.date,
+                  ))
               .toList();
           _certificates = (results[2] as List<EventCertificate>)
-              .where((c) => !_dismissedIds.contains(c.id))
+              .where((c) => !NotificationService.isNotificationDismissed(
+                    c.id,
+                    dismissedIds: _dismissedIds,
+                    lastClearedAt: _lastClearedAt,
+                    createdAt: c.issuedAt,
+                  ))
               .toList();
           _isLoading = false;
         });
@@ -162,14 +193,8 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
 
   Future<void> _dismissNotification(String notifId) async {
     if (notifId.isEmpty) return;
-    final prefs = await SharedPreferences.getInstance();
     _dismissedIds.add(notifId);
-    await prefs.setStringList('dismissed_notifications', _dismissedIds);
-
-    // Also delete from Firestore notifications if it exists
-    try {
-      await FirebaseFirestore.instance.collection('notifications').doc(notifId).delete();
-    } catch (_) {}
+    await NotificationService.dismissNotification(notifId);
 
     if (mounted) {
       setState(() {
@@ -184,7 +209,6 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
   }
 
   Future<void> _clearAllNotifications() async {
-    final prefs = await SharedPreferences.getInstance();
     final List<String> allIdsToDismiss = [];
 
     for (final event in _endingSoon) {
@@ -204,21 +228,15 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
       final id = w['waveId']?.toString();
       if (id != null && id.isNotEmpty) allIdsToDismiss.add(id);
     }
-
-    if (allIdsToDismiss.isEmpty && _pendingFollowRequests.isEmpty) return;
+    for (final r in _pendingFollowRequests) {
+      final id = r['requestDocId']?.toString();
+      if (id != null && id.isNotEmpty) allIdsToDismiss.add(id);
+    }
 
     _dismissedIds.addAll(allIdsToDismiss);
-    await prefs.setStringList('dismissed_notifications', _dismissedIds);
+    _lastClearedAt = DateTime.now();
 
-    // Delete Firestore notifications for user
-    for (final n in _inAppNotifications) {
-      final id = n['id']?.toString();
-      if (id != null && id.isNotEmpty) {
-        try {
-          await FirebaseFirestore.instance.collection('notifications').doc(id).delete();
-        } catch (_) {}
-      }
-    }
+    await NotificationService.clearAllNotifications(additionalIds: allIdsToDismiss);
 
     if (mounted) {
       setState(() {
@@ -227,6 +245,7 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
         _certificates.clear();
         _inAppNotifications.clear();
         _waves.clear();
+        _pendingFollowRequests.clear();
       });
       showUtopiaSnackBar(
         context,
@@ -381,7 +400,7 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
 
           // 2. Waves Received
           if (_waves.isNotEmpty) ...[
-            _buildSectionHeader('Waves Received (${_waves.length}) 👋'),
+            _buildSectionHeader('Waves Received (${_waves.length})'),
             ..._waves.map((w) => _buildWaveCard(w)),
             const SizedBox(height: 12),
           ],
@@ -439,7 +458,7 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
           const SizedBox(height: 12),
         ],
         if (_waves.isNotEmpty) ...[
-          _buildSectionHeader('Waves Received (${_waves.length}) 👋'),
+          _buildSectionHeader('Waves Received (${_waves.length})'),
           ..._waves.map((w) => _buildWaveCard(w)),
           const SizedBox(height: 12),
         ],
@@ -746,14 +765,14 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
                           ),
                         ),
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 6),
                       const Text('👋', style: TextStyle(fontSize: 13)),
                     ],
                   ),
                   const SizedBox(height: 2),
                   Text(
                     isReply
-                        ? 'Waved back at you! 👋'
+                        ? 'Waved back at you!'
                         : (replied
                             ? 'You waved back. No more waves today.'
                             : 'Waved at you! Tap to wave back.'),
@@ -773,9 +792,13 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               if (!isReply && !replied)
-                ElevatedButton(
-                  onPressed: () async {
-                    HapticFeedback.lightImpact();
+                UtopiaWaveButton(
+                  variant: WaveButtonVariant.pill,
+                  isReply: true,
+                  label: 'Wave Back',
+                  wavedLabel: 'Waved Back',
+                  hasWaved: false,
+                  onWave: () async {
                     await _sparkService.sendWave(
                       senderId,
                       isReply: true,
@@ -785,37 +808,11 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
                     if (mounted) {
                       showUtopiaSnackBar(
                         context,
-                        message: 'Waved back at $senderName! 👋',
+                        message: 'Waved back at $senderName!',
                         tone: UtopiaSnackBarTone.success,
                       );
                     }
                   },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: U.peach.withValues(alpha: 0.2),
-                    foregroundColor: U.text,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      side: BorderSide(color: U.peach.withValues(alpha: 0.45)),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('👋', style: TextStyle(fontSize: 12)),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Wave Back',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
                 )
               else
                 Container(
