@@ -96,8 +96,8 @@ serve(async (req) => {
           android: {
             priority: "high",
             notification: {
-              channel_id: "utopia_high_importance_v2",
-              priority: "HIGH",
+              channel_id: "utopia_high_importance_v3",
+              priority: "MAX",
               default_sound: true,
               default_vibrate_timings: true,
             },

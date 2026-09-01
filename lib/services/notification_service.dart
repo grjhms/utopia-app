@@ -36,6 +36,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (!PlatformSupport.supportsNotifications) {
     return;
   }
+  debugPrint('[FCM_BACKGROUND] Background handler received message: id=${message.messageId}, data=${message.data}, notifTitle=${message.notification?.title}');
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
@@ -78,13 +79,14 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     await localNotifications.initialize(initSettings);
 
     const channel = AndroidNotificationChannel(
-      'utopia_high_importance_v2',
+      'utopia_high_importance_v3',
       'UTOPIA Notifications',
       description: 'Live alerts, chat messages, and reminders from UTOPIA',
       importance: Importance.max,
       playSound: true,
       enableVibration: true,
       showBadge: true,
+      enableLights: true,
     );
 
     await localNotifications
@@ -93,22 +95,31 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         >()
         ?.createNotificationChannel(channel);
 
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: AndroidNotificationDetails(
-        'utopia_high_importance_v2',
+        'utopia_high_importance_v3',
         'UTOPIA Notifications',
         channelDescription: 'Live alerts, chat messages, and reminders from UTOPIA',
         importance: Importance.max,
-        priority: Priority.high,
+        priority: Priority.max,
         playSound: true,
         enableVibration: true,
+        enableLights: true,
+        category: AndroidNotificationCategory.message,
+        styleInformation: BigTextStyleInformation(
+          body,
+          contentTitle: title,
+          summaryText: 'UTOPIA',
+        ),
         icon: 'ic_notification',
-        largeIcon: DrawableResourceAndroidBitmap('ic_notification_large'),
+        largeIcon: const DrawableResourceAndroidBitmap('ic_notification_large'),
       ),
-      iOS: DarwinNotificationDetails(
+      iOS: const DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
+        presentBanner: true,
+        presentList: true,
       ),
     );
 
@@ -139,13 +150,14 @@ class NotificationService {
   static String? _activeChatId;
 
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
-    'utopia_high_importance_v2',
+    'utopia_high_importance_v3',
     'UTOPIA Notifications',
     description: 'Live alerts, chat messages, and reminders from UTOPIA',
     importance: Importance.max,
     playSound: true,
     enableVibration: true,
     showBadge: true,
+    enableLights: true,
   );
 
   /// Robust timezone initialization with graceful multi-tier fallback.
@@ -277,6 +289,7 @@ class NotificationService {
       // Foreground message listener
       FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
         try {
+          debugPrint('[FCM_FOREGROUND] Message received: id=${message.messageId}, type=${message.data['type']}, title=${message.notification?.title ?? message.data['title']}, body=${message.notification?.body ?? message.data['body'] ?? message.data['message']}');
           final rawTitle = (message.notification?.title ??
               message.data['title']?.toString() ??
               message.data['senderName']?.toString() ??
@@ -290,6 +303,7 @@ class NotificationService {
 
           // Ignore empty pings without user message content
           if (rawBody.isEmpty) {
+            debugPrint('[FCM_FOREGROUND] Dropped empty message payload');
             return;
           }
 
@@ -311,6 +325,7 @@ class NotificationService {
               (_activeChatId == 'uni_$uniId' || (_activeChatId?.startsWith('uni_') ?? false));
 
           if (isActiveChat || isActiveUniChat) {
+            debugPrint('[FCM_FOREGROUND] Silenced notification for currently active open chat screen ($chatId)');
             return;
           }
 
@@ -318,6 +333,7 @@ class NotificationService {
             return;
           }
 
+          debugPrint('[FCM_FOREGROUND] Showing local notification for: "$title" - "$body"');
           await _showLocalNotification(
             title: title,
             body: body,
@@ -512,18 +528,24 @@ class NotificationService {
 
     // 1. Attempt display with large icon
     try {
-      const details = NotificationDetails(
+      final details = NotificationDetails(
         android: AndroidNotificationDetails(
-          'utopia_high_importance_v2',
+          'utopia_high_importance_v3',
           'UTOPIA Notifications',
           channelDescription: 'Live alerts, chat messages, and reminders from UTOPIA',
           importance: Importance.max,
-          priority: Priority.high,
+          priority: Priority.max,
           playSound: true,
           enableVibration: true,
-          visibility: NotificationVisibility.public,
+          enableLights: true,
+          category: AndroidNotificationCategory.message,
+          styleInformation: BigTextStyleInformation(
+            body,
+            contentTitle: title,
+            summaryText: 'UTOPIA',
+          ),
           icon: 'ic_notification',
-          largeIcon: DrawableResourceAndroidBitmap('ic_notification_large'),
+          largeIcon: const DrawableResourceAndroidBitmap('ic_notification_large'),
         ),
         iOS: iosDetails,
       );
@@ -542,16 +564,22 @@ class NotificationService {
 
     // 2. Fallback without large icon
     try {
-      const details = NotificationDetails(
+      final details = NotificationDetails(
         android: AndroidNotificationDetails(
-          'utopia_high_importance_v2',
+          'utopia_high_importance_v3',
           'UTOPIA Notifications',
           channelDescription: 'Live alerts, chat messages, and reminders from UTOPIA',
           importance: Importance.max,
-          priority: Priority.high,
+          priority: Priority.max,
           playSound: true,
           enableVibration: true,
-          visibility: NotificationVisibility.public,
+          enableLights: true,
+          category: AndroidNotificationCategory.message,
+          styleInformation: BigTextStyleInformation(
+            body,
+            contentTitle: title,
+            summaryText: 'UTOPIA',
+          ),
           icon: 'ic_notification',
         ),
         iOS: iosDetails,
@@ -1025,7 +1053,7 @@ class NotificationService {
       title: title,
       body: body,
       scheduledDate: scheduledDate,
-      channelId: 'utopia_high_importance_v2',
+      channelId: 'utopia_high_importance_v3',
       channelName: 'UTOPIA Notifications',
       channelDescription: 'Daily timetable reminders',
       payload: payloadString,
@@ -1157,7 +1185,7 @@ class NotificationService {
           title: notifTitle,
           body: notifBody,
           scheduledDate: scheduledDate,
-          channelId: 'utopia_high_importance_v2',
+          channelId: 'utopia_high_importance_v3',
           channelName: 'UTOPIA Notifications',
           channelDescription: 'Focus reminders and task alerts',
           matchDateTimeComponents: DateTimeComponents.time,
@@ -1181,7 +1209,7 @@ class NotificationService {
           title: notifTitle,
           body: notifBody,
           scheduledDate: scheduledDate,
-          channelId: 'utopia_high_importance_v2',
+          channelId: 'utopia_high_importance_v3',
           channelName: 'UTOPIA Notifications',
           channelDescription: 'Focus reminders and task alerts',
           payload: payloadString,
@@ -1204,7 +1232,7 @@ class NotificationService {
             title: notifTitle,
             body: notifBody,
             scheduledDate: scheduledDate,
-            channelId: 'utopia_high_importance_v2',
+            channelId: 'utopia_high_importance_v3',
             channelName: 'UTOPIA Notifications',
             channelDescription: 'Focus reminders and task alerts',
             matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
@@ -1223,7 +1251,7 @@ class NotificationService {
           title: notifTitle,
           body: notifBody,
           scheduledDate: scheduledDate,
-          channelId: 'utopia_high_importance_v2',
+          channelId: 'utopia_high_importance_v3',
           channelName: 'UTOPIA Notifications',
           channelDescription: 'Focus reminders and task alerts',
           matchDateTimeComponents: DateTimeComponents.dayOfMonthAndTime,
@@ -1409,7 +1437,7 @@ class NotificationService {
           title: r['title'] as String,
           body: r['body'] as String,
           scheduledDate: scheduledDate,
-          channelId: 'utopia_high_importance_v2',
+          channelId: 'utopia_high_importance_v3',
           channelName: 'UTOPIA Notifications',
           channelDescription: 'Delve vocabulary session reminders',
           payload: payloadString,

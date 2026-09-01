@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart';
@@ -993,51 +992,53 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> with SingleTicker
                       // Warning if subjects not fetched from cache
                       _buildSubjectsWarning(),
 
-                      if (_hasPostPermission) ...[
-                        // Pill Tab Selector
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                          child: Container(
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: U.card,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: U.border, width: 0.5),
-                            ),
-                            padding: const EdgeInsets.all(4),
-                            child: TabBar(
-                              controller: _tabController,
-                              indicator: BoxDecoration(
-                                color: theme.primary,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              labelColor: U.bg,
-                              unselectedLabelColor: U.sub,
-                              labelStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
-                              unselectedLabelStyle: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 14),
-                              tabs: const [
-                                Tab(text: 'Active Tasks'),
-                                Tab(text: 'All Branches'),
+                      // Pill Tab Selector
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                        child: Container(
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: U.card,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: U.border, width: 0.5),
+                          ),
+                          padding: const EdgeInsets.all(4),
+                          child: TabBar(
+                            controller: _tabController,
+                            indicatorSize: TabBarIndicatorSize.tab,
+                            dividerColor: Colors.transparent,
+                            indicator: BoxDecoration(
+                              color: theme.primary,
+                              borderRadius: BorderRadius.circular(10),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: theme.primary.withValues(alpha: 0.25),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
+                                ),
                               ],
                             ),
-                          ),
-                        ),
-                        // Tab Contents
-                        Expanded(
-                          child: TabBarView(
-                            controller: _tabController,
-                            children: [
-                              _buildAssignmentList(myBranchList),
-                              _buildAssignmentList(allList),
+                            labelColor: U.getContrastColor(theme.primary),
+                            unselectedLabelColor: U.sub,
+                            labelStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
+                            unselectedLabelStyle: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 14),
+                            tabs: const [
+                              Tab(text: 'Active Tasks'),
+                              Tab(text: 'All Branches'),
                             ],
                           ),
                         ),
-                      ] else ...[
-                        // Direct, clean branch-filtered subject feed for student view
-                        Expanded(
-                          child: _buildAssignmentList(myBranchList),
+                      ),
+                      // Tab Contents
+                      Expanded(
+                        child: TabBarView(
+                          controller: _tabController,
+                          children: [
+                            _buildAssignmentList(myBranchList),
+                            _buildAssignmentList(allList),
+                          ],
                         ),
-                      ],
+                      ),
                     ],
                   ),
       ),
@@ -1164,7 +1165,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> with SingleTicker
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: selectedBranch,
+                      initialValue: selectedBranch,
                       dropdownColor: U.card,
                       style: GoogleFonts.outfit(color: U.text, fontSize: 14),
                       decoration: InputDecoration(
@@ -1629,6 +1630,25 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> with SingleTicker
                   ),
                 ),
               ),
+              const SizedBox(width: 8),
+              if (branch.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.only(right: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: theme.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: theme.primary.withValues(alpha: 0.15)),
+                  ),
+                  child: Text(
+                    branch,
+                    style: GoogleFonts.outfit(
+                      color: theme.primary,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               // Relative due text
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -221,7 +222,9 @@ class ChatService {
         'unreadCount_$otherUserId': FieldValue.increment(1),
       }, SetOptions(merge: true));
       await batch.commit();
+      debugPrint('[CHAT] Message committed to Firestore: chatId=$chatId, sender=${user.uid}, recipient=$otherUserId, text="$previewText"');
     } catch (e) {
+      debugPrint('[CHAT] Error in sendMessage: $e');
       rethrow;
     }
   }

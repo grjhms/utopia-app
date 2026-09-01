@@ -278,6 +278,7 @@ class _ChatScreenState extends State<ChatScreen> {
               }
             : null,
       );
+      debugPrint('[CHAT_SCREEN] Successfully sent message to ${widget.otherUserId}: "$composedText"');
 
       _typingDebounce?.cancel();
       _typingActive = false;

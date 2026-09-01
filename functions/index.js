@@ -75,7 +75,7 @@ async function sendPushToUser(recipientId, { title, body, data = {} }, category 
     android: {
       priority: "high",
       notification: {
-        channelId: "utopia_high_importance_v2",
+        channelId: "utopia_high_importance_v3",
         priority: "high",
         defaultSound: true,
         defaultVibrateTimings: true,
@@ -176,6 +176,8 @@ exports.onChatMessageCreated = onDocumentCreated(
     );
   },
 );
+
+exports.sendChatNotification = exports.onChatMessageCreated;
 
 // ─── TRIGGER 2: Waves ───────────────────────────────────────────────────────
 exports.onWaveCreated = onDocumentCreated(
