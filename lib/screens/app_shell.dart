@@ -13,6 +13,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/m3_expressive_theme.dart';
 import '../widgets/app_motion.dart';
+import '../services/app_update_service.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -60,8 +61,13 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
       vsync: this,
       duration: const Duration(seconds: 15),
     )..repeat();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkPopupEvent();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (mounted) {
+        await AppUpdateService.checkForUpdate(context);
+      }
+      if (mounted) {
+        _checkPopupEvent();
+      }
     });
   }
 

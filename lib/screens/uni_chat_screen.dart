@@ -10,6 +10,8 @@ import '../main.dart';
 import '../services/cache_service.dart';
 import '../services/notification_service.dart';
 import '../services/uni_chat_service.dart';
+import '../services/luna_ai_service.dart';
+import '../services/role_service.dart';
 import '../widgets/chat_media_picker.dart';
 import '../widgets/unread_indicator_dot.dart';
 import '../widgets/utopia_loader.dart';
@@ -37,6 +39,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
   String _utopiaChatNotifMode = 'replies'; // 'all', 'replies', 'off'
   final Set<String> _touchedMessageIds = {};
   final Set<String> _locallyViewedDocIds = {};
+  bool _isSuperUser = false;
 
   String get _currentUid => FirebaseAuth.instance.currentUser?.uid ?? '';
   String get _currentName => FirebaseAuth.instance.currentUser?.displayName ?? 'Student';
@@ -108,9 +111,16 @@ class _UniChatScreenState extends State<UniChatScreen> {
 
     NotificationService.setActiveChat('uni_$_effectiveUniversityId');
     _loadNotifPreference();
+    _checkSuperUserRole();
     _initMessagesStream();
     _resolveUniversityId();
     _scrollController.addListener(_onScroll);
+  }
+
+  void _checkSuperUserRole() {
+    RoleService().isSuperUser().then((isSuper) {
+      if (mounted) setState(() => _isSuperUser = isSuper);
+    });
   }
 
   Future<void> _loadNotifPreference() async {
@@ -311,6 +321,9 @@ class _UniChatScreenState extends State<UniChatScreen> {
         };
       }
 
+      final sentText = text;
+      final repliedMsg = _replyingToMessage;
+
       await FirebaseFirestore.instance
           .collection('uni_chats')
           .doc(_effectiveUniversityId)
@@ -326,6 +339,25 @@ class _UniChatScreenState extends State<UniChatScreen> {
       });
       if (_scrollController.hasClients) {
         _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+      }
+
+      // ── Trigger Luna Roast AI if mentioned or replied to ──
+      final isReplyingToLuna =
+          repliedMsg?['senderId'] == LunaAiService.lunaSenderId ||
+          repliedMsg?['isLuna'] == true;
+      final mentionsLuna = LunaAiService.mentionsLuna(sentText);
+      debugPrint('[LUNA] Sent message: "$sentText", mentionsLuna: $mentionsLuna, isReplyingToLuna: $isReplyingToLuna');
+      if (mentionsLuna || isReplyingToLuna) {
+        debugPrint('[LUNA] Triggering Luna for university: $_effectiveUniversityId');
+        unawaited(LunaAiService().respondToChat(
+          universityId: _effectiveUniversityId,
+          userPrompt: sentText,
+          userName: _currentName,
+          userId: _currentUid,
+          replyToMessage: repliedMsg,
+        ));
+      } else {
+        LunaAiService.setResponding(false);
       }
     } catch (e) {
       if (mounted) {
@@ -530,6 +562,10 @@ class _UniChatScreenState extends State<UniChatScreen> {
     final text = (data['text'] ?? '').toString();
     final mediaUrl = data['mediaUrl'] as String?;
     final isMedia = mediaUrl != null && mediaUrl.isNotEmpty;
+    final isAiMessage = data['isLuna'] == true ||
+        data['isAi'] == true ||
+        data['senderId'] == LunaAiService.lunaSenderId;
+    final canUnsend = isMe || (_isSuperUser && isAiMessage);
 
     showModalBottomSheet(
       context: context,
@@ -573,6 +609,27 @@ class _UniChatScreenState extends State<UniChatScreen> {
                     _startReply(data, messageId);
                   },
                 ),
+                ListTile(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  leading: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: U.primary.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.auto_awesome_rounded, color: U.primary, size: 20),
+                  ),
+                  title: Text('Ask Luna', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600, fontSize: 15)),
+                  subtitle: Text('Ask Luna to reply to this', style: GoogleFonts.outfit(color: U.sub, fontSize: 11)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _startReply(data, messageId);
+                    _controller.text = '@luna ';
+                    _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
+                    _focusNode.requestFocus();
+                  },
+                ),
                 if (isMedia)
                   ListTile(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -609,7 +666,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       _startEditing(messageId, text);
                     },
                   ),
-                if (isMe)
+                if (canUnsend)
                   ListTile(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     leading: Container(
@@ -621,7 +678,13 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       ),
                       child: Icon(Icons.delete_outline_rounded, color: U.red, size: 20),
                     ),
-                    title: Text('Unsend message', style: GoogleFonts.outfit(color: U.red, fontWeight: FontWeight.w600, fontSize: 15)),
+                    title: Text(
+                      isAiMessage && !isMe ? 'Remove AI message' : 'Unsend message',
+                      style: GoogleFonts.outfit(color: U.red, fontWeight: FontWeight.w600, fontSize: 15),
+                    ),
+                    subtitle: isAiMessage && !isMe
+                        ? Text('Superuser action', style: GoogleFonts.outfit(color: U.sub, fontSize: 11))
+                        : null,
                     onTap: () {
                       Navigator.pop(context);
                       _unsendMessage(messageId);
@@ -1019,7 +1082,23 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       final topDoc = docs.first.data() as Map<String, dynamic>;
                       final topSenderId = topDoc['senderId'] as String?;
                       final topTs = topDoc['timestamp'] as Timestamp?;
-                      if (_lastSeenTopDocId != docs.first.id && topSenderId != _currentUid && topTs != null) {
+                      final isLunaTop = topDoc['isLuna'] == true ||
+                          topDoc['senderId'] == LunaAiService.lunaSenderId;
+                      // Dynamic Luna Responding Activity synchronization:
+                      // If any of the newest 4 messages is from Luna, turn typing indicator OFF!
+                      final hasRecentLuna = docs.take(4).any((d) {
+                        final m = d.data() as Map<String, dynamic>;
+                        return m['isLuna'] == true ||
+                            m['senderId'] == LunaAiService.lunaSenderId;
+                      });
+                      if (hasRecentLuna && LunaAiService.isRespondingNotifier.value) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          LunaAiService.setResponding(false);
+                        });
+                      }
+                      if (_lastSeenTopDocId != docs.first.id &&
+                          (topSenderId != _currentUid || isLunaTop) &&
+                          topTs != null) {
                         _lastSeenTopDocId = docs.first.id;
                         if (_showScrollDown) {
                           if (!_hasNewMessagesWhileScrolled) {
@@ -1041,7 +1120,8 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       itemBuilder: (context, index) {
                         final data = docs[index].data() as Map<String, dynamic>;
                         final messageId = docs[index].id;
-                        final isMe = data['senderId'] == _currentUid;
+                        final isMe =
+                            data['senderId'] == _currentUid && data['isLuna'] != true;
                         final ts = data['timestamp'] as Timestamp?;
                         final showDateSep = _shouldShowDateSeparator(docs, index);
 
@@ -1175,6 +1255,18 @@ class _UniChatScreenState extends State<UniChatScreen> {
             ),
           ),
 
+          // ── Luna Responding Activity (Typing Indicator) ──
+          ValueListenableBuilder<bool>(
+            valueListenable: LunaAiService.isRespondingNotifier,
+            builder: (context, isResponding, _) {
+              if (!isResponding) return const SizedBox.shrink();
+              return Align(
+                alignment: Alignment.centerLeft,
+                child: _buildLunaRespondingActivity(isDarkTheme),
+              );
+            },
+          ),
+
           // ── Replying Preview Bar ──
           if (_replyingToMessage != null)
             Container(
@@ -1275,13 +1367,62 @@ class _UniChatScreenState extends State<UniChatScreen> {
             color: U.bg,
             padding: EdgeInsets.fromLTRB(
               12,
-              8,
+              6,
               12,
               MediaQuery.paddingOf(context).bottom + 12,
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Quick Summon Luna Chip
+                Padding(
+                  padding: const EdgeInsets.only(left: 2, bottom: 6),
+                  child: GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      final current = _controller.text;
+                      if (!current.toLowerCase().contains('@luna')) {
+                        _controller.text = '${('@luna $current').trim()} ';
+                        _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
+                      }
+                      _focusNode.requestFocus();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: U.primary.withValues(alpha: isDarkTheme ? 0.12 : 0.07),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: U.primary.withValues(alpha: 0.2),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.auto_awesome_rounded,
+                            size: 11,
+                            color: U.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '@Luna',
+                            style: GoogleFonts.outfit(
+                              color: U.text,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
                 // Media Picker Button (GIFs, Stickers, Emojis)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 2, right: 8),
@@ -1388,8 +1529,10 @@ class _UniChatScreenState extends State<UniChatScreen> {
                 ),
               ],
             ),
-          ),
-        ],
+          ],
+        ),
+      ),
+    ],
       ),
     );
   }
@@ -1406,7 +1549,12 @@ class _UniChatScreenState extends State<UniChatScreen> {
     Timestamp? ts,
     bool isDarkTheme,
   ) {
-    final rawText = (data['text'] ?? '').toString();
+    final isLuna = data['isLuna'] == true ||
+        data['senderId'] == LunaAiService.lunaSenderId;
+    final initialText = (data['text'] ?? '').toString();
+    final rawText = (isLuna || initialText.contains('<think>'))
+        ? LunaAiService.cleanResponse(initialText)
+        : initialText;
     final mediaUrl = data['mediaUrl'] as String?;
     final mediaType = data['mediaType'] as String?;
     final isSticker = mediaType == 'sticker';
@@ -1554,7 +1702,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
           crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
             if (!isMe)
-              _buildSenderNameTag(data),
+              _buildSenderNameTag(data, messageId),
             if (data['replyTo'] != null)
               _buildReplyPreviewSnippet(data['replyTo'], isMe, isDarkTheme),
             GestureDetector(
@@ -1612,7 +1760,11 @@ class _UniChatScreenState extends State<UniChatScreen> {
                 ],
               )
             : null,
-        color: isMe ? null : U.card,
+        color: isMe
+            ? null
+            : (isLuna
+                ? (isDarkTheme ? U.card.withValues(alpha: 0.85) : Colors.white)
+                : U.card),
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(20),
           topRight: const Radius.circular(20),
@@ -1622,9 +1774,11 @@ class _UniChatScreenState extends State<UniChatScreen> {
         border: isMe
             ? null
             : Border.all(
-                color: isDarkTheme
-                    ? Colors.white.withValues(alpha: 0.08)
-                    : U.border.withValues(alpha: 0.6),
+                color: isLuna
+                    ? U.primary.withValues(alpha: isDarkTheme ? 0.35 : 0.22)
+                    : (isDarkTheme
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : U.border.withValues(alpha: 0.6)),
                 width: 0.8,
               ),
         boxShadow: [
@@ -1643,19 +1797,11 @@ class _UniChatScreenState extends State<UniChatScreen> {
           if (!isMe)
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
-              child: _buildSenderNameTag(data),
+              child: _buildSenderNameTag(data, messageId),
             ),
           if (data['replyTo'] != null)
             _buildReplyPreviewSnippet(data['replyTo'], isMe, isDarkTheme),
-          Text(
-            rawText,
-            style: GoogleFonts.outfit(
-              color: isMe ? Colors.white : U.text,
-              fontSize: 15,
-              height: 1.35,
-              letterSpacing: -0.1,
-            ),
-          ),
+          _buildMessageTextWithMentions(rawText, isMe, data, messageId),
           buildViewCountWidget(),
           const SizedBox(height: 4),
           Text(
@@ -1671,7 +1817,52 @@ class _UniChatScreenState extends State<UniChatScreen> {
     );
   }
 
-  Widget _buildSenderNameTag(Map<String, dynamic> data) {
+  Widget _buildSenderNameTag(Map<String, dynamic> data, [String? messageId]) {
+    final isLuna = data['isLuna'] == true || data['senderId'] == LunaAiService.lunaSenderId;
+    if (isLuna) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          if (messageId != null) {
+            _onLunaMentionTapped(data, messageId);
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 3),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Luna',
+                style: GoogleFonts.outfit(
+                  color: U.primary,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 5),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                  color: U.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  'AI',
+                  style: GoogleFonts.outfit(
+                    color: U.primary,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final senderName = (data['senderName'] ?? 'Student').toString();
     final senderColor = _getSenderColor(senderName);
 
@@ -1704,6 +1895,177 @@ class _UniChatScreenState extends State<UniChatScreen> {
     );
   }
 
+  void _onLunaMentionTapped(Map<String, dynamic> data, String messageId) {
+    HapticFeedback.lightImpact();
+    _startReply(data, messageId);
+    final current = _controller.text;
+    if (!current.toLowerCase().contains('@luna')) {
+      final trimmed = current.trim();
+      _controller.text = trimmed.isNotEmpty ? '@luna $trimmed ' : '@luna ';
+      _controller.selection =
+          TextSelection.collapsed(offset: _controller.text.length);
+    }
+    _focusNode.requestFocus();
+  }
+
+  Widget _buildMessageTextWithMentions(
+    String rawText,
+    bool isMe,
+    Map<String, dynamic> data,
+    String messageId,
+  ) {
+    final lower = rawText.toLowerCase();
+    if (!lower.contains('@luna')) {
+      return Text(
+        rawText,
+        style: GoogleFonts.outfit(
+          color: isMe ? Colors.white : U.text,
+          fontSize: 15,
+          height: 1.35,
+          letterSpacing: -0.1,
+        ),
+      );
+    }
+
+    final spans = <InlineSpan>[];
+    final regex = RegExp(r'(@luna\b)', caseSensitive: false);
+    int lastMatchEnd = 0;
+
+    for (final match in regex.allMatches(rawText)) {
+      if (match.start > lastMatchEnd) {
+        spans.add(
+          TextSpan(
+            text: rawText.substring(lastMatchEnd, match.start),
+            style: GoogleFonts.outfit(
+              color: isMe ? Colors.white : U.text,
+              fontSize: 15,
+              height: 1.35,
+              letterSpacing: -0.1,
+            ),
+          ),
+        );
+      }
+
+      final mentionText = match.group(0)!;
+      spans.add(
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _onLunaMentionTapped(data, messageId),
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+              decoration: BoxDecoration(
+                color: isMe
+                    ? Colors.white.withValues(alpha: 0.22)
+                    : U.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: isMe
+                      ? Colors.white.withValues(alpha: 0.4)
+                      : U.primary.withValues(alpha: 0.28),
+                  width: 0.8,
+                ),
+              ),
+              child: Text(
+                mentionText,
+                style: GoogleFonts.outfit(
+                  color: isMe ? Colors.white : U.primary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13.5,
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      lastMatchEnd = match.end;
+    }
+
+    if (lastMatchEnd < rawText.length) {
+      spans.add(
+        TextSpan(
+          text: rawText.substring(lastMatchEnd),
+          style: GoogleFonts.outfit(
+            color: isMe ? Colors.white : U.text,
+            fontSize: 15,
+            height: 1.35,
+            letterSpacing: -0.1,
+          ),
+        ),
+      );
+    }
+
+    return RichText(
+      text: TextSpan(children: spans),
+    );
+  }
+
+  Widget _buildLunaRespondingActivity(bool isDarkTheme) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: isDarkTheme ? U.card.withValues(alpha: 0.9) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: U.primary.withValues(alpha: 0.25),
+          width: 0.8,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: U.primary.withValues(alpha: isDarkTheme ? 0.12 : 0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Luna',
+            style: GoogleFonts.outfit(
+              color: U.primary,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            decoration: BoxDecoration(
+              color: U.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(3),
+            ),
+            child: Text(
+              'AI',
+              style: GoogleFonts.outfit(
+                color: U.primary,
+                fontSize: 8.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'is typing',
+            style: GoogleFonts.outfit(
+              color: U.sub,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(width: 6),
+          const _LunaTypingDots(),
+        ],
+      ),
+    );
+  }
+
   Widget _buildReplyPreviewSnippet(
     dynamic replyData,
     bool isMe,
@@ -1712,7 +2074,11 @@ class _UniChatScreenState extends State<UniChatScreen> {
     if (replyData is! Map) return const SizedBox.shrink();
 
     final sender = (replyData['senderName'] ?? 'Student').toString();
-    final text = (replyData['text'] ?? '').toString();
+    final rawSnippetText = (replyData['text'] ?? '').toString();
+    final isLunaReply = replyData['senderId'] == LunaAiService.lunaSenderId;
+    final text = (isLunaReply || rawSnippetText.contains('<think>'))
+        ? LunaAiService.cleanResponse(rawSnippetText)
+        : rawSnippetText;
     final mediaUrl = replyData['mediaUrl'] as String?;
 
     return Container(
@@ -1860,6 +2226,61 @@ class _SwipeToReplyBubbleState extends State<_SwipeToReplyBubble> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _LunaTypingDots extends StatefulWidget {
+  const _LunaTypingDots();
+
+  @override
+  State<_LunaTypingDots> createState() => _LunaTypingDotsState();
+}
+
+class _LunaTypingDotsState extends State<_LunaTypingDots>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (context, _) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (index) {
+            final delay = index * 0.25;
+            final progress = (_anim.value - delay) % 1.0;
+            final opacity =
+                (progress < 0.5 ? progress * 2 : (1.0 - progress) * 2)
+                    .clamp(0.25, 1.0);
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 1.5),
+              width: 4.5,
+              height: 4.5,
+              decoration: BoxDecoration(
+                color: U.primary.withValues(alpha: opacity),
+                shape: BoxShape.circle,
+              ),
+            );
+          }),
+        );
+      },
     );
   }
 }

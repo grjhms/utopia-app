@@ -2,26 +2,27 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:ui';
 
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:flutter/foundation.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart' hide Cookie;
 
+import 'attendance_cache_service.dart';
 import 'attendance_service.dart';
 
 class AecAttendanceService {
   static const String _portalHost = 'info.aec.edu.in';
   static const String _aesSecret = '8701661282118308';
-  static const String _prefix = '/aec';
-  static const String _loginPath = '$_prefix/default.aspx';
-  static const String _studentMasterPath = '$_prefix/StudentMaster.aspx';
-  static const String _attendancePagePath =
+  static String _prefix = '/acet';
+  static String get _loginPath => '$_prefix/default.aspx';
+  static String get _studentMasterPath => '$_prefix/StudentMaster.aspx';
+  static String get _attendancePagePath =>
       '$_prefix/Academics/StudentAttendance.aspx?scrid=3&showtype=SA';
-  static const String _attendancePath =
+  static String get _attendancePath =>
       '$_prefix/Academics/studentattendance.aspx/ShowAttendance';
-  static const String _ajaxJsPath = '$_prefix/JSFiles/AjaxMethods.js';
-  static const String _authCheckPath = '$_prefix/authcheck.aspx';
+  static String get _ajaxJsPath => '$_prefix/JSFiles/AjaxMethods.js';
+  static String get _authCheckPath => '$_prefix/authcheck.aspx';
+  static String get _marksPath =>
+      '$_prefix/Academics/StudentMarksReport.aspx?scrid=15';
 
   static const Duration _timeout = Duration(seconds: 20);
   static String _userAgent =
@@ -862,244 +863,6 @@ class AecAttendanceService {
     );
   }
 
-  static Future<Map<String, String>> _loginViaWebView(
-    String rollNumber,
-    String password,
-  ) async {
-    print('[AecAttendanceService] _loginViaWebView: started for $rollNumber');
-    final completer = Completer<Map<String, String>>();
-    final encryptedPassword = await _encryptPassword(password);
-    print('[AecAttendanceService] _loginViaWebView: password encrypted');
-    
-    HeadlessInAppWebView? headlessWebView;
-    Timer? timeoutTimer;
-
-    void cleanup() {
-      print('[AecAttendanceService] _loginViaWebView: cleaning up...');
-      timeoutTimer?.cancel();
-      try {
-        headlessWebView?.dispose();
-        print('[AecAttendanceService] _loginViaWebView: WebView disposed.');
-      } catch (e) {
-        print('[AecAttendanceService] _loginViaWebView: dispose error: $e');
-      }
-    }
-
-    timeoutTimer = Timer(const Duration(seconds: 30), () {
-      print('[AecAttendanceService] _loginViaWebView: 30s TIMEOUT reached!');
-      cleanup();
-      if (!completer.isCompleted) {
-        completer.completeError(
-          Exception('Could not sign in to the college portal'),
-        );
-      }
-    });
-
-    print('[AecAttendanceService] _loginViaWebView: constructing HeadlessInAppWebView');
-    headlessWebView = HeadlessInAppWebView(
-      initialSize: const Size(360, 800),
-      initialUrlRequest: URLRequest(
-        url: WebUri('https://$_portalHost$_loginPath'),
-      ),
-      initialSettings: InAppWebViewSettings(
-        javaScriptEnabled: true,
-        domStorageEnabled: true,
-        databaseEnabled: true,
-        thirdPartyCookiesEnabled: true,
-        javaScriptCanOpenWindowsAutomatically: true,
-      ),
-      onLoadStart: (controller, url) {
-        print('[AecAttendanceService] WebView LoadStart: $url');
-      },
-      onLoadStop: (controller, url) async {
-        final currentUrl = url?.toString() ?? '';
-        print('[AecAttendanceService] WebView LoadStop: $currentUrl');
-        
-        if (currentUrl.contains('default.aspx')) {
-          print('[AecAttendanceService] WebView default.aspx detected. Waiting for DOM...');
-          
-          // 1. Wait for username input to be present in DOM
-          bool isFormReady = false;
-          for (int i = 0; i < 20; i++) {
-            if (completer.isCompleted) {
-              print('[AecAttendanceService] WebView: task completed/timed out during DOM check. Aborting.');
-              return;
-            }
-            final checkForm = "document.querySelector('#txtUserId') !== null || document.querySelector('#txtId2') !== null";
-            final res = await controller.evaluateJavascript(source: checkForm);
-            if (res == true) {
-              isFormReady = true;
-              break;
-            }
-            await Future.delayed(const Duration(milliseconds: 300));
-          }
-          print('[AecAttendanceService] WebView form ready: $isFormReady');
-          
-          if (!isFormReady) {
-            print('[AecAttendanceService] WebView: Form elements not detected. Aborting.');
-            return;
-          }
-
-          // 2. Check if Turnstile captcha is actually present on the page
-          final checkTurnstilePresence = "document.querySelector('.cf-turnstile') !== null || document.querySelector('[class*=\"cf-\"]') !== null || document.querySelector('iframe[src*=\"cloudflare\"]') !== null || document.querySelector('[name=\"cf-turnstile-response\"]') !== null";
-          final hasTurnstile = await controller.evaluateJavascript(source: checkTurnstilePresence) == true;
-          print('[AecAttendanceService] WebView hasTurnstile: $hasTurnstile');
-
-          if (hasTurnstile) {
-            print('[AecAttendanceService] WebView polling for Turnstile token...');
-            String turnstileToken = '';
-            for (int i = 0; i < 30; i++) {
-              if (completer.isCompleted) {
-                print('[AecAttendanceService] WebView: task completed/timed out during Turnstile check. Aborting.');
-                return;
-              }
-              final checkToken = "var el = document.querySelector('[name=\"cf-turnstile-response\"]'); el ? el.value : '';";
-              final tokenRes = await controller.evaluateJavascript(source: checkToken);
-              if (tokenRes != null && tokenRes.toString().isNotEmpty) {
-                turnstileToken = tokenRes.toString();
-                print('[AecAttendanceService] WebView Turnstile solved! Token length: ${turnstileToken.length}');
-                break;
-              }
-              print('[AecAttendanceService] WebView Turnstile not solved yet (attempt ${i + 1}/30)...');
-              await Future.delayed(const Duration(milliseconds: 500));
-            }
-
-            if (turnstileToken.isEmpty) {
-              print('[AecAttendanceService] WebView WARNING: Turnstile token is still empty after 15s!');
-            }
-          } else {
-            print('[AecAttendanceService] WebView: No Turnstile detected. Skipping Turnstile token polling.');
-          }
-
-          if (completer.isCompleted) {
-            print('[AecAttendanceService] WebView: task completed/timed out before JS injection. Aborting.');
-            return;
-          }
-
-          print('[AecAttendanceService] WebView Injecting JS credentials...');
-          final jsCode = """
-            (function() {
-              // Populate all possible username inputs (txtId1, txtId2, txtId3) to support all ASP.NET tabs
-              var u1 = document.querySelector('#txtId1') || document.querySelector('[id*="txtId1"]');
-              var u2 = document.querySelector('#txtId2') || document.querySelector('[id*="txtId2"]') || document.querySelector('#txtUserId') || document.querySelector('[id*="txtUserId"]');
-              var u3 = document.querySelector('#txtId3') || document.querySelector('[id*="txtId3"]');
-
-              if (u1) u1.value = '${rollNumber.trim()}';
-              if (u2) u2.value = '${rollNumber.trim()}';
-              if (u3) u3.value = '${rollNumber.trim()}';
-
-              // Populate all possible password inputs (txtPwd1, txtPwd2, txtPwd3)
-              var p1 = document.querySelector('#txtPwd1') || document.querySelector('[id*="txtPwd1"]');
-              var p2 = document.querySelector('#txtPwd2') || document.querySelector('[id*="txtPwd2"]') || document.querySelector('#txtPassword') || document.querySelector('[id*="txtPassword"]');
-              var p3 = document.querySelector('#txtPwd3') || document.querySelector('[id*="txtPwd3"]');
-
-              if (p1) p1.value = '$encryptedPassword';
-              if (p2) p2.value = '$encryptedPassword';
-              if (p3) p3.value = '$encryptedPassword';
-
-              // Populate all possible hidden password inputs (hdnpwd1, hdnpwd2, hdnpwd3)
-              var h1 = document.querySelector('#hdnpwd1') || document.querySelector('[id*="hdnpwd1"]');
-              var h2 = document.querySelector('#hdnpwd2') || document.querySelector('[id*="hdnpwd2"]') || document.querySelector('#hdnpwd') || document.querySelector('[id*="hdnpwd"]');
-              var h3 = document.querySelector('#hdnpwd3') || document.querySelector('[id*="hdnpwd3"]');
-
-              if (h1) h1.value = '$encryptedPassword';
-              if (h2) h2.value = '$encryptedPassword';
-              if (h3) h3.value = '$encryptedPassword';
-
-              // Check Student radio button if exists
-              var rbtStudent = document.querySelector('#rbtStudent') || document.querySelector('#rbtStudent2') || document.querySelector('[id*="rbtStudent"]');
-              if (rbtStudent) rbtStudent.checked = true;
-
-              // Prioritize clicking the submit image/button directly
-              var loginBtn = document.querySelector('#imgBtn2') || document.querySelector('[id*="imgBtn2"]') || document.querySelector('#btnLogin') || document.querySelector('[id*="btnLogin"]');
-              if (loginBtn) {
-                loginBtn.click();
-              } else if (typeof __doPostBack === 'function') {
-                __doPostBack('imgBtn2', '');
-              } else {
-                var form = document.querySelector('form');
-                if (form) form.submit();
-              }
-            })();
-          """;
-
-          try {
-            await controller.evaluateJavascript(source: jsCode);
-            print('[AecAttendanceService] WebView JS credentials successfully injected and submitted.');
-          } catch (e) {
-            print('[AecAttendanceService] WebView JS evaluation error: $e');
-          }
-        } else if (currentUrl.contains('StudentMaster.aspx')) {
-          if (completer.isCompleted) return;
-          print('[AecAttendanceService] WebView StudentMaster.aspx detected! Extracting cookies...');
-          try {
-            // Extract the actual WebView User-Agent to align all subsequent HttpClient requests
-            final ua = await controller.evaluateJavascript(source: "navigator.userAgent");
-            if (ua != null && ua.toString().isNotEmpty) {
-              _userAgent = ua.toString();
-              print('[AecAttendanceService] WebView resolved native User-Agent: $_userAgent');
-            }
-            final cookieManager = CookieManager.instance();
-            final cookiesList = await cookieManager.getCookies(
-              url: WebUri(currentUrl),
-            );
-            final extractedCookies = <String, String>{};
-            for (final cookie in cookiesList) {
-              extractedCookies[cookie.name] = cookie.value.toString();
-            }
-            print('[AecAttendanceService] WebView extracted cookies: ${extractedCookies.keys.toList()}');
-
-            final sessionId = extractedCookies['ASP.NET_SessionId'];
-            final frmAuth = extractedCookies['frmAuth'];
-
-            if (sessionId == null ||
-                sessionId.isEmpty ||
-                frmAuth == null ||
-                frmAuth.isEmpty) {
-              print('[AecAttendanceService] WebView error: SessionId or frmAuth missing/empty!');
-              if (!completer.isCompleted) {
-                completer.completeError(Exception('Invalid credentials'));
-              }
-            } else {
-              print('[AecAttendanceService] WebView login successful! Resolving extracted cookies.');
-              if (!completer.isCompleted) {
-                completer.complete(extractedCookies);
-              }
-            }
-          } catch (e) {
-            print('[AecAttendanceService] WebView cookie extraction exception: $e');
-            if (!completer.isCompleted) {
-              completer.completeError(e);
-            }
-          } finally {
-            cleanup();
-          }
-        }
-      },
-      onReceivedError: (controller, request, error) {
-        print('[AecAttendanceService] WebView Error: ${error.description} (code: ${error.type})');
-      },
-      onReceivedHttpError: (controller, request, errorResponse) {
-        print('[AecAttendanceService] WebView HTTP Error: ${errorResponse.statusCode} - ${errorResponse.reasonPhrase}');
-      },
-      onConsoleMessage: (controller, consoleMessage) {
-        print('[AecAttendanceService] WebView Console: [${consoleMessage.messageLevel}] ${consoleMessage.message}');
-      },
-    );
-
-    try {
-      print('[AecAttendanceService] WebView running headlessWebView...');
-      await headlessWebView.run();
-      print('[AecAttendanceService] WebView headless run initiated.');
-    } catch (e) {
-      print('[AecAttendanceService] WebView run() error: $e');
-      cleanup();
-      completer.completeError(e);
-    }
-
-    return completer.future;
-  }
-
   static Future<void> _login(
     HttpClient client,
     String rollNumber,
@@ -1109,17 +872,222 @@ class AecAttendanceService {
     bool debugNoRedirect = false,
   }) async {
     try {
-      final webViewCookies = await _loginViaWebView(rollNumber, password);
-      cookies.addAll(webViewCookies);
+      final tokensSw = Stopwatch()..start();
+      final pageData = await _getLoginPageData(client, cookies, traceId);
+      tokensSw.stop();
+
+      _debugStep(
+        traceId: traceId,
+        step: '_getLoginPageData',
+        elapsedMs: tokensSw.elapsedMilliseconds,
+      );
+
+      final encSw = Stopwatch()..start();
+      final encryptedPassword = await _encryptPassword(password);
+      encSw.stop();
+
+      _debugStep(
+        traceId: traceId,
+        step: 'Encrypt password',
+        elapsedMs: encSw.elapsedMilliseconds,
+      );
+
+      final hiddenFields = pageData.hiddenFields;
+
+      final formBody = <String, String>{};
+
+      for (final entry in hiddenFields.entries) {
+        formBody[entry.key] = entry.value;
+      }
+
+      final hasTabbedLogin = pageData.html.contains('txtId2');
+      if (hasTabbedLogin) {
+        formBody['txtId1'] = '';
+        formBody['txtPwd1'] = '';
+        formBody['txtId2'] = rollNumber.trim();
+        formBody['txtPwd2'] = encryptedPassword;
+        formBody['txtId3'] = '';
+        formBody['txtPwd3'] = '';
+        if (pageData.html.contains('TextBox1')) {
+          formBody['TextBox1'] = '';
+        }
+        if (hiddenFields.containsKey('hdnpwd1')) {
+          formBody['hdnpwd1'] = '';
+        }
+        if (hiddenFields.containsKey('hdnpwd2')) {
+          formBody['hdnpwd2'] = encryptedPassword;
+        }
+        if (hiddenFields.containsKey('hdnpwd3')) {
+          formBody['hdnpwd3'] = '';
+        }
+        formBody['imgBtn2.x'] = '42';
+        formBody['imgBtn2.y'] = '6';
+      } else {
+        final userField = pageData.fieldNames.userFieldName ??
+            pageData.fieldNames.fallbackUserField;
+        final pwdField = pageData.fieldNames.passwordFieldName ??
+            pageData.fieldNames.fallbackPasswordField;
+        formBody[userField] = rollNumber.trim();
+        formBody[pwdField] = encryptedPassword;
+        if (hiddenFields.containsKey('hdnpwd')) {
+          formBody['hdnpwd'] = encryptedPassword;
+        }
+        final btnName = pageData.fieldNames.submitButtonName ??
+            pageData.fieldNames.fallbackButtonName;
+        final btnVal = pageData.fieldNames.submitButtonValue ??
+            pageData.fieldNames.fallbackButtonValue;
+        if (btnName.isNotEmpty) {
+          formBody[btnName] = btnVal;
+        }
+      }
+
+      final formKeys = formBody.keys.toList();
+      if (!_isReleaseBuild) {
+        // ignore: avoid_print
+        print(
+          '[$traceId][BUILD] formBody: keys=${formKeys.length} '
+          'keys=[${formKeys.join(", ")}]',
+        );
+      }
+
+      final followRedirectsLogin = !debugNoRedirect;
+
+      final postSw = Stopwatch()..start();
+      final response = await _sendRequest(
+        client,
+        method: 'POST',
+        path: _loginPath,
+        cookies: cookies,
+        followRedirects: followRedirectsLogin,
+        contentType: 'application/x-www-form-urlencoded',
+        body: formBody.entries
+            .map((e) =>
+                '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}')
+            .join('&'),
+        extraHeaders: {
+          'origin': 'https://$_portalHost',
+          HttpHeaders.refererHeader: 'https://$_portalHost$_loginPath',
+          HttpHeaders.acceptHeader:
+              'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        traceId: traceId,
+        stepName: 'POST default.aspx (login)',
+      );
+      postSw.stop();
 
       final sessionId = cookies['ASP.NET_SessionId'];
-      final frmAuth = cookies['frmAuth'];
-      if (sessionId == null ||
-          frmAuth == null ||
-          sessionId.isEmpty ||
-          frmAuth.isEmpty) {
+      final bodyLooksLikeLoginPage = _looksLikeLoginPage(response.body);
+      final gotFrmAuth = cookies.containsKey('frmAuth');
+
+      _debugBrowserParity(
+        traceId: traceId,
+        step: 'POST default.aspx (login)',
+        expectedStatus: 302,
+        expectedLocation: '$_prefix/StudentMaster.aspx',
+        expectedSetsFrmAuth: true,
+        gotStatus: response.statusCode,
+        gotLocation: response.location,
+        gotSetsFrmAuth: gotFrmAuth,
+        gotLoginPage: bodyLooksLikeLoginPage,
+      );
+
+      _debugPortalHop(
+        traceId: traceId,
+        step: 'POST default.aspx (login)',
+        method: 'POST',
+        path: _loginPath,
+        statusCode: response.statusCode,
+        location: response.location,
+        cookies: cookies,
+        contentType: 'application/x-www-form-urlencoded',
+        elapsedMs: postSw.elapsedMilliseconds,
+        hasSessionId: sessionId != null && sessionId.isNotEmpty,
+        hasViewState: response.body.contains('__VIEWSTATE'),
+        hasEventValidation: response.body.contains('__EVENTVALIDATION'),
+        hasLoginPageMarkers: bodyLooksLikeLoginPage,
+        bodyPreview: _scrubSensitive(response.body),
+      );
+      _debugLoginMarkers(
+        traceId: traceId,
+        step: 'POST default.aspx (login)',
+        body: response.body,
+      );
+
+      final isRedirect =
+          response.statusCode == 302 ||
+          response.statusCode == 301 ||
+          response.statusCode == 303 ||
+          response.statusCode == 307;
+
+      final smSw = Stopwatch()..start();
+      final studentMaster = await _sendRequest(
+        client,
+        method: 'GET',
+        path: _studentMasterPath,
+        cookies: cookies,
+        followRedirects: true,
+        extraHeaders: {
+          HttpHeaders.refererHeader: 'https://$_portalHost$_loginPath',
+        },
+        traceId: traceId,
+        stepName: 'GET StudentMaster.aspx',
+      );
+      smSw.stop();
+
+      final studentMasterLoginPage = _looksLikeLoginPage(studentMaster.body);
+
+      final loginSuccess = isRedirect || gotFrmAuth || !studentMasterLoginPage;
+
+      if (!_isReleaseBuild) {
+        // ignore: avoid_print
+        print(
+          '[$traceId][LOGIN] successCheck: '
+          'isRedirect=$isRedirect '
+          'gotFrmAuth=$gotFrmAuth '
+          'studentMasterLoginPage=$studentMasterLoginPage '
+          '-> loginSuccess=$loginSuccess',
+        );
+      }
+
+      if (!loginSuccess) {
+        _debugFail(
+          traceId: traceId,
+          step: 'POST default.aspx (login)',
+          reason: 'Invalid credentials',
+          statusCode: response.statusCode,
+          hasSessionId: sessionId != null && sessionId.isNotEmpty,
+          loginPageDetected: bodyLooksLikeLoginPage,
+          hasViewState: response.body.contains('__VIEWSTATE'),
+          location: response.location,
+          cookieKeys: cookies.keys.toList(),
+        );
         throw Exception('Invalid credentials');
       }
+
+      final prevSessionId = sessionId;
+      _debugCookieChange(
+        traceId: traceId,
+        stepA: 'POST default.aspx (login)',
+        stepB: 'GET StudentMaster.aspx',
+        sessionIdBefore: prevSessionId,
+        sessionIdAfter: cookies['ASP.NET_SessionId'],
+      );
+      _debugPortalHop(
+        traceId: traceId,
+        step: 'GET StudentMaster.aspx',
+        method: 'GET',
+        path: _studentMasterPath,
+        statusCode: studentMaster.statusCode,
+        location: studentMaster.location,
+        cookies: cookies,
+        contentType: null,
+        elapsedMs: smSw.elapsedMilliseconds,
+        hasSessionId: cookies.containsKey('ASP.NET_SessionId'),
+        hasViewState: studentMaster.body.contains('__VIEWSTATE'),
+        hasEventValidation: studentMaster.body.contains('__EVENTVALIDATION'),
+        hasLoginPageMarkers: studentMasterLoginPage,
+        bodyPreview: _scrubSensitive(studentMaster.body),
+      );
     } on FormatException {
       rethrow;
     } catch (e) {
@@ -1133,10 +1101,12 @@ class AecAttendanceService {
   static Future<Map<String, dynamic>> fetchAttendance(
     String rollNumber,
     String password, {
+    String college = 'acet',
     String fromDate = '',
     String toDate = '',
     AttendanceRangeMode mode = AttendanceRangeMode.period,
   }) async {
+    _prefix = (college.toLowerCase() == 'aec') ? '/aec' : '/acet';
     final traceId = _generateTraceId();
     final client = HttpClient()..connectionTimeout = _timeout;
     final cookies = <String, String>{};
@@ -1184,6 +1154,22 @@ class AecAttendanceService {
         hasLoginPageMarkers: _looksLikeLoginPage(sm1.body),
         bodyPreview: _scrubSensitive(sm1.body),
       );
+
+      Map<String, dynamic>? academicInsights;
+      try {
+        academicInsights = await _fetchAndParseMarks(client, cookies, traceId);
+        if (academicInsights != null) {
+          unawaited(AttendanceCacheService.saveAcademicInsights(
+            rollNumber: rollNumber,
+            academicInsights: academicInsights,
+          ));
+        }
+      } catch (e) {
+        if (!_isReleaseBuild) {
+          // ignore: avoid_print
+          print('[$traceId][MARKS] Failed to fetch/parse ACET marks: $e');
+        }
+      }
 
       final attPageSw = Stopwatch()..start();
       final attendancePageResponse = await _sendRequest(
@@ -1485,6 +1471,10 @@ class AecAttendanceService {
         message: 'success',
       );
 
+      if (academicInsights != null) {
+        parsed['academicInsights'] = academicInsights;
+      }
+
       return parsed;
     } on FormatException catch (e) {
       final msg = e.toString();
@@ -1672,6 +1662,8 @@ class AecAttendanceService {
 
       currentUri = currentUri.resolve(location);
       currentMethod = 'GET';
+      body = null;
+      contentType = null;
       redirectCount += 1;
     }
   }
@@ -2157,6 +2149,386 @@ class AecAttendanceService {
       (buffer, data) => buffer..addAll(data),
     );
     return utf8.decode(bytes, allowMalformed: true);
+  }
+
+  static Future<Map<String, dynamic>?> fetchMarksOnly(
+    String rollNumber,
+    String password, {
+    String college = 'acet',
+  }) async {
+    _prefix = (college.toLowerCase() == 'aec') ? '/aec' : '/acet';
+    final traceId = _generateTraceId();
+    final client = HttpClient()..connectionTimeout = _timeout;
+    final cookies = <String, String>{};
+
+    try {
+      await _login(client, rollNumber, password, cookies, traceId);
+      final academicInsights = await _fetchAndParseMarks(client, cookies, traceId);
+      if (academicInsights != null) {
+        await AttendanceCacheService.saveAcademicInsights(
+          rollNumber: rollNumber,
+          academicInsights: academicInsights,
+        );
+      }
+      return academicInsights;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  static Future<Map<String, dynamic>?> _fetchAndParseMarks(
+    HttpClient client,
+    Map<String, String> cookies,
+    String? traceId,
+  ) async {
+    final marksResponse = await _sendRequest(
+      client,
+      method: 'GET',
+      path: _marksPath,
+      cookies: cookies,
+      followRedirects: true,
+      extraHeaders: {
+        HttpHeaders.refererHeader: 'https://$_portalHost$_studentMasterPath',
+      },
+      traceId: traceId,
+      stepName: 'GET StudentMarksReport.aspx',
+    );
+
+    if (marksResponse.statusCode != 200 || marksResponse.body.isEmpty) {
+      return null;
+    }
+
+    // 1. Extract AjaxPro ashx handler script path from page HTML
+    final ashxMatch = RegExp(
+      r'''src=["']([^"']*(?:StudentMarksReport|studentmarksreport)[^"']*\.ashx)["']''',
+      caseSensitive: false,
+    ).firstMatch(marksResponse.body);
+
+    String ashxPath;
+    if (ashxMatch != null) {
+      final matched = ashxMatch.group(1)!;
+      ashxPath = matched.startsWith('/') ? matched : '$_prefix/ajax/$matched';
+    } else {
+      ashxPath = '$_prefix/ajax/Academics_StudentMarksReport,App_Web_studentmarksreport.aspx.a2a1b31c.ashx';
+    }
+
+    final rpcPath = '$ashxPath?_method=ShowMarks&_session=rw';
+
+    // 2. Call ShowMarks() via AjaxPro with exact query string from JS proxy
+    var showMarksRes = await _sendRequest(
+      client,
+      method: 'POST',
+      path: rpcPath,
+      cookies: cookies,
+      followRedirects: false,
+      contentType: 'text/plain; charset=utf-8',
+      body: '',
+      extraHeaders: {
+        'X-AjaxPro-Method': 'ShowMarks',
+        'Ajax-Method': 'ShowMarks',
+        'origin': 'https://$_portalHost',
+        HttpHeaders.refererHeader: 'https://$_portalHost$_marksPath',
+      },
+      traceId: traceId,
+      stepName: 'POST ShowMarks (AjaxPro RPC)',
+    );
+
+    // Fallback A: Try with body '{}'
+    if (showMarksRes.statusCode != 200 || showMarksRes.body.startsWith('//')) {
+      showMarksRes = await _sendRequest(
+        client,
+        method: 'POST',
+        path: rpcPath,
+        cookies: cookies,
+        followRedirects: false,
+        contentType: 'text/plain; charset=utf-8',
+        body: '{}',
+        extraHeaders: {
+          'X-AjaxPro-Method': 'ShowMarks',
+          'Ajax-Method': 'ShowMarks',
+          'origin': 'https://$_portalHost',
+          HttpHeaders.refererHeader: 'https://$_portalHost$_marksPath',
+        },
+        traceId: traceId,
+        stepName: 'POST ShowMarks (AjaxPro RPC {})',
+      );
+    }
+
+    // Fallback B: Try ASP.NET PageMethod
+    if (showMarksRes.statusCode != 200 || showMarksRes.body.startsWith('//')) {
+      showMarksRes = await _sendRequest(
+        client,
+        method: 'POST',
+        path: '$_prefix/Academics/StudentMarksReport.aspx/ShowMarks',
+        cookies: cookies,
+        followRedirects: false,
+        contentType: 'application/json; charset=UTF-8',
+        body: '{}',
+        extraHeaders: {
+          'origin': 'https://$_portalHost',
+          HttpHeaders.refererHeader: 'https://$_portalHost$_marksPath',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        traceId: traceId,
+        stepName: 'POST ShowMarks (PageMethod)',
+      );
+    }
+
+    if (showMarksRes.statusCode == 200 && showMarksRes.body.isNotEmpty) {
+      if (!_isReleaseBuild) {
+        // ignore: avoid_print
+        print(
+          '[$traceId][MARKS] ShowMarks received raw body len=${showMarksRes.body.length}',
+        );
+        final raw = showMarksRes.body;
+        for (int i = 0; i < raw.length; i += 800) {
+          // ignore: avoid_print
+          print('[$traceId][MARKS_RAW][$i]: ${raw.substring(i, min(i + 800, raw.length))}');
+        }
+      }
+
+      String marksHtml = showMarksRes.body;
+      try {
+        var cleanJson = showMarksRes.body.trim();
+        if (cleanJson.startsWith('/*json*/')) {
+          cleanJson = cleanJson.substring(8).trim();
+        } else if (cleanJson.startsWith(';/*json*/')) {
+          cleanJson = cleanJson.substring(9).trim();
+        }
+        if (cleanJson.endsWith(';/*json*/')) {
+          cleanJson = cleanJson.substring(0, cleanJson.length - 9).trim();
+        } else if (cleanJson.endsWith(';')) {
+          cleanJson = cleanJson.substring(0, cleanJson.length - 1).trim();
+        }
+        final decoded = jsonDecode(cleanJson);
+        if (decoded is Map) {
+          if (decoded.containsKey('value') && decoded['value'] != null) {
+            marksHtml = decoded['value'].toString();
+          } else if (decoded.containsKey('d') && decoded['d'] != null) {
+            marksHtml = decoded['d'].toString();
+          }
+        } else if (decoded is String) {
+          marksHtml = decoded;
+        }
+      } catch (e) {
+        if (!_isReleaseBuild) {
+          // ignore: avoid_print
+          print('[$traceId][MARKS] jsonDecode error: $e');
+        }
+      }
+
+      if (!_isReleaseBuild) {
+        // ignore: avoid_print
+        print(
+          '[$traceId][MARKS] ShowMarks unwrapped marksHtml len=${marksHtml.length}',
+        );
+        for (int i = 0; i < marksHtml.length; i += 800) {
+          // ignore: avoid_print
+          print('[$traceId][MARKS_UNWRAPPED][$i]: ${marksHtml.substring(i, min(i + 800, marksHtml.length))}');
+        }
+      }
+
+      final parsed = _parseAcetAcademicMarks(marksHtml);
+      if (!_isReleaseBuild) {
+        // ignore: avoid_print
+        print(
+          '[$traceId][MARKS] parsed ACET marks: '
+          'cgpa=${parsed?['cgpa']}, '
+          'semesters=${(parsed?['semesters'] as List?)?.length}',
+        );
+      }
+      return parsed;
+    }
+
+    return null;
+  }
+
+  static Map<String, dynamic>? _parseAcetAcademicMarks(String html) {
+    if (html.isEmpty) return null;
+
+    try {
+      final cleanAll = _cleanHtmlText(html);
+
+      double? cgpa;
+      String? creditsTotal;
+      String? percentage;
+      int passedTotal = 0;
+      int failedTotal = 0;
+
+      // 1. Extract exact Summary Banner: e.g. "CGPA: 7.39 Credits:81/81 66.40 %"
+      final summaryMatch = RegExp(
+        r'CGPA\s*[:\s]*([0-9.]+)\s+Credits\s*[:\s]*([0-9/]+|[0-9.]+)\s+([0-9.]+)\s*%',
+        caseSensitive: false,
+      ).firstMatch(cleanAll);
+
+      if (summaryMatch != null) {
+        cgpa = double.tryParse(summaryMatch.group(1) ?? '');
+        creditsTotal = summaryMatch.group(2);
+        percentage = summaryMatch.group(3);
+      } else {
+        // Fallbacks
+        final cgpaMatch = RegExp(r'CGPA\s*[:\s]*([0-9.]+)', caseSensitive: false).firstMatch(cleanAll);
+        if (cgpaMatch != null) cgpa = double.tryParse(cgpaMatch.group(1) ?? '');
+
+        final credMatch = RegExp(r'Credits\s*:\s*([0-9/]+|[0-9.]+)', caseSensitive: false).firstMatch(cleanAll);
+        if (credMatch != null) creditsTotal = credMatch.group(1);
+
+        final pctMatch = RegExp(r'Credits\s*:[^%]*?([0-9.]+)\s*%', caseSensitive: false).firstMatch(cleanAll);
+        if (pctMatch != null) percentage = pctMatch.group(1);
+      }
+
+      final semesters = <Map<String, dynamic>>[];
+
+      // 2. Restrict to EXTERNAL MARKS section to prevent attendance and internal marks bleed-through
+      final extStart = html.indexOf('EXTERNAL MARKS');
+      final extEnd = html.indexOf('PREVIOUS SEMESTERS', extStart != -1 ? extStart : 0);
+      final externalHtml = (extStart != -1 && extEnd != -1)
+          ? html.substring(extStart, extEnd)
+          : html;
+
+      // 3. Match each semester block
+      final semMatches = RegExp(
+        r'<span[^>]*class=[^>]*reportHeading2[^>]*>([^<]*Semester[^<]*)</span>\s*<table[^>]*>(.*?)</table>',
+        caseSensitive: false,
+        dotAll: true,
+      ).allMatches(externalHtml).toList();
+
+      for (final m in semMatches) {
+        final semTitle = _cleanHtmlText(m.group(1)!);
+        final tableContent = m.group(2)!;
+
+        final cellMatches = RegExp(r'<t[dh][^>]*>(.*?)</t[dh]>', caseSensitive: false, dotAll: true)
+            .allMatches(tableContent)
+            .map((c) => _cleanHtmlText(c.group(1)!))
+            .toList();
+
+        final sgpaIdx = cellMatches.indexWhere((c) => c.toUpperCase() == 'SGPA');
+        if (sgpaIdx == -1) continue;
+
+        final headers = cellMatches.sublist(1, sgpaIdx); // Skip first empty cell
+
+        final gradeIdx = cellMatches.indexWhere((c) => c.toUpperCase() == 'GRADE');
+        final credIdx = cellMatches.indexWhere((c) => c.toUpperCase() == 'CREDITS');
+
+        if (gradeIdx == -1 || credIdx == -1) continue;
+
+        final grades = cellMatches.sublist(gradeIdx + 1, credIdx - 1);
+        final sgpa = double.tryParse(cellMatches[credIdx - 1]);
+
+        final credits = cellMatches.sublist(credIdx + 1, credIdx + 1 + headers.length);
+        final totalCreds = (credIdx + 1 + headers.length < cellMatches.length)
+            ? cellMatches[credIdx + 1 + headers.length]
+            : '';
+
+        final courses = <Map<String, dynamic>>[];
+        for (int i = 0; i < headers.length; i++) {
+          final courseName = headers[i].trim();
+          final grade = (i < grades.length) ? grades[i].trim() : '';
+          final cred = (i < credits.length) ? credits[i].trim() : '';
+
+          final isFailed = grade.toUpperCase() == 'F' || grade.toUpperCase() == 'AB';
+          if (isFailed) {
+            failedTotal++;
+          } else if (grade.isNotEmpty && grade != '-') {
+            passedTotal++;
+          }
+
+          courses.add({
+            'sNo': courses.length + 1,
+            'courseCode': courseName,
+            'courseName': courseName,
+            'grade': grade,
+            'credits': cred,
+            'points': _gradeToPoints(grade),
+            'result': isFailed ? 'Fail' : 'Pass',
+          });
+        }
+
+        final romanMatch = RegExp(r'Semester\s*[-–]\s*([I|V|X\d]+)', caseSensitive: false)
+            .firstMatch(semTitle);
+        final roman = romanMatch?.group(1) ??
+            (semTitle.contains('Semester')
+                ? semTitle.split('Semester').last.replaceAll('-', '').trim()
+                : '${semesters.length + 1}');
+
+        semesters.add({
+          'title': semTitle,
+          'roman': roman,
+          'sgpa': sgpa ?? 0.0,
+          'credits': totalCreds,
+          'passed': courses.where((c) => c['result'] == 'Pass').length,
+          'failed': courses.where((c) => c['result'] == 'Fail').length,
+          'result': courses.any((c) => c['result'] == 'Fail') ? 'Fail' : 'Pass',
+          'courses': courses,
+        });
+      }
+
+      // If CGPA wasn't found in text, calculate average of semester SGPAs
+      if ((cgpa == null || cgpa == 0.0) && semesters.isNotEmpty) {
+        double sum = 0;
+        int count = 0;
+        for (final sem in semesters) {
+          final sg = (sem['sgpa'] as num?)?.toDouble() ?? 0.0;
+          if (sg > 0) {
+            sum += sg;
+            count++;
+          }
+        }
+        if (count > 0) {
+          cgpa = double.parse((sum / count).toStringAsFixed(2));
+        } else {
+          cgpa = (semesters.last['sgpa'] as num?)?.toDouble();
+        }
+      }
+
+      if (!_isReleaseBuild) {
+        // ignore: avoid_print
+        print(
+          '[AecAttendanceService] _parseAcetAcademicMarks success: '
+          'CGPA=$cgpa, Semesters=${semesters.length}, '
+          'Passed=$passedTotal, Failed=$failedTotal, Credits=$creditsTotal, %=$percentage',
+        );
+      }
+
+      return {
+        'cgpa': cgpa ?? 0.0,
+        'passed': passedTotal,
+        'failed': failedTotal,
+        'credits': creditsTotal ?? '',
+        'percentage': percentage ?? '',
+        'result': failedTotal > 0 ? 'Fail' : 'Pass',
+        'semesters': semesters,
+      };
+    } catch (e) {
+      if (!_isReleaseBuild) {
+        // ignore: avoid_print
+        print('[AecAttendanceService] _parseAcetAcademicMarks error: $e');
+      }
+      return null;
+    }
+  }
+
+  static String _gradeToPoints(String grade) {
+    switch (grade.toUpperCase().trim()) {
+      case 'O':
+      case 'S':
+        return '10';
+      case 'A':
+        return '9';
+      case 'B':
+        return '8';
+      case 'C':
+        return '7';
+      case 'D':
+        return '6';
+      case 'E':
+        return '5';
+      case 'F':
+      case 'AB':
+        return '0';
+      default:
+        return '';
+    }
   }
 }
 

@@ -5,6 +5,7 @@ import 'dart:ui';
 
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:flutter_inappwebview/flutter_inappwebview.dart' hide Cookie;
+import 'attendance_cache_service.dart';
 
 class AusAttendanceService {
   static const String _portalHost = 'info.aec.edu.in';
@@ -335,10 +336,71 @@ class AusAttendanceService {
       );
       _debugResponse('POST ShowStudentProfileNew', showResp.statusCode, showResp.body);
 
+      // ── Fetch Academic Marks Report (scrid=15) ──
+      Map<String, dynamic>? academicInsights;
+      try {
+        final marksReportPath = '$_prefix/Academics/StudentMarksReport.aspx?scrid=15';
+        final marksResp = await _sendRequest(
+          client,
+          method: 'GET',
+          path: marksReportPath,
+          cookies: cookies,
+          followRedirects: true,
+          extraHeaders: {
+            HttpHeaders.refererHeader: 'https://$_portalHost$_studentMasterPath',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          },
+        );
+
+        final authToken = cookies['AuthToken'] ?? cookies['authtoken'] ?? '';
+
+        final marksPostResp = await _sendRequest(
+          client,
+          method: 'POST',
+          path: '$_prefix/Academics/StudentMarksReport.aspx/ShowMarks',
+          cookies: cookies,
+          followRedirects: false,
+          contentType: 'application/json; charset=UTF-8',
+          body: jsonEncode({}),
+          extraHeaders: {
+            'Origin': 'https://$_portalHost',
+            HttpHeaders.refererHeader: 'https://$_portalHost$marksReportPath',
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-Auth-Token': authToken,
+            'Accept': 'application/json, text/javascript, */*',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+          },
+        );
+
+        _debugResponse('POST ShowMarks', marksPostResp.statusCode, marksPostResp.body);
+
+        String marksHtml = '';
+        if (marksPostResp.statusCode == HttpStatus.ok && marksPostResp.body.isNotEmpty) {
+          try {
+            final decoded = jsonDecode(marksPostResp.body);
+            if (decoded is Map && decoded.containsKey('d')) {
+              marksHtml = decoded['d'] as String? ?? '';
+            } else {
+              marksHtml = marksPostResp.body;
+            }
+          } catch (_) {
+            marksHtml = marksPostResp.body;
+          }
+        }
+
+        if (marksHtml.isNotEmpty) {
+          academicInsights = _parseAcademicMarks(marksHtml);
+          print('[AusAttendanceService] Academic insights parsed from ShowMarks: CGPA=${academicInsights?['cgpa']}, Semesters=${(academicInsights?['semesters'] as List?)?.length}');
+        }
+      } catch (marksErr) {
+        print('[AusAttendanceService] Failed to fetch StudentMarksReport: $marksErr');
+      }
+
       if (showResp.statusCode == HttpStatus.unauthorized) {
         throw Exception(
-          'The portal attendance server is temporarily unavailable. '
-          'Please try again later.',
+          'Attendance records not published yet. Please try again later.',
         );
       }
       if (showResp.statusCode != HttpStatus.ok) {
@@ -353,24 +415,35 @@ class AusAttendanceService {
         profileHtml = showResp.body;
       }
 
-      if (profileHtml.isEmpty) {
+      if (profileHtml.isEmpty && academicInsights == null) {
         throw Exception('No profile data in response');
       }
 
-      final profileSectionStart =
-          profileHtml.indexOf("<div id='divProfile_Present'>");
+      int profileSectionStart = profileHtml.indexOf("<div id='divProfile_Present'>");
       if (profileSectionStart == -1) {
-        throw Exception('Profile section not found');
+        profileSectionStart = profileHtml.indexOf('<div id="divProfile_Present">');
       }
-      final profileSectionEnd =
-          profileHtml.indexOf("</div>", profileSectionStart);
-      final profileSection =
-          profileHtml.substring(profileSectionStart, profileSectionEnd);
+      if (profileSectionStart == -1) {
+        final m = RegExp(r'''<div[^>]*id=["']divProfile_Present["'][^>]*>''', caseSensitive: false).firstMatch(profileHtml);
+        if (m != null) profileSectionStart = m.start;
+      }
 
-      final tableStart = profileSection.indexOf('<table');
-      if (tableStart == -1) throw Exception('Attendance table not found');
-      final tableEnd = profileSection.indexOf('</table>', tableStart);
-      final tableHtml = profileSection.substring(tableStart, tableEnd + 8);
+      Map<String, dynamic> parsedMap = {};
+      if (profileSectionStart != -1) {
+        final profileSectionEnd = profileHtml.indexOf("</div>", profileSectionStart);
+        final profileSection = profileSectionEnd != -1
+            ? profileHtml.substring(profileSectionStart, profileSectionEnd)
+            : profileHtml.substring(profileSectionStart);
+
+        final tableStart = profileSection.indexOf('<table');
+        if (tableStart != -1) {
+          final tableEnd = profileSection.indexOf('</table>', tableStart);
+          final tableHtml = tableEnd != -1
+              ? profileSection.substring(tableStart, tableEnd + 8)
+              : profileSection.substring(tableStart);
+          parsedMap = Map<String, dynamic>.from(_parseAttendanceHtml(tableHtml));
+        }
+      }
 
       final bioDataStart = profileHtml.indexOf('>Name<');
       String studentNameFromHtml = '';
@@ -385,14 +458,39 @@ class AusAttendanceService {
         }
       }
 
-      final parsed = _parseAttendanceHtml(tableHtml);
-      final parsedMap = Map<String, dynamic>.from(parsed);
       if (studentNameFromHtml.isNotEmpty) {
         parsedMap['studentName'] = studentNameFromHtml;
       }
 
+      if (academicInsights != null) {
+        parsedMap['academicInsights'] = academicInsights;
+      }
+
       final hasReport = parsedMap['hasReport'] as bool? ?? false;
-      if ((parsedMap['subjects'] as List).isEmpty && !hasReport) {
+      final subjectsList = parsedMap['subjects'] as List? ?? [];
+      if (subjectsList.isEmpty && !hasReport) {
+        if (academicInsights != null) {
+          unawaited(AttendanceCacheService.saveAcademicInsights(
+            rollNumber: rollNumber,
+            academicInsights: academicInsights,
+          ));
+
+          final cached = await AttendanceCacheService.load(rollNumber);
+          if (cached != null && (cached.data['subjects'] as List? ?? []).isNotEmpty) {
+            final merged = Map<String, dynamic>.from(cached.data);
+            merged['academicInsights'] = academicInsights;
+            merged['attendanceUnavailable'] = true;
+            merged['fromCache'] = true;
+            return merged;
+          }
+
+          parsedMap['overallPercentage'] = 0.0;
+          parsedMap['totalClasses'] = 0;
+          parsedMap['totalAttended'] = 0;
+          parsedMap['subjects'] = <Map<String, dynamic>>[];
+          parsedMap['attendanceUnavailable'] = true;
+          return parsedMap;
+        }
         throw Exception('Attendance data was not found in the portal response');
       }
       return parsedMap;
@@ -513,6 +611,176 @@ class AusAttendanceService {
     return cookies.entries
         .map((entry) => '${entry.key}=${entry.value}')
         .join('; ');
+  }
+
+  static Map<String, dynamic>? _parseAcademicMarks(String html) {
+    if (html.isEmpty) return null;
+
+    try {
+      double? cgpa;
+      int? passedTotal;
+      int? failedTotal;
+      String? creditsTotal;
+      String? overallResult;
+
+      final semesters = <Map<String, dynamic>>[];
+      String? currentSemTitle;
+      String? currentSemRoman;
+      var currentCourses = <Map<String, dynamic>>[];
+
+      final rowMatches = RegExp(r'<tr[^>]*>(.*?)</tr>', caseSensitive: false, dotAll: true)
+          .allMatches(html)
+          .toList();
+
+      for (final row in rowMatches) {
+        final trHtml = row.group(1) ?? '';
+        final trClean = _cleanHtmlText(trHtml);
+        final cells = RegExp(r'<t[dh][^>]*>(.*?)</t[dh]>', caseSensitive: false, dotAll: true)
+            .allMatches(trHtml)
+            .map((c) => _cleanHtmlText(c.group(1) ?? ''))
+            .where((c) => c.isNotEmpty)
+            .toList();
+
+        if (cells.isEmpty) continue;
+
+        // 1. Overall Summary table rows (Passed, Failed, CGPA, Credits, Result)
+        if (cells.length >= 2) {
+          final label = cells[0].toLowerCase().trim();
+          final val = cells[1].trim();
+          if (label == 'cgpa') {
+            cgpa = double.tryParse(val);
+          } else if (label == 'passed') {
+            passedTotal = int.tryParse(val);
+          } else if (label == 'failed') {
+            failedTotal = int.tryParse(val);
+          } else if (label == 'credits') {
+            creditsTotal = val;
+          } else if (label == 'result') {
+            overallResult = val;
+          }
+        }
+
+        // 2. Semester Title row (e.g. "I Semester", "II Semester")
+        final semTitleMatch = RegExp(r'^([I|V|X\d]+)\s*Semester', caseSensitive: false)
+            .firstMatch(trClean.trim());
+        if (semTitleMatch != null && !trClean.contains('Summary')) {
+          currentSemRoman = semTitleMatch.group(1);
+          currentSemTitle = '$currentSemRoman Semester';
+          currentCourses = [];
+          continue;
+        }
+
+        // 3. Course row (cell 0 is numeric S.No and row has >= 7 cells)
+        if (cells.length >= 7) {
+          final sNo = int.tryParse(cells[0]);
+          if (sNo != null) {
+            final courseCode = cells[1];
+            final courseName = cells[2];
+            String session = '';
+            String grade = '';
+            String points = '';
+            String credits = '';
+            String result = '';
+
+            if (cells.length >= 8) {
+              session = cells[3];
+              grade = cells[4];
+              points = cells[5];
+              credits = cells[6];
+              result = cells[7];
+            } else {
+              grade = cells[3];
+              points = cells[4];
+              credits = cells[5];
+              result = cells[6];
+            }
+
+            currentCourses.add({
+              'sNo': sNo,
+              'courseCode': courseCode,
+              'courseName': courseName,
+              'session': session,
+              'grade': grade,
+              'points': points,
+              'credits': credits,
+              'result': result,
+            });
+            continue;
+          }
+        }
+
+        // 4. Semester Summary row (e.g. "I Semester Summary Passed:8, Failed:0 Result:Pass SGPA:7.89")
+        if (trClean.contains('Semester Summary')) {
+          final summaryMatch = RegExp(
+            r'([I|V|X\d]+)\s*Semester\s*Summary.*?Passed\s*:\s*([0-9]+).*?Failed\s*:\s*([0-9]+).*?Result\s*:\s*([A-Za-z]+).*?SGPA\s*:\s*([0-9]+(\.[0-9]+)?)',
+            caseSensitive: false,
+          ).firstMatch(trClean);
+
+          if (summaryMatch != null) {
+            final roman = summaryMatch.group(1) ?? (currentSemRoman ?? '');
+            final semPassed = int.tryParse(summaryMatch.group(2) ?? '0') ?? 0;
+            final semFailed = int.tryParse(summaryMatch.group(3) ?? '0') ?? 0;
+            final semRes = summaryMatch.group(4) ?? 'Pass';
+            final semSgpa = double.tryParse(summaryMatch.group(5) ?? '0') ?? 0.0;
+
+            semesters.add({
+              'title': currentSemTitle ?? '$roman Semester',
+              'roman': roman,
+              'sgpa': semSgpa,
+              'passed': semPassed,
+              'failed': semFailed,
+              'result': semRes,
+              'courses': List<Map<String, dynamic>>.from(currentCourses),
+            });
+            currentCourses = [];
+            currentSemTitle = null;
+            currentSemRoman = null;
+          }
+        }
+      }
+
+      // Global clean-text fallbacks if any fields were missed
+      final cleanAll = _cleanHtmlText(html);
+      if (cgpa == null) {
+        final m = RegExp(r'CGPA\s*[:\s]*([0-9]+\.[0-9]+|[0-9]+)', caseSensitive: false)
+            .firstMatch(cleanAll);
+        if (m != null) cgpa = double.tryParse(m.group(1) ?? '');
+      }
+      if (passedTotal == null) {
+        final m = RegExp(r'Passed\s*[:\s]*([0-9]+)', caseSensitive: false).firstMatch(cleanAll);
+        if (m != null) passedTotal = int.tryParse(m.group(1) ?? '');
+      }
+      if (failedTotal == null) {
+        final m = RegExp(r'Failed\s*[:\s]*([0-9]+)', caseSensitive: false).firstMatch(cleanAll);
+        if (m != null) failedTotal = int.tryParse(m.group(1) ?? '');
+      }
+      if (creditsTotal == null) {
+        final m = RegExp(r'Credits\s*[:\s]*([0-9]+/[0-9]+|[0-9]+(\.[0-9]+)?)', caseSensitive: false)
+            .firstMatch(cleanAll);
+        if (m != null) creditsTotal = m.group(1);
+      }
+      if (overallResult == null) {
+        final m = RegExp(r'Result\s*[:\s]*([A-Za-z]+)', caseSensitive: false).firstMatch(cleanAll);
+        if (m != null) overallResult = m.group(1);
+      }
+
+      print('[AusAttendanceService] _parseAcademicMarks success: CGPA=$cgpa, Semesters=${semesters.length}, Passed=$passedTotal, Failed=$failedTotal');
+
+      if (cgpa != null || semesters.isNotEmpty) {
+        return {
+          'cgpa': cgpa ?? (semesters.isNotEmpty ? semesters.last['sgpa'] : 0.0),
+          'passed': passedTotal ?? semesters.fold<int>(0, (sum, s) => sum + (s['passed'] as int? ?? 0)),
+          'failed': failedTotal ?? semesters.fold<int>(0, (sum, s) => sum + (s['failed'] as int? ?? 0)),
+          'credits': creditsTotal ?? '',
+          'result': overallResult ?? 'Pass',
+          'semesters': semesters,
+        };
+      }
+      return null;
+    } catch (e) {
+      print('[AusAttendanceService] _parseAcademicMarks error: $e');
+      return null;
+    }
   }
 
   static Map<String, dynamic> _parseAttendanceHtml(String html) {

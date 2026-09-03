@@ -163,7 +163,11 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read: if isSignedIn();
-        allow create: if isSignedIn() && request.auth.uid == request.resource.data.senderId;
+        allow create: if isSignedIn() && (
+          request.auth.uid == request.resource.data.senderId ||
+          request.resource.data.senderId == 'luna_ai' ||
+          request.resource.data.isLuna == true
+        );
         allow update: if isSignedIn();
         allow delete: if isSignedIn() && request.auth.uid == resource.data.senderId;
       }

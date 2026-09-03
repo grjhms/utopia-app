@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../main.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/role_service.dart';
+import '../services/app_update_service.dart';
 import 'developer_panel_screen.dart';
 
 class UtopiaSectionScreen extends StatefulWidget {
@@ -22,6 +23,7 @@ class UtopiaSectionScreen extends StatefulWidget {
 class _UtopiaSectionScreenState extends State<UtopiaSectionScreen> {
   bool _isSuperUser = false;
   String _appVersion = '1.0.0';
+  bool _checkingUpdate = false;
 
   @override
   void initState() {
@@ -61,12 +63,25 @@ class _UtopiaSectionScreenState extends State<UtopiaSectionScreen> {
     }
   }
 
+  Future<void> _checkUpdate() async {
+    if (_checkingUpdate) return;
+    setState(() => _checkingUpdate = true);
+    try {
+      await AppUpdateService.checkForUpdate(context, isManual: true);
+    } finally {
+      if (mounted) {
+        setState(() => _checkingUpdate = false);
+      }
+    }
+  }
+
   Widget _groupedTile({
     required IconData icon,
     required String label,
     required String sub,
     required Color color,
     required VoidCallback onTap,
+    Widget? trailing,
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -105,7 +120,7 @@ class _UtopiaSectionScreenState extends State<UtopiaSectionScreen> {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: U.dim, size: 18),
+            trailing ?? Icon(Icons.chevron_right, color: U.dim, size: 18),
           ],
         ),
       ),
@@ -191,6 +206,31 @@ class _UtopiaSectionScreenState extends State<UtopiaSectionScreen> {
               ),
               child: Column(
                 children: [
+                  // Check for Updates
+                  _groupedTile(
+                    icon: Icons.system_update_rounded,
+                    label: 'Check for Updates',
+                    sub: _checkingUpdate
+                        ? 'Checking for updates...'
+                        : 'Current: v$_appVersion',
+                    color: U.primary,
+                    trailing: _checkingUpdate
+                        ? SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: U.primary,
+                            ),
+                          )
+                        : null,
+                    onTap: _checkUpdate,
+                  ),
+                  Divider(
+                    height: 1,
+                    thickness: 0.5,
+                    color: U.border.withValues(alpha: 0.5),
+                  ),
                   // Report Bugs & Suggestions
                   _groupedTile(
                     icon: Icons.bug_report_outlined,

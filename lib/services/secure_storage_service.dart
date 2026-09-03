@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SecureStorageService {
   static const String _rollKey = 'attendance_roll';
@@ -15,18 +17,57 @@ class SecureStorageService {
     String password,
     String college,
   ) async {
-    await _storage.write(key: _rollKey, value: rollNumber.trim());
-    await _storage.write(key: _passwordKey, value: password);
-    await _storage.write(key: _collegeKey, value: college);
+    final cleanRoll = rollNumber.trim();
+    // 1. Write to FlutterSecureStorage
+    try {
+      await _storage.write(key: _rollKey, value: cleanRoll);
+      await _storage.write(key: _passwordKey, value: password);
+      await _storage.write(key: _collegeKey, value: college);
+    } catch (e) {
+      debugPrint('SecureStorageService: storage write error: $e');
+    }
+
+    // 2. Hard persistence backup in SharedPreferences
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_rollKey, cleanRoll);
+      await prefs.setString(_passwordKey, password);
+      await prefs.setString(_collegeKey, college);
+    } catch (e) {
+      debugPrint('SecureStorageService: prefs write error: $e');
+    }
   }
 
   static Future<Map<String, String>?> getCredentials() async {
-    final rollNumber = await _storage.read(key: _rollKey);
-    final password = await _storage.read(key: _passwordKey);
-    final college = await _storage.read(key: _collegeKey);
-    if (rollNumber == null || password == null) {
+    String? rollNumber;
+    String? password;
+    String? college;
+
+    // 1. Try FlutterSecureStorage first
+    try {
+      rollNumber = await _storage.read(key: _rollKey);
+      password = await _storage.read(key: _passwordKey);
+      college = await _storage.read(key: _collegeKey);
+    } catch (e) {
+      debugPrint('SecureStorageService: storage read error: $e');
+    }
+
+    // 2. Fallback to SharedPreferences if secure storage returned null or errored
+    if (rollNumber == null || password == null || rollNumber.isEmpty || password.isEmpty) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        rollNumber = prefs.getString(_rollKey);
+        password = prefs.getString(_passwordKey);
+        college = prefs.getString(_collegeKey);
+      } catch (e) {
+        debugPrint('SecureStorageService: prefs read error: $e');
+      }
+    }
+
+    if (rollNumber == null || password == null || rollNumber.isEmpty || password.isEmpty) {
       return null;
     }
+
     return {
       'rollNumber': rollNumber,
       'password': password,
@@ -35,9 +76,18 @@ class SecureStorageService {
   }
 
   static Future<void> clearCredentials() async {
-    await _storage.delete(key: _rollKey);
-    await _storage.delete(key: _passwordKey);
-    await _storage.delete(key: _collegeKey);
+    try {
+      await _storage.delete(key: _rollKey);
+      await _storage.delete(key: _passwordKey);
+      await _storage.delete(key: _collegeKey);
+    } catch (_) {}
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_rollKey);
+      await prefs.remove(_passwordKey);
+      await prefs.remove(_collegeKey);
+    } catch (_) {}
   }
 
   static Future<void> saveGoogleTokens({

@@ -53,7 +53,7 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
   }
 
   Color _getThemeColor(double? pct) {
-    if (pct == null) return U.primary;
+    if (pct == null || pct <= 0) return U.primary;
     if (pct >= 75) return U.green;
     if (pct >= 65) return U.peach;
     return U.red;
@@ -91,9 +91,12 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isAvailable = widget.isConnected &&
+        widget.attendancePct != null &&
+        widget.attendancePct! > 0;
     final accentColor = _getThemeColor(widget.attendancePct);
-    final pct = widget.attendancePct != null ? (widget.attendancePct! / 100).clamp(0.0, 1.0) : 0.0;
-    final pctString = widget.attendancePct != null ? widget.attendancePct!.toStringAsFixed(0) : '--';
+    final pct = isAvailable ? (widget.attendancePct! / 100).clamp(0.0, 1.0) : 0.20;
+    final pctString = isAvailable ? widget.attendancePct!.toStringAsFixed(0) : '—';
 
     return M3Pressable(
       onTap: widget.onTap,
@@ -122,7 +125,7 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
                     painter: _LiquidWavePainter(
                       color: accentColor,
                       progress: waveProgress,
-                      fillPercent: widget.isConnected && widget.attendancePct != null ? pct : 0.2,
+                      fillPercent: pct,
                       isDark: isDark,
                     ),
                   ),
@@ -276,8 +279,8 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
                             ),
                           ),
 
-                          // Right: Giant M3 Expressive Number Display
-                          if (widget.isConnected && widget.attendancePct != null)
+                          // Right: Giant M3 Expressive Number Display or Unavailable Dash
+                          if (widget.isConnected && isAvailable)
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
@@ -300,6 +303,47 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
                                       fontSize: 22,
                                       fontWeight: FontWeight.w800,
                                       color: accentColor,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          else if (widget.isConnected && !isAvailable)
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '—',
+                                  style: GoogleFonts.robotoFlex(
+                                    fontSize: 44,
+                                    fontWeight: FontWeight.w900,
+                                    height: 0.9,
+                                    letterSpacing: -1,
+                                    color: U.text,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: U.surfaceContainerLowest.withValues(alpha: 0.85),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: U.outlineVariant.withValues(alpha: 0.35),
+                                      width: 0.7,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'Unavailable',
+                                    style: GoogleFonts.outfit(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: U.sub,
+                                      letterSpacing: 0.2,
                                     ),
                                   ),
                                 ),
@@ -340,7 +384,7 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
                           child: LayoutBuilder(
                             builder: (context, constraints) {
                               final totalW = constraints.maxWidth;
-                              final fillW = totalW * pct;
+                              final fillW = isAvailable ? totalW * pct : 0.0;
 
                               return Align(
                                 alignment: Alignment.centerLeft,

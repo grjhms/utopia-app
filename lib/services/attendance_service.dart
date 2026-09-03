@@ -39,6 +39,7 @@ class AttendanceService {
         result = await AecAttendanceService.fetchAttendance(
           rollNumber,
           password,
+          college: college,
           fromDate: fromDate,
           toDate: toDate,
           mode: mode,
@@ -93,6 +94,27 @@ class AttendanceService {
 
       // No cache available — rethrow original error
       rethrow;
+    }
+  }
+
+  /// Fetch marks only (SGPA, CGPA, semester breakdowns) for either AUS or ACET/AEC.
+  static Future<Map<String, dynamic>?> fetchMarksOnly(
+    String rollNumber,
+    String password, {
+    String college = 'aus',
+  }) async {
+    if (college.toLowerCase() == 'acet' || college.toLowerCase() == 'aec') {
+      return AecAttendanceService.fetchMarksOnly(
+        rollNumber,
+        password,
+        college: college,
+      );
+    } else {
+      final res = await AusAttendanceService.fetchAttendance(
+        rollNumber,
+        password,
+      );
+      return res['academicInsights'] as Map<String, dynamic>?;
     }
   }
 }
