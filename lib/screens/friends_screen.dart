@@ -562,19 +562,31 @@ class _FriendRow extends StatelessWidget {
                   ),
                 ),
                 if (unreadCount > 0) ...[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 5),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
-                      color: U.primary,
-                      borderRadius: BorderRadius.circular(10),
+                      gradient: LinearGradient(
+                        colors: [
+                          U.primary,
+                          U.primary.withValues(alpha: 0.85),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: U.primary.withValues(alpha: 0.35),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: Text(
                       unreadCount > 99 ? '99+' : '$unreadCount',
                       style: GoogleFonts.outfit(
-                        color: U.getContrastColor(U.primary),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),

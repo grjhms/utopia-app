@@ -23,6 +23,8 @@ import 'community_notes_screen.dart'; // ignore: unused_import
 import 'classes_screen.dart';
 import 'timetable_screen.dart';
 import 'assignments_screen.dart';
+import '../theme/m3_expressive_theme.dart';
+import '../widgets/app_motion.dart';
 
 class UniversityScreen extends StatefulWidget {
   const UniversityScreen({super.key});
@@ -356,22 +358,22 @@ class _UniversityScreenState extends State<UniversityScreen> {
                 children: [
                   Text(
                     'MY CAMPUS',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 12,
+                    style: GoogleFonts.robotoFlex(
+                      fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      letterSpacing: 2.0,
+                      letterSpacing: 1.2,
                       color: theme.primary.withValues(alpha: 0.9),
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   Text(
                     _displayUniversityName,
-                    style: GoogleFonts.outfit(
-                      fontSize: 34,
+                    style: GoogleFonts.robotoFlex(
+                      fontSize: 28,
                       fontWeight: FontWeight.w800,
                       height: 1.15,
                       color: theme.text,
-                      letterSpacing: -0.6,
+                      letterSpacing: -0.4,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -393,9 +395,9 @@ class _UniversityScreenState extends State<UniversityScreen> {
                   physics: const BouncingScrollPhysics(),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 2,
-                    mainAxisSpacing: 16,
-                    crossAxisSpacing: 16,
-                    childAspectRatio: 0.9,
+                    mainAxisSpacing: 14,
+                    crossAxisSpacing: 14,
+                    childAspectRatio: 0.92,
                   ),
                   itemCount: cards.length,
                   itemBuilder: (context, index) {
@@ -456,10 +458,9 @@ class _HeaderButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = appThemeNotifier.value.isDark;
     return Tooltip(
       message: tooltip,
-      child: GestureDetector(
+      child: M3Pressable(
         onTap: onTap,
         child: Stack(
           clipBehavior: Clip.none,
@@ -469,14 +470,10 @@ class _HeaderButton extends StatelessWidget {
               height: 44,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isDark 
-                    ? Colors.white.withValues(alpha: 0.08) 
-                    : Colors.black.withValues(alpha: 0.05),
+                color: U.surfaceContainerHighest,
                 border: Border.all(
-                  color: isDark 
-                      ? Colors.white.withValues(alpha: 0.1) 
-                      : Colors.black.withValues(alpha: 0.05),
-                  width: 1,
+                  color: U.outlineVariant.withValues(alpha: 0.35),
+                  width: 0.8,
                 ),
               ),
               child: Icon(
@@ -506,8 +503,8 @@ class _HeaderButton extends StatelessWidget {
                   child: badgeText != null
                       ? Text(
                           badgeText!,
-                          style: GoogleFonts.plusJakartaSans(
-                            color: isDark ? Colors.black : Colors.white,
+                          style: GoogleFonts.robotoFlex(
+                            color: Colors.white,
                             fontSize: 8,
                             fontWeight: FontWeight.bold,
                           ),
@@ -544,30 +541,13 @@ class _UniversityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardContent = Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: isDisabled
-              ? [
-                  U.card.withValues(alpha: 0.8),
-                  U.card.withValues(alpha: 0.5),
-                ]
-              : [
-                  U.card,
-                  Color.lerp(U.card, color, isDark ? 0.08 : 0.05) ?? U.card,
-                ],
-        ),
-        borderRadius: BorderRadius.circular(22),
+        color: U.surfaceContainer,
+        borderRadius: M3Shapes.cardRadius,
         border: Border.all(
-          color: isDisabled
-              ? U.border.withValues(alpha: 0.3)
-              : (isDark
-                  ? color.withValues(alpha: 0.18)
-                  : color.withValues(alpha: 0.14)),
-          width: 1.0,
+          color: U.outlineVariant.withValues(alpha: 0.35),
+          width: 0.8,
         ),
       ),
       padding: const EdgeInsets.all(20),
@@ -575,63 +555,52 @@ class _UniversityCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
+            width: 50,
+            height: 50,
             decoration: BoxDecoration(
-              gradient: isDisabled
-                  ? null
-                  : LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        color.withValues(alpha: 0.18),
-                        color.withValues(alpha: 0.06),
-                      ],
-                    ),
-              color: isDisabled ? Colors.grey.withValues(alpha: 0.1) : null,
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: (isDisabled ? Colors.grey : color).withValues(alpha: 0.15),
-                width: 0.8,
-              ),
+              color: color.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(18),
             ),
-            child: Icon(icon, color: isDisabled ? U.dim : color, size: 24),
+            child: Center(
+              child: Icon(icon, color: color, size: 24),
+            ),
           ),
           const Spacer(),
           Text(
             title,
-            style: GoogleFonts.outfit(
+            style: GoogleFonts.robotoFlex(
               color: isDisabled ? U.dim : U.text,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
+              fontSize: 16.5,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
                 child: Text(
                   subtitle,
-                  style: GoogleFonts.outfit(
+                  style: GoogleFonts.robotoFlex(
                     color: isDisabled ? U.dim : U.sub,
                     fontSize: 12,
                     fontWeight: FontWeight.w400,
-                    height: 1.3,
+                    height: 1.25,
                   ),
                 ),
               ),
               Container(
-                width: 24,
-                height: 24,
+                width: 26,
+                height: 26,
                 decoration: BoxDecoration(
-                  color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.03),
+                  color: U.surfaceContainerLowest,
                   shape: BoxShape.circle,
                 ),
                 child: Center(
                   child: Icon(
                     isDisabled ? Icons.lock_outline_rounded : Icons.chevron_right_rounded,
-                    color: U.dim,
-                    size: 14,
+                    color: U.sub,
+                    size: 15,
                   ),
                 ),
               ),
@@ -641,8 +610,10 @@ class _UniversityCard extends StatelessWidget {
       ),
     );
 
-    return GestureDetector(
+    return M3Pressable(
       onTap: onTap,
+      scaleFactor: 0.95,
+      borderRadius: M3Shapes.cardRadius,
       child: isDisabled
           ? Opacity(
               opacity: 0.45,
@@ -658,6 +629,3 @@ class _UniversityCard extends StatelessWidget {
         );
   }
 }
-
-
-

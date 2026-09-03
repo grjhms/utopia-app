@@ -625,7 +625,7 @@ class _HabitTrackerScreenState extends State<HabitTrackerScreen> with WidgetsBin
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 minimumSize: Size.zero,
                 backgroundColor: U.gold,
-                foregroundColor: isDark ? Colors.black : Colors.white,
+                foregroundColor: U.getContrastColor(U.gold),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               child: Text(

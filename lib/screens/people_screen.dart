@@ -23,6 +23,7 @@ import '../widgets/wave_count_badge.dart';
 import 'chat_screen.dart';
 import 'friends_screen.dart';
 import 'user_profile_screen.dart';
+import '../theme/m3_expressive_theme.dart';
 
 const List<String> kBTechBranches = [
   'Agri Engg',
@@ -313,10 +314,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
                 physics: const BouncingScrollPhysics(),
                 keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                 slivers: [
-                  // ── 1. Top Header Bar ──────────────────────────────────────────
+                  // ── 1. Hyper Material 3 Header Bar ──────────────────────────────
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 16, 8),
+                      padding: const EdgeInsets.fromLTRB(20, 14, 16, 10),
                       child: Row(
                         children: [
                           Column(
@@ -324,78 +325,111 @@ class _PeopleScreenState extends State<PeopleScreen> {
                             children: [
                               Text(
                                 'People',
-                                style: GoogleFonts.outfit(
+                                style: GoogleFonts.robotoFlex(
                                   color: U.text,
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.5,
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: -0.6,
                                 ),
-                              ),
-                              const SizedBox(height: 1),
-                              Text(
-                                totalCount > 0 ? '$totalCount campus members' : 'Campus directory',
-                                style: GoogleFonts.outfit(
-                                  color: U.sub,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                              ).animate().fadeIn(duration: 250.ms).slideX(begin: -0.05, end: 0),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3.5),
+                                    decoration: BoxDecoration(
+                                      color: U.surfaceContainerHighest,
+                                      borderRadius: M3Shapes.fullRadius,
+                                      border: Border.all(
+                                        color: U.outlineVariant.withValues(alpha: 0.3),
+                                        width: 0.6,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (activeVibesMap.isNotEmpty) ...[
+                                          _RadarPingDot(),
+                                          const SizedBox(width: 6),
+                                        ],
+                                        Text(
+                                          totalCount > 0 ? '$totalCount campus members' : 'Campus directory',
+                                          style: GoogleFonts.robotoFlex(
+                                            color: U.sub,
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ).animate().fadeIn(duration: 300.ms, delay: 50.ms).scaleXY(begin: 0.9, end: 1.0),
+                                ],
                               ),
                             ],
                           ),
                           const Spacer(),
 
-                          // Friends / Following navigation shortcut
+                          // Friends / Requests shortcut button
                           StreamBuilder<int>(
                             stream: _followService.pendingRequestsCountStream(_currentUid),
                             builder: (context, reqSnap) {
                               final reqCount = reqSnap.data ?? 0;
-                              return IconButton(
-                                tooltip: 'Friends & Requests',
-                                padding: const EdgeInsets.all(8),
-                                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-                                onPressed: () {
+                              return M3Pressable(
+                                onTap: () {
                                   _searchFocusNode.unfocus();
                                   Navigator.of(context).push(
                                     buildForwardRoute(const FriendsScreen()),
                                   );
                                 },
-                                icon: Stack(
+                                borderRadius: BorderRadius.circular(16),
+                                child: Stack(
                                   clipBehavior: Clip.none,
                                   children: [
                                     Container(
-                                      padding: const EdgeInsets.all(7),
+                                      width: 44,
+                                      height: 44,
                                       decoration: BoxDecoration(
-                                        color: U.card,
-                                        shape: BoxShape.circle,
+                                        color: U.surfaceContainerHigh,
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: U.outlineVariant.withValues(alpha: 0.35),
+                                          width: 0.8,
+                                        ),
                                       ),
-                                      child: Icon(Icons.people_alt_outlined, color: U.text, size: 17),
+                                      child: Icon(Icons.people_alt_outlined, color: U.text, size: 20),
                                     ),
                                     if (reqCount > 0)
                                       Positioned(
-                                        right: -2,
-                                        top: -2,
+                                        right: -3,
+                                        top: -3,
                                         child: Container(
-                                          padding: const EdgeInsets.all(3.5),
+                                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                                           decoration: BoxDecoration(
                                             color: U.red,
-                                            shape: BoxShape.circle,
-                                            border: Border.all(color: U.surface, width: 1.5),
+                                            borderRadius: M3Shapes.fullRadius,
+                                            border: Border.all(color: U.surface, width: 2),
                                           ),
-                                        ),
+                                          child: Text(
+                                            reqCount > 99 ? '99+' : '$reqCount',
+                                            style: GoogleFonts.robotoFlex(
+                                              color: Colors.white,
+                                              fontSize: 9.5,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
+                                        ).animate().scale(curve: Curves.elasticOut, duration: 400.ms),
                                       ),
                                   ],
                                 ),
                               );
                             },
                           ),
+                          const SizedBox(width: 8),
 
-                          // View Switcher (Grid vs List)
-                          IconButton(
-                            tooltip: _viewMode == PeopleViewMode.grid ? 'List View' : 'Grid View',
-                            padding: const EdgeInsets.all(8),
-                            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-                            onPressed: () {
-                              HapticFeedback.lightImpact();
+                          // View Switcher (Grid vs List) with spring rotating animation
+                          M3Pressable(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
                               _searchFocusNode.unfocus();
                               setState(() {
                                 _viewMode = _viewMode == PeopleViewMode.grid
@@ -403,18 +437,34 @@ class _PeopleScreenState extends State<PeopleScreen> {
                                     : PeopleViewMode.grid;
                               });
                             },
-                            icon: Container(
-                              padding: const EdgeInsets.all(7),
+                            borderRadius: BorderRadius.circular(16),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOutCubic,
+                              width: 44,
+                              height: 44,
                               decoration: BoxDecoration(
-                                color: U.card,
-                                shape: BoxShape.circle,
+                                color: U.surfaceContainerHigh,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: U.outlineVariant.withValues(alpha: 0.35),
+                                  width: 0.8,
+                                ),
                               ),
-                              child: Icon(
-                                _viewMode == PeopleViewMode.grid
-                                    ? Icons.view_agenda_outlined
-                                    : Icons.grid_view_rounded,
-                                color: U.text,
-                                size: 17,
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 220),
+                                transitionBuilder: (child, anim) => RotationTransition(
+                                  turns: Tween<double>(begin: 0.75, end: 1.0).animate(anim),
+                                  child: ScaleTransition(scale: anim, child: child),
+                                ),
+                                child: Icon(
+                                  _viewMode == PeopleViewMode.grid
+                                      ? Icons.view_agenda_rounded
+                                      : Icons.grid_view_rounded,
+                                  key: ValueKey(_viewMode),
+                                  color: U.text,
+                                  size: 20,
+                                ),
                               ),
                             ),
                           ),
@@ -423,28 +473,41 @@ class _PeopleScreenState extends State<PeopleScreen> {
                     ),
                   ),
 
-                  // ── 2. Material 3 Plain Round Search Bar (No Strokes) ──────────
+                  // ── 2. Hyper Material 3 Search Bar ──────────────────────────────
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
+                      padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
                       child: Row(
                         children: [
                           Expanded(
-                            child: Container(
-                              height: 48,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 220),
+                              curve: Curves.easeOutCubic,
+                              height: 52,
                               decoration: BoxDecoration(
-                                color: U.card,
-                                borderRadius: BorderRadius.circular(28),
-                                border: null,
-                                boxShadow: const [],
+                                color: _isSearchFocused
+                                    ? U.surfaceContainerHighest
+                                    : U.surfaceContainerHigh,
+                                borderRadius: M3Shapes.fullRadius,
+                                border: Border.all(
+                                  color: _isSearchFocused
+                                      ? U.primary
+                                      : U.outlineVariant.withValues(alpha: 0.35),
+                                  width: _isSearchFocused ? 1.6 : 0.8,
+                                ),
                               ),
                               padding: const EdgeInsets.symmetric(horizontal: 16),
                               child: Row(
                                 children: [
-                                  Icon(
-                                    Icons.search_rounded,
-                                    color: U.sub,
-                                    size: 20,
+                                  AnimatedScale(
+                                    scale: _isSearchFocused ? 1.15 : 1.0,
+                                    duration: const Duration(milliseconds: 180),
+                                    curve: Curves.easeOutBack,
+                                    child: Icon(
+                                      Icons.search_rounded,
+                                      color: _isSearchFocused ? U.primary : U.sub,
+                                      size: 22,
+                                    ),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
@@ -454,23 +517,21 @@ class _PeopleScreenState extends State<PeopleScreen> {
                                       textInputAction: TextInputAction.search,
                                       onSubmitted: (_) => _searchFocusNode.unfocus(),
                                       cursorColor: U.primary,
-                                      style: GoogleFonts.outfit(
+                                      style: GoogleFonts.robotoFlex(
                                         color: U.text,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w400,
+                                        fontSize: 14.5,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                       decoration: InputDecoration(
-                                        hintText: 'Search people, branch, vibe...',
-                                        hintStyle: GoogleFonts.outfit(
-                                          color: U.sub.withValues(alpha: 0.8),
+                                        hintText: 'Search people, branch, bio...',
+                                        hintStyle: GoogleFonts.robotoFlex(
+                                          color: U.sub.withValues(alpha: 0.75),
                                           fontSize: 14,
                                           fontWeight: FontWeight.w400,
                                         ),
                                         border: InputBorder.none,
                                         enabledBorder: InputBorder.none,
                                         focusedBorder: InputBorder.none,
-                                        errorBorder: InputBorder.none,
-                                        disabledBorder: InputBorder.none,
                                         isDense: true,
                                         filled: false,
                                         contentPadding: EdgeInsets.zero,
@@ -478,27 +539,31 @@ class _PeopleScreenState extends State<PeopleScreen> {
                                     ),
                                   ),
                                   if (_searchController.text.isNotEmpty)
-                                    GestureDetector(
+                                    M3Pressable(
                                       onTap: () {
                                         HapticFeedback.lightImpact();
                                         _searchController.clear();
                                         setState(() {});
                                       },
-                                      child: Padding(
+                                      child: Container(
                                         padding: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: U.surfaceContainerLowest,
+                                          shape: BoxShape.circle,
+                                        ),
                                         child: Icon(
                                           Icons.close_rounded,
                                           color: U.sub,
-                                          size: 18,
+                                          size: 16,
                                         ),
                                       ),
-                                    ),
+                                    ).animate().scale(curve: Curves.easeOutBack, duration: 180.ms),
                                 ],
                               ),
                             ),
                           ),
                           if (_isSearchFocused || _searchController.text.isNotEmpty) ...[
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 10),
                             TextButton(
                               onPressed: () {
                                 HapticFeedback.lightImpact();
@@ -510,366 +575,434 @@ class _PeopleScreenState extends State<PeopleScreen> {
                               },
                               style: TextButton.styleFrom(
                                 foregroundColor: U.primary,
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                                 minimumSize: Size.zero,
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               ),
                               child: Text(
                                 'Cancel',
-                                style: GoogleFonts.outfit(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
+                                style: GoogleFonts.robotoFlex(
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
-                            ),
+                            ).animate().fadeIn(duration: 200.ms).slideX(begin: 0.15, end: 0, curve: Curves.easeOutBack),
                           ],
                         ],
                       ),
                     ),
                   ),
 
-                // ── 3. Campus Status Row (Clean & Lightweight) ─────────────────
-                SliverToBoxAdapter(
-                  child: _CampusStatusRow(
-                    currentUid: _currentUid,
-                    currentUserName: _currentUserName,
-                    currentUserPhoto: _currentUserPhoto,
-                    currentUserVibe: currentUserVibe,
-                    activeVibes: activeVibesMap.values.toList(),
-                    onSetStatusTap: () => _openSetStatusSheet(currentUserVibe),
-                    onStatusTap: (vibe) {
-                      final targetUser = allUsers.firstWhere(
-                        (u) => u['uid'] == vibe.uid,
-                        orElse: () => {
-                          'uid': vibe.uid,
-                          'displayName': vibe.displayName,
-                          'photoUrl': vibe.photoUrl,
-                          'branch': vibe.branch,
-                        },
-                      );
-                      _openQuickPeekSheet(targetUser, vibe);
-                    },
-                  ),
-                ),
-
-                // ── 4. Academic Branch Prompt (if not set) ─────────────────────
-                if (!hasSelectedBranch && query.isEmpty)
+                  // ── 3. Campus Vibe Story Capsules (Fluid Horizontal Row) ─────────
                   SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: U.card,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(7),
-                              decoration: BoxDecoration(
-                                color: U.primary.withValues(alpha: 0.12),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(Icons.school_outlined, color: U.primary, size: 17),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Set your branch',
-                                    style: GoogleFonts.outfit(
-                                      color: U.text,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Find classmates and study partners in your major',
-                                    style: GoogleFonts.outfit(
-                                      color: U.sub,
-                                      fontSize: 11.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            TextButton(
-                              onPressed: _openSetMyBranchModal,
-                              style: TextButton.styleFrom(
-                                backgroundColor: U.primary.withValues(alpha: 0.12),
-                                foregroundColor: U.primary,
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              child: Text(
-                                'Select',
-                                style: GoogleFonts.outfit(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                    child: _CampusStatusRow(
+                      currentUid: _currentUid,
+                      currentUserName: _currentUserName,
+                      currentUserPhoto: _currentUserPhoto,
+                      currentUserVibe: currentUserVibe,
+                      activeVibes: activeVibesMap.values.toList(),
+                      onSetStatusTap: () => _openSetStatusSheet(currentUserVibe),
+                      onStatusTap: (vibe) {
+                        final targetUser = allUsers.firstWhere(
+                          (u) => u['uid'] == vibe.uid,
+                          orElse: () => {
+                            'uid': vibe.uid,
+                            'displayName': vibe.displayName,
+                            'photoUrl': vibe.photoUrl,
+                            'branch': vibe.branch,
+                          },
+                        );
+                        _openQuickPeekSheet(targetUser, vibe);
+                      },
                     ),
                   ),
 
-                // ── 5. Ergonomic Filter Pills ──────────────────────────────────
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 6, 0, 10),
-                    child: SizedBox(
-                      height: 34,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        physics: const BouncingScrollPhysics(),
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        children: [
-                          _buildFilterPill(
-                            id: 'All',
-                            label: 'All',
-                            count: totalCount,
+                  // ── 4. Academic Branch Prompt Banner ────────────────────────────
+                  if (!hasSelectedBranch && query.isEmpty)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: U.surfaceContainerHigh,
+                            borderRadius: M3Shapes.cardRadius,
+                            border: Border.all(
+                              color: U.primary.withValues(alpha: 0.35),
+                              width: 1.0,
+                            ),
                           ),
-                          const SizedBox(width: 8),
-                          if (hasSelectedBranch) ...[
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: U.primary.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Icon(Icons.school_rounded, color: U.primary, size: 26),
+                              ).animate(onPlay: (c) => c.repeat(reverse: true)).scaleXY(begin: 0.95, end: 1.05, duration: 1200.ms, curve: Curves.easeInOut),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Set your major / branch',
+                                      style: GoogleFonts.robotoFlex(
+                                        color: U.text,
+                                        fontSize: 14.5,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Connect easily with peers in your program',
+                                      style: GoogleFonts.robotoFlex(
+                                        color: U.sub,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              FilledButton.tonal(
+                                onPressed: _openSetMyBranchModal,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: U.primary.withValues(alpha: 0.16),
+                                  foregroundColor: U.primary,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                child: Text(
+                                  'Select',
+                                  style: GoogleFonts.robotoFlex(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ).animate().fadeIn(duration: 280.ms).slideY(begin: 0.1, end: 0, curve: Curves.easeOutBack),
+                      ),
+                    ),
+
+                  // ── 5. Hyper Material 3 Filter Chips ────────────────────────────
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 4, 0, 12),
+                      child: SizedBox(
+                        height: 38,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          children: [
                             _buildFilterPill(
-                              id: 'My Branch',
-                              label: myBranch,
-                              icon: Icons.school_rounded,
-                              count: branchCounts[myBranch],
+                              id: 'All',
+                              label: 'All',
+                              count: totalCount,
                             ),
                             const SizedBox(width: 8),
-                          ],
-                          _buildFilterPill(
-                            id: 'Active',
-                            label: 'Active Status',
-                            count: activeVibesMap.length,
-                            leadingEmoji: '🟢',
-                          ),
-                          const SizedBox(width: 8),
-                          // Branch selector dropdown pill
-                          GestureDetector(
-                            onTap: () => _openBranchPickerModal(branchCounts, totalCount),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 180),
-                              alignment: Alignment.center,
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
-                              decoration: BoxDecoration(
-                                color: _selectedFilter != 'All' &&
-                                        _selectedFilter != 'Active' &&
-                                        _selectedFilter != 'My Branch'
-                                    ? U.primary.withValues(alpha: 0.14)
-                                    : U.card,
-                                borderRadius: BorderRadius.circular(16),
+                            if (hasSelectedBranch) ...[
+                              _buildFilterPill(
+                                id: 'My Branch',
+                                label: myBranch,
+                                icon: Icons.school_rounded,
+                                count: branchCounts[myBranch],
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.tune_rounded,
-                                    size: 13,
+                              const SizedBox(width: 8),
+                            ],
+                            _buildFilterPill(
+                              id: 'Active',
+                              label: 'Active Status',
+                              count: activeVibesMap.length,
+                              showLiveDot: true,
+                            ),
+                            const SizedBox(width: 8),
+                            // Branch selector dropdown chip
+                            M3Pressable(
+                              onTap: () => _openBranchPickerModal(branchCounts, totalCount),
+                              borderRadius: M3Shapes.fullRadius,
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 180),
+                                curve: Curves.easeOutCubic,
+                                alignment: Alignment.center,
+                                padding: const EdgeInsets.symmetric(horizontal: 14),
+                                decoration: BoxDecoration(
+                                  color: _selectedFilter != 'All' &&
+                                          _selectedFilter != 'Active' &&
+                                          _selectedFilter != 'My Branch'
+                                      ? U.primary.withValues(alpha: 0.16)
+                                      : U.surfaceContainerHigh,
+                                  borderRadius: M3Shapes.fullRadius,
+                                  border: Border.all(
                                     color: _selectedFilter != 'All' &&
                                             _selectedFilter != 'Active' &&
                                             _selectedFilter != 'My Branch'
-                                        ? U.primary
-                                        : U.sub,
+                                        ? U.primary.withValues(alpha: 0.55)
+                                        : U.outlineVariant.withValues(alpha: 0.35),
+                                    width: _selectedFilter != 'All' &&
+                                            _selectedFilter != 'Active' &&
+                                            _selectedFilter != 'My Branch'
+                                        ? 1.2
+                                        : 0.8,
                                   ),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    _selectedBranch == 'All' ||
-                                            _selectedFilter == 'All' ||
-                                            _selectedFilter == 'Active' ||
-                                            _selectedFilter == 'My Branch'
-                                        ? 'Branches'
-                                        : _selectedBranch,
-                                    style: GoogleFonts.outfit(
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.tune_rounded,
+                                      size: 15,
                                       color: _selectedFilter != 'All' &&
                                               _selectedFilter != 'Active' &&
                                               _selectedFilter != 'My Branch'
                                           ? U.primary
                                           : U.sub,
-                                      fontSize: 12,
-                                      fontWeight: _selectedFilter != 'All' &&
-                                              _selectedFilter != 'Active' &&
-                                              _selectedFilter != 'My Branch'
-                                          ? FontWeight.w700
-                                          : FontWeight.w500,
                                     ),
-                                  ),
-                                  if (_selectedFilter != 'All' &&
-                                      _selectedFilter != 'Active' &&
-                                      _selectedFilter != 'My Branch' &&
-                                      (branchCounts[_selectedBranch] ?? 0) > 0) ...[
-                                    const SizedBox(width: 5),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                      decoration: BoxDecoration(
-                                        color: U.primary.withValues(alpha: 0.2),
-                                        borderRadius: BorderRadius.circular(8),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      _selectedBranch == 'All' ||
+                                              _selectedFilter == 'All' ||
+                                              _selectedFilter == 'Active' ||
+                                              _selectedFilter == 'My Branch'
+                                          ? 'Branches'
+                                          : _selectedBranch,
+                                      style: GoogleFonts.robotoFlex(
+                                        color: _selectedFilter != 'All' &&
+                                                _selectedFilter != 'Active' &&
+                                                _selectedFilter != 'My Branch'
+                                            ? U.primary
+                                            : U.sub,
+                                        fontSize: 12.5,
+                                        fontWeight: _selectedFilter != 'All' &&
+                                                _selectedFilter != 'Active' &&
+                                                _selectedFilter != 'My Branch'
+                                            ? FontWeight.w800
+                                            : FontWeight.w600,
                                       ),
-                                      child: Text(
-                                        '${branchCounts[_selectedBranch]}',
-                                        style: GoogleFonts.outfit(
-                                          color: U.primary,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w700,
+                                    ),
+                                    if (_selectedFilter != 'All' &&
+                                        _selectedFilter != 'Active' &&
+                                        _selectedFilter != 'My Branch' &&
+                                        (branchCounts[_selectedBranch] ?? 0) > 0) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                        decoration: BoxDecoration(
+                                          color: U.primary.withValues(alpha: 0.22),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          '${branchCounts[_selectedBranch]}',
+                                          style: GoogleFonts.robotoFlex(
+                                            color: U.primary,
+                                            fontSize: 10.5,
+                                            fontWeight: FontWeight.w800,
+                                          ),
                                         ),
                                       ),
+                                    ],
+                                    const SizedBox(width: 4),
+                                    Icon(
+                                      Icons.keyboard_arrow_down_rounded,
+                                      size: 16,
+                                      color: _selectedFilter != 'All' &&
+                                              _selectedFilter != 'Active' &&
+                                              _selectedFilter != 'My Branch'
+                                          ? U.primary
+                                          : U.sub,
                                     ),
                                   ],
-                                  const SizedBox(width: 3),
-                                  Icon(
-                                    Icons.keyboard_arrow_down_rounded,
-                                    size: 15,
-                                    color: _selectedFilter != 'All' &&
-                                            _selectedFilter != 'Active' &&
-                                            _selectedFilter != 'My Branch'
-                                        ? U.primary
-                                        : U.sub,
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
 
-                // ── 6. Main List or Grid Content ───────────────────────────────
-                if (userSnap.connectionState == ConnectionState.waiting)
-                  const SliverToBoxAdapter(child: _PeopleSkeleton())
-                else if (userSnap.hasError)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: _EmptyState(
-                      icon: Icons.error_outline_rounded,
-                      title: 'Could not load directory',
-                      subtitle: 'Please check your connection and try again.',
-                    ),
-                  )
-                else if (filteredUsers.isEmpty)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: _EmptyState(
-                      icon: Icons.person_search_rounded,
-                      title: 'No members found',
-                      subtitle: query.isNotEmpty
-                          ? 'Try searching with another name, branch, or skill.'
-                          : 'Try changing your branch filter or be the first to set a status!',
-                    ),
-                  )
-                else if (_viewMode == PeopleViewMode.grid)
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
-                    sliver: SliverGrid(
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        childAspectRatio: 0.85,
-                        crossAxisSpacing: 10,
-                        mainAxisSpacing: 10,
+                  // ── 6. Main List or Grid Content (Fluid Animated Switcher) ───────
+                  if (userSnap.connectionState == ConnectionState.waiting)
+                    const SliverToBoxAdapter(child: _PeopleSkeleton())
+                  else if (userSnap.hasError)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: _EmptyState(
+                        icon: Icons.error_outline_rounded,
+                        title: 'Could not load directory',
+                        subtitle: 'Please check your connection and try again.',
                       ),
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final user = filteredUsers[index];
-                          final uid = user['uid'].toString();
-                          final vibe = activeVibesMap[uid];
-                          final cleanName = UtopiaApp.sanitizeDisplayName(
-                            (user['displayName'] ?? 'Student').toString(),
-                          );
+                    )
+                  else if (filteredUsers.isEmpty)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: _EmptyState(
+                        icon: Icons.person_search_rounded,
+                        title: 'No members found',
+                        subtitle: query.isNotEmpty
+                            ? 'Try searching with another name, branch, or skill.'
+                            : 'Try changing your branch filter or be the first to set a status!',
+                      ).animate().fadeIn(duration: 250.ms).scaleXY(begin: 0.9, end: 1.0, curve: Curves.easeOutBack),
+                    )
+                  else if (_viewMode == PeopleViewMode.grid)
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
+                      sliver: SliverGrid(
+                        key: ValueKey('grid-$_selectedFilter-${query.isNotEmpty}'),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          childAspectRatio: 0.77,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                        ),
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                            final user = filteredUsers[index];
+                            final uid = user['uid'].toString();
+                            final vibe = activeVibesMap[uid];
+                            final cleanName = UtopiaApp.sanitizeDisplayName(
+                              (user['displayName'] ?? 'Student').toString(),
+                            );
 
-                          return _PeerGridCard(
-                            user: user,
-                            vibe: vibe,
-                            currentUid: _currentUid,
-                            interactionService: _interactionService,
-                            followService: _followService,
-                            onTap: () {
-                              Navigator.of(context).push(
-                                buildForwardRoute(
-                                  UserProfileScreen(
-                                    uid: uid,
-                                    displayName: cleanName,
-                                    email: (user['email'] ?? '').toString(),
-                                    photoUrl: user['photoUrl']?.toString(),
+                            final card = _PeerGridCard(
+                              key: ValueKey('peer-grid-$uid'),
+                              user: user,
+                              vibe: vibe,
+                              currentUid: _currentUid,
+                              interactionService: _interactionService,
+                              followService: _followService,
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  buildForwardRoute(
+                                    UserProfileScreen(
+                                      uid: uid,
+                                      displayName: cleanName,
+                                      email: (user['email'] ?? '').toString(),
+                                      photoUrl: user['photoUrl']?.toString(),
+                                    ),
                                   ),
-                                ),
-                              );
-                            },
-                            onLongPress: () => _openQuickPeekSheet(user, vibe),
-                          );
-                        },
-                        childCount: filteredUsers.length,
-                      ),
-                    ),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(0, 4, 0, 120),
-                    sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final user = filteredUsers[index];
-                          final uid = user['uid'].toString();
-                          final vibe = activeVibesMap[uid];
-                          final cleanName = UtopiaApp.sanitizeDisplayName(
-                            (user['displayName'] ?? 'Student').toString(),
-                          );
+                                );
+                              },
+                              onLongPress: () => _openQuickPeekSheet(user, vibe),
+                            );
 
-                          return _PeerListTile(
-                            user: user,
-                            vibe: vibe,
-                            currentUid: _currentUid,
-                            interactionService: _interactionService,
-                            followService: _followService,
-                            onTap: () {
-                              Navigator.of(context).push(
-                                buildForwardRoute(
-                                  UserProfileScreen(
-                                    uid: uid,
-                                    displayName: cleanName,
-                                    email: (user['email'] ?? '').toString(),
-                                    photoUrl: user['photoUrl']?.toString(),
+                            // Staggered fast pop-in animation on filter switch
+                            if (index < 12) {
+                              return card
+                                  .animate(key: ValueKey('anim-grid-$uid-$_selectedFilter'))
+                                  .fadeIn(duration: 220.ms, curve: Curves.easeOut)
+                                  .scaleXY(
+                                    begin: 0.92,
+                                    end: 1.0,
+                                    duration: 240.ms,
+                                    delay: (index * 20).ms,
+                                    curve: Curves.easeOutBack,
+                                  )
+                                  .slideY(
+                                    begin: 0.08,
+                                    end: 0,
+                                    duration: 240.ms,
+                                    delay: (index * 20).ms,
+                                    curve: Curves.easeOutCubic,
+                                  );
+                            }
+                            return card;
+                          },
+                          childCount: filteredUsers.length,
+                        ),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(0, 4, 0, 120),
+                      sliver: SliverList(
+                        key: ValueKey('list-$_selectedFilter-${query.isNotEmpty}'),
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                            final user = filteredUsers[index];
+                            final uid = user['uid'].toString();
+                            final vibe = activeVibesMap[uid];
+                            final cleanName = UtopiaApp.sanitizeDisplayName(
+                              (user['displayName'] ?? 'Student').toString(),
+                            );
+
+                            final tile = _PeerListTile(
+                              key: ValueKey('peer-list-$uid'),
+                              user: user,
+                              vibe: vibe,
+                              currentUid: _currentUid,
+                              interactionService: _interactionService,
+                              followService: _followService,
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  buildForwardRoute(
+                                    UserProfileScreen(
+                                      uid: uid,
+                                      displayName: cleanName,
+                                      email: (user['email'] ?? '').toString(),
+                                      photoUrl: user['photoUrl']?.toString(),
+                                    ),
                                   ),
-                                ),
-                              );
-                            },
-                            onLongPress: () => _openQuickPeekSheet(user, vibe),
-                          );
-                        },
-                        childCount: filteredUsers.length,
+                                );
+                              },
+                              onLongPress: () => _openQuickPeekSheet(user, vibe),
+                            );
+
+                            if (index < 12) {
+                              return tile
+                                  .animate(key: ValueKey('anim-list-$uid-$_selectedFilter'))
+                                  .fadeIn(duration: 200.ms, curve: Curves.easeOut)
+                                  .scaleXY(
+                                    begin: 0.94,
+                                    end: 1.0,
+                                    duration: 220.ms,
+                                    delay: (index * 18).ms,
+                                    curve: Curves.easeOutBack,
+                                  )
+                                  .slideY(
+                                    begin: 0.06,
+                                    end: 0,
+                                    duration: 220.ms,
+                                    delay: (index * 18).ms,
+                                    curve: Curves.easeOutCubic,
+                                  );
+                            }
+                            return tile;
+                          },
+                          childCount: filteredUsers.length,
+                        ),
                       ),
                     ),
-                  ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildFilterPill({
     required String id,
     required String label,
     int? count,
-    String? leadingEmoji,
+    bool showLiveDot = false,
     IconData? icon,
   }) {
     final isSelected = _selectedFilter == id;
-    return GestureDetector(
+    return M3Pressable(
       onTap: () {
         HapticFeedback.selectionClick();
         _searchFocusNode.unfocus();
@@ -878,44 +1011,57 @@ class _PeopleScreenState extends State<PeopleScreen> {
           if (id == 'All') _selectedBranch = 'All';
         });
       },
+      borderRadius: M3Shapes.fullRadius,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
         alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          color: isSelected ? U.primary : U.card,
-          borderRadius: BorderRadius.circular(16),
+          color: isSelected ? U.primary : U.surfaceContainerHigh,
+          borderRadius: M3Shapes.fullRadius,
+          border: Border.all(
+            color: isSelected
+                ? U.primary
+                : U.outlineVariant.withValues(alpha: 0.35),
+            width: isSelected ? 1.2 : 0.8,
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            if (icon != null) ...[
+            if (isSelected) ...[
+              Icon(
+                Icons.check_rounded,
+                size: 14,
+                color: U.getContrastColor(U.primary),
+              ).animate().scale(curve: Curves.easeOutBack, duration: 180.ms),
+              const SizedBox(width: 5),
+            ] else if (showLiveDot) ...[
+              _RadarPingDot(),
+              const SizedBox(width: 5),
+            ] else if (icon != null) ...[
               Icon(
                 icon,
-                size: 13,
-                color: isSelected ? U.getContrastColor(U.primary) : U.sub,
+                size: 14,
+                color: U.sub,
               ),
-              const SizedBox(width: 4),
-            ] else if (leadingEmoji != null) ...[
-              Text(
-                leadingEmoji,
-                style: const TextStyle(fontSize: 11),
-              ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 5),
             ],
             Text(
               label,
-              style: GoogleFonts.outfit(
-                color: isSelected ? U.getContrastColor(U.primary) : U.sub,
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              style: GoogleFonts.robotoFlex(
+                color: isSelected ? U.getContrastColor(U.primary) : U.text,
+                fontSize: 12.5,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
               ),
             ),
             if (count != null && count > 0) ...[
-              const SizedBox(width: 5),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              const SizedBox(width: 6),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
                 decoration: BoxDecoration(
                   color: isSelected
                       ? U.getContrastColor(U.primary).withValues(alpha: 0.22)
@@ -924,10 +1070,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
                 ),
                 child: Text(
                   '$count',
-                  style: GoogleFonts.outfit(
+                  style: GoogleFonts.robotoFlex(
                     color: isSelected ? U.getContrastColor(U.primary) : U.primary,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
@@ -940,7 +1086,43 @@ class _PeopleScreenState extends State<PeopleScreen> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// CAMPUS STATUS ROW (Clean, Lightweight & Ergonomic)
+// RADAR PING DOT (Live Animated Indicator)
+// ────────────────────────────────────────────────────────────────────────────
+class _RadarPingDot extends StatelessWidget {
+  const _RadarPingDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 12,
+      height: 12,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFF22C55E).withValues(alpha: 0.35),
+            ),
+          ).animate(onPlay: (c) => c.repeat()).scaleXY(begin: 0.6, end: 1.5, duration: 1100.ms, curve: Curves.easeOut).fadeOut(duration: 1100.ms),
+          Container(
+            width: 6.5,
+            height: 6.5,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color(0xFF22C55E),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// CAMPUS STATUS ROW (Material 3 Expressive Story Capsules)
 // ────────────────────────────────────────────────────────────────────────────
 class _CampusStatusRow extends StatelessWidget {
   const _CampusStatusRow({
@@ -966,18 +1148,20 @@ class _CampusStatusRow extends StatelessWidget {
     final otherVibes = activeVibes.where((v) => v.uid != currentUid).toList();
 
     return Container(
-      height: 94,
-      margin: const EdgeInsets.only(bottom: 4),
+      height: 106,
+      margin: const EdgeInsets.only(bottom: 6),
       child: ListView(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 16),
         children: [
-          // Current User Status Bubble
-          GestureDetector(
+          // Current User Status Capsule
+          M3Pressable(
             onTap: onSetStatusTap,
+            scaleFactor: 0.93,
+            borderRadius: BorderRadius.circular(20),
             child: Container(
-              width: 70,
+              width: 76,
               margin: const EdgeInsets.symmetric(horizontal: 4),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -988,20 +1172,20 @@ class _CampusStatusRow extends StatelessWidget {
                       if (currentUserVibe != null &&
                           currentUserVibe!.mediaUrl != null &&
                           currentUserVibe!.mediaUrl!.isNotEmpty) ...[
-                        // Squared status media container
+                        // Squircle status media container
                         Container(
-                          width: 54,
-                          height: 54,
+                          width: 60,
+                          height: 60,
                           decoration: BoxDecoration(
-                            color: U.card,
-                            borderRadius: BorderRadius.circular(14),
+                            color: U.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: U.primary,
-                              width: 1.8,
+                              width: 2.2,
                             ),
                           ),
                           child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(18),
                             child: CachedNetworkImage(
                               imageUrl: currentUserVibe!.mediaUrl!,
                               fit: BoxFit.cover,
@@ -1028,21 +1212,21 @@ class _CampusStatusRow extends StatelessWidget {
                           child: Container(
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              border: Border.all(color: U.surface, width: 1.5),
+                              border: Border.all(color: U.surface, width: 2),
                             ),
                             child: CircleAvatar(
-                              radius: 9,
-                              backgroundColor: U.card,
+                              radius: 10,
+                              backgroundColor: U.surfaceContainerHigh,
                               backgroundImage: currentUserPhoto != null && currentUserPhoto!.isNotEmpty
                                   ? CachedNetworkImageProvider(currentUserPhoto!)
                                   : null,
                               child: currentUserPhoto == null || currentUserPhoto!.isEmpty
                                   ? Text(
                                       currentUserName.isEmpty ? 'U' : currentUserName[0].toUpperCase(),
-                                      style: GoogleFonts.outfit(
+                                      style: GoogleFonts.robotoFlex(
                                         color: U.primary,
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.w700,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w800,
                                       ),
                                     )
                                   : null,
@@ -1054,37 +1238,42 @@ class _CampusStatusRow extends StatelessWidget {
                           right: -8,
                           child: ThoughtCloudBadge(
                             vibe: currentUserVibe,
-                            avatarRadius: 27,
+                            avatarRadius: 30,
                             compact: true,
                           ),
                         ),
                       ] else ...[
                         Container(
-                          width: 54,
-                          height: 54,
+                          width: 60,
+                          height: 60,
                           decoration: BoxDecoration(
-                            shape: BoxShape.circle,
+                            color: U.surfaceContainerHigh,
+                            borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: currentUserVibe != null ? U.primary : U.border,
-                              width: currentUserVibe != null ? 1.8 : 0.9,
+                              color: currentUserVibe != null ? U.primary : U.outlineVariant.withValues(alpha: 0.45),
+                              width: currentUserVibe != null ? 2.2 : 1.2,
                             ),
                           ),
-                          padding: const EdgeInsets.all(2.5),
-                          child: CircleAvatar(
-                            backgroundColor: U.card,
-                            backgroundImage: currentUserPhoto != null && currentUserPhoto!.isNotEmpty
-                                ? CachedNetworkImageProvider(currentUserPhoto!)
-                                : null,
-                            child: currentUserPhoto == null || currentUserPhoto!.isEmpty
-                                ? Text(
-                                    currentUserName.isEmpty ? 'U' : currentUserName[0].toUpperCase(),
-                                    style: GoogleFonts.outfit(
-                                      color: U.primary,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w700,
-                                    ),
+                          padding: const EdgeInsets.all(3.5),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: currentUserPhoto != null && currentUserPhoto!.isNotEmpty
+                                ? CachedNetworkImage(
+                                    imageUrl: currentUserPhoto!,
+                                    fit: BoxFit.cover,
                                   )
-                                : null,
+                                : Container(
+                                    color: U.primary.withValues(alpha: 0.14),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      currentUserName.isEmpty ? 'U' : currentUserName[0].toUpperCase(),
+                                      style: GoogleFonts.robotoFlex(
+                                        color: U.primary,
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
                           ),
                         ),
                         if (currentUserVibe != null)
@@ -1093,37 +1282,37 @@ class _CampusStatusRow extends StatelessWidget {
                             right: -8,
                             child: ThoughtCloudBadge(
                               vibe: currentUserVibe,
-                              avatarRadius: 27,
+                              avatarRadius: 30,
                               compact: true,
                             ),
                           )
                         else
                           Positioned(
-                            right: 0,
-                            bottom: 0,
+                            right: -2,
+                            bottom: -2,
                             child: Container(
-                              padding: const EdgeInsets.all(2.5),
+                              padding: const EdgeInsets.all(4),
                               decoration: BoxDecoration(
                                 color: U.primary,
                                 shape: BoxShape.circle,
-                                border: Border.all(color: U.surface, width: 1.2),
+                                border: Border.all(color: U.surface, width: 2),
                               ),
-                              child: Icon(Icons.add_rounded, size: 10, color: U.getContrastColor(U.primary)),
-                            ),
+                              child: Icon(Icons.add_rounded, size: 12, color: U.getContrastColor(U.primary)),
+                            ).animate(onPlay: (c) => c.repeat(reverse: true)).scaleXY(begin: 0.95, end: 1.15, duration: 900.ms, curve: Curves.easeInOut),
                           ),
                       ],
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 5),
                   Text(
-                    currentUserVibe != null ? 'Your Status' : 'Set Status',
+                    currentUserVibe != null ? 'Your Vibe' : 'Set Status',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.outfit(
+                    style: GoogleFonts.robotoFlex(
                       color: currentUserVibe != null ? U.primary : U.sub,
-                      fontSize: 11,
-                      fontWeight: currentUserVibe != null ? FontWeight.w700 : FontWeight.w500,
+                      fontSize: 11.5,
+                      fontWeight: currentUserVibe != null ? FontWeight.w800 : FontWeight.w600,
                     ),
                   ),
                 ],
@@ -1134,18 +1323,22 @@ class _CampusStatusRow extends StatelessWidget {
           // Subtle divider if others have active status
           if (otherVibes.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
-              child: VerticalDivider(width: 1, color: U.border.withValues(alpha: 0.5)),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 16),
+              child: VerticalDivider(width: 1, color: U.outlineVariant.withValues(alpha: 0.35)),
             ),
 
-          // Other active peers
-          ...otherVibes.map((vibe) {
+          // Other active peers with fluid spring entrance
+          ...otherVibes.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final vibe = entry.value;
             final hasVibeMedia = vibe.mediaUrl != null && vibe.mediaUrl!.isNotEmpty;
 
-            return GestureDetector(
+            final item = M3Pressable(
               onTap: () => onStatusTap(vibe),
+              scaleFactor: 0.93,
+              borderRadius: BorderRadius.circular(20),
               child: Container(
-                width: 70,
+                width: 76,
                 margin: const EdgeInsets.symmetric(horizontal: 4),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1154,20 +1347,19 @@ class _CampusStatusRow extends StatelessWidget {
                       clipBehavior: Clip.none,
                       children: [
                         if (hasVibeMedia) ...[
-                          // Squared status media container
                           Container(
-                            width: 54,
-                            height: 54,
+                            width: 60,
+                            height: 60,
                             decoration: BoxDecoration(
-                              color: U.card,
-                              borderRadius: BorderRadius.circular(14),
+                              color: U.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(20),
                               border: Border.all(
                                 color: U.primary,
-                                width: 1.8,
+                                width: 2.2,
                               ),
                             ),
                             child: ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(18),
                               child: CachedNetworkImage(
                                 imageUrl: vibe.mediaUrl!,
                                 fit: BoxFit.cover,
@@ -1187,28 +1379,27 @@ class _CampusStatusRow extends StatelessWidget {
                               ),
                             ),
                           ),
-                          // Reduced-size profile icon overlay
                           Positioned(
                             right: -2,
                             bottom: -2,
                             child: Container(
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                border: Border.all(color: U.surface, width: 1.5),
+                                border: Border.all(color: U.surface, width: 2),
                               ),
                               child: CircleAvatar(
-                                radius: 9,
-                                backgroundColor: U.primary.withValues(alpha: 0.12),
+                                radius: 10,
+                                backgroundColor: U.surfaceContainerHigh,
                                 backgroundImage: vibe.photoUrl != null && vibe.photoUrl!.isNotEmpty
                                     ? CachedNetworkImageProvider(vibe.photoUrl!)
                                     : null,
                                 child: vibe.photoUrl == null || vibe.photoUrl!.isEmpty
                                     ? Text(
                                         vibe.displayName.isEmpty ? 'U' : vibe.displayName[0].toUpperCase(),
-                                        style: GoogleFonts.outfit(
+                                        style: GoogleFonts.robotoFlex(
                                           color: U.primary,
-                                          fontSize: 8,
-                                          fontWeight: FontWeight.w700,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w800,
                                         ),
                                       )
                                     : null,
@@ -1220,37 +1411,42 @@ class _CampusStatusRow extends StatelessWidget {
                             right: -8,
                             child: ThoughtCloudBadge(
                               vibe: vibe,
-                              avatarRadius: 27,
+                              avatarRadius: 30,
                               compact: true,
                             ),
                           ),
                         ] else ...[
                           Container(
-                            width: 54,
-                            height: 54,
+                            width: 60,
+                            height: 60,
                             decoration: BoxDecoration(
-                              shape: BoxShape.circle,
+                              color: U.surfaceContainerHigh,
+                              borderRadius: BorderRadius.circular(20),
                               border: Border.all(
                                 color: U.primary,
-                                width: 1.6,
+                                width: 2.2,
                               ),
                             ),
-                            padding: const EdgeInsets.all(2.5),
-                            child: CircleAvatar(
-                              backgroundColor: U.primary.withValues(alpha: 0.12),
-                              backgroundImage: vibe.photoUrl != null && vibe.photoUrl!.isNotEmpty
-                                  ? CachedNetworkImageProvider(vibe.photoUrl!)
-                                  : null,
-                              child: vibe.photoUrl == null || vibe.photoUrl!.isEmpty
-                                  ? Text(
-                                      vibe.displayName.isEmpty ? 'U' : vibe.displayName[0].toUpperCase(),
-                                      style: GoogleFonts.outfit(
-                                        color: U.primary,
-                                        fontSize: 17,
-                                        fontWeight: FontWeight.w700,
-                                      ),
+                            padding: const EdgeInsets.all(3.5),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: vibe.photoUrl != null && vibe.photoUrl!.isNotEmpty
+                                  ? CachedNetworkImage(
+                                      imageUrl: vibe.photoUrl!,
+                                      fit: BoxFit.cover,
                                     )
-                                  : null,
+                                  : Container(
+                                      color: U.primary.withValues(alpha: 0.14),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        vibe.displayName.isEmpty ? 'U' : vibe.displayName[0].toUpperCase(),
+                                        style: GoogleFonts.robotoFlex(
+                                          color: U.primary,
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
                             ),
                           ),
                           Positioned(
@@ -1258,29 +1454,37 @@ class _CampusStatusRow extends StatelessWidget {
                             right: -8,
                             child: ThoughtCloudBadge(
                               vibe: vibe,
-                              avatarRadius: 27,
+                              avatarRadius: 30,
                               compact: true,
                             ),
                           ),
                         ],
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 5),
                     Text(
                       vibe.displayName.split(' ')[0],
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
-                      style: GoogleFonts.outfit(
+                      style: GoogleFonts.robotoFlex(
                         color: U.text,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                 ),
               ),
             );
+
+            if (idx < 8) {
+              return item
+                  .animate()
+                  .fadeIn(duration: 250.ms, delay: (idx * 25).ms)
+                  .scaleXY(begin: 0.88, end: 1.0, duration: 260.ms, curve: Curves.easeOutBack);
+            }
+            return item;
           }),
         ],
       ),
@@ -1289,10 +1493,11 @@ class _CampusStatusRow extends StatelessWidget {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// PEER GRID CARD (Ergonomic & Modern)
+// PEER GRID CARD (Material 3 Expressive)
 // ────────────────────────────────────────────────────────────────────────────
 class _PeerGridCard extends StatefulWidget {
   const _PeerGridCard({
+    super.key,
     required this.user,
     required this.vibe,
     required this.currentUid,
@@ -1343,52 +1548,60 @@ class _PeerGridCardState extends State<_PeerGridCard> {
     final isSuperuser = widget.user['role'] == 'superuser';
     final instagramId = (widget.user['instagramId'] ?? '').toString().trim();
     final isMe = uid == widget.currentUid;
+    final hasActiveVibe = widget.vibe != null;
 
-    return GestureDetector(
+    return M3Pressable(
       onTap: widget.onTap,
-      onLongPress: widget.onLongPress,
-      child: Container(
+      scaleFactor: 0.94,
+      borderRadius: M3Shapes.cardRadius,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
         decoration: BoxDecoration(
-          color: U.card,
-          borderRadius: BorderRadius.circular(20),
+          color: U.surfaceContainerLow,
+          borderRadius: M3Shapes.cardRadius,
           border: Border.all(
-            color: widget.vibe != null ? U.primary.withValues(alpha: 0.4) : U.border,
-            width: widget.vibe != null ? 1.2 : 0.8,
+            color: hasActiveVibe
+                ? U.primary.withValues(alpha: 0.55)
+                : U.outlineVariant.withValues(alpha: 0.35),
+            width: hasActiveVibe ? 1.6 : 0.8,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
+          boxShadow: hasActiveVibe
+              ? [
+                  BoxShadow(
+                    color: U.primary.withValues(alpha: 0.08),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
         ),
         padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Avatar / Status container
+            // Squircle Avatar / Status Container
             Stack(
               clipBehavior: Clip.none,
               children: [
                 if (widget.vibe != null &&
                     widget.vibe!.mediaUrl != null &&
                     widget.vibe!.mediaUrl!.isNotEmpty) ...[
-                  // Squared status media container
+                  // Squircle status media container
                   Container(
-                    width: 68,
-                    height: 68,
+                    width: 74,
+                    height: 74,
                     decoration: BoxDecoration(
-                      color: U.card,
-                      borderRadius: BorderRadius.circular(16),
+                      color: U.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(22),
                       border: Border.all(
                         color: U.primary,
-                        width: 2.0,
+                        width: 2.2,
                       ),
                     ),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(20),
                       child: CachedNetworkImage(
                         imageUrl: widget.vibe!.mediaUrl!,
                         fit: BoxFit.cover,
@@ -1408,28 +1621,28 @@ class _PeerGridCardState extends State<_PeerGridCard> {
                       ),
                     ),
                   ),
-                  // Reduced-size profile icon overlay
+                  // Small profile icon overlay
                   Positioned(
                     right: -3,
                     bottom: -3,
                     child: Container(
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        border: Border.all(color: U.surface, width: 1.8),
+                        border: Border.all(color: U.surface, width: 2),
                       ),
                       child: CircleAvatar(
                         radius: 11,
-                        backgroundColor: U.primary.withValues(alpha: 0.12),
+                        backgroundColor: U.surfaceContainerHigh,
                         backgroundImage: photoUrl != null && photoUrl.isNotEmpty
                             ? CachedNetworkImageProvider(photoUrl)
                             : null,
                         child: photoUrl == null || photoUrl.isEmpty
                             ? Text(
                                 displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
-                                style: GoogleFonts.outfit(
+                                style: GoogleFonts.robotoFlex(
                                   color: U.primary,
                                   fontSize: 10,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               )
                             : null,
@@ -1441,38 +1654,39 @@ class _PeerGridCardState extends State<_PeerGridCard> {
                     right: -8,
                     child: ThoughtCloudBadge(
                       vibe: widget.vibe,
-                      avatarRadius: 34,
+                      avatarRadius: 37,
                     ),
                   ),
                 ] else ...[
                   Container(
-                    width: 68,
-                    height: 68,
+                    width: 74,
+                    height: 74,
                     decoration: BoxDecoration(
-                      shape: BoxShape.circle,
+                      color: U.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(22),
                       border: Border.all(
                         color: widget.vibe != null
-                            ? U.primary.withValues(alpha: 0.5)
-                            : U.border,
-                        width: widget.vibe != null ? 2.0 : 1.0,
+                            ? U.primary
+                            : U.outlineVariant.withValues(alpha: 0.35),
+                        width: widget.vibe != null ? 2.2 : 1.0,
                       ),
                     ),
-                    child: ClipOval(
+                    padding: const EdgeInsets.all(3.5),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
                       child: photoUrl != null && photoUrl.isNotEmpty
                           ? CachedNetworkImage(
                               imageUrl: photoUrl,
                               fit: BoxFit.cover,
-                              width: 68,
-                              height: 68,
                             )
                           : Container(
-                              color: U.primary.withValues(alpha: 0.10),
+                              color: U.primary.withValues(alpha: 0.14),
                               alignment: Alignment.center,
                               child: Text(
                                 displayName.isNotEmpty
                                     ? displayName[0].toUpperCase()
                                     : 'U',
-                                style: GoogleFonts.outfit(
+                                style: GoogleFonts.robotoFlex(
                                   color: U.primary,
                                   fontSize: 26,
                                   fontWeight: FontWeight.w800,
@@ -1481,21 +1695,21 @@ class _PeerGridCardState extends State<_PeerGridCard> {
                             ),
                     ),
                   ),
-                  // Vibe thought cloud top-right (30% area occupancy)
+                  // Vibe thought cloud top-right
                   if (widget.vibe != null)
                     Positioned(
                       top: -6,
                       right: -8,
                       child: ThoughtCloudBadge(
                         vibe: widget.vibe,
-                        avatarRadius: 34,
+                        avatarRadius: 37,
                       ),
                     ),
                 ],
               ],
             ),
 
-            const SizedBox(height: 9),
+            const SizedBox(height: 10),
 
             // Name row
             Row(
@@ -1508,43 +1722,50 @@ class _PeerGridCardState extends State<_PeerGridCard> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.outfit(
+                    style: GoogleFonts.robotoFlex(
                       color: U.text,
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
                 if (isSuperuser) ...[
                   const SizedBox(width: 3),
-                  const SuperUserBadge(size: 12),
+                  const SuperUserBadge(size: 13),
                 ],
                 if (instagramId.isNotEmpty) ...[
                   const SizedBox(width: 3),
-                  InstagramBadge(handle: instagramId, iconSize: 10, showHandle: false),
+                  InstagramBadge(handle: instagramId, iconSize: 11, showHandle: false),
                 ],
               ],
             ),
 
-            // Branch text
+            // Branch text pill
             if (branch.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(
-                branch,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: GoogleFonts.outfit(
-                  color: U.sub,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
+              const SizedBox(height: 3),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: U.surfaceContainerHighest,
+                  borderRadius: M3Shapes.fullRadius,
+                ),
+                child: Text(
+                  branch,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.robotoFlex(
+                    color: U.sub,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
 
-            const SizedBox(height: 10),
+            const Spacer(),
 
-            // Wave button (hidden for own card)
+            // Wave button (or "You" container for current user)
             if (!isMe)
               UtopiaWaveButton(
                 hasWaved: _hasWaved,
@@ -1554,19 +1775,19 @@ class _PeerGridCardState extends State<_PeerGridCard> {
             else
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 5),
+                padding: const EdgeInsets.symmetric(vertical: 6.5),
                 decoration: BoxDecoration(
-                  color: U.surface,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: U.border, width: 0.7),
+                  color: U.surfaceContainerHighest,
+                  borderRadius: M3Shapes.fullRadius,
+                  border: Border.all(color: U.outlineVariant.withValues(alpha: 0.35), width: 0.8),
                 ),
                 child: Center(
                   child: Text(
                     'You',
-                    style: GoogleFonts.outfit(
+                    style: GoogleFonts.robotoFlex(
                       color: U.primary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
@@ -1579,10 +1800,11 @@ class _PeerGridCardState extends State<_PeerGridCard> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// PEER LIST TILE (Ergonomic & Modern)
+// PEER LIST TILE (Material 3 Expressive Card)
 // ────────────────────────────────────────────────────────────────────────────
 class _PeerListTile extends StatefulWidget {
   const _PeerListTile({
+    super.key,
     required this.user,
     required this.vibe,
     required this.currentUid,
@@ -1644,37 +1866,59 @@ class _PeerListTileState extends State<_PeerListTile> {
     final isSuperuser = widget.user['role'] == 'superuser';
     final instagramId = (widget.user['instagramId'] ?? '').toString().trim();
     final isMe = uid == widget.currentUid;
+    final hasActiveVibe = widget.vibe != null;
 
-    return InkWell(
+    return M3Pressable(
       onTap: widget.onTap,
-      onLongPress: widget.onLongPress,
-      splashColor: U.primary.withValues(alpha: 0.04),
-      highlightColor: U.primary.withValues(alpha: 0.02),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      scaleFactor: 0.965,
+      borderRadius: M3Shapes.cardRadius,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: U.surfaceContainerLow,
+          borderRadius: M3Shapes.cardRadius,
+          border: Border.all(
+            color: hasActiveVibe
+                ? U.primary.withValues(alpha: 0.55)
+                : U.outlineVariant.withValues(alpha: 0.35),
+            width: hasActiveVibe ? 1.4 : 0.8,
+          ),
+          boxShadow: hasActiveVibe
+              ? [
+                  BoxShadow(
+                    color: U.primary.withValues(alpha: 0.06),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
+        ),
         child: Row(
           children: [
-            // Avatar + status badge
+            // Squircle Avatar + Status Badge
             Stack(
               clipBehavior: Clip.none,
               children: [
                 if (widget.vibe != null &&
                     widget.vibe!.mediaUrl != null &&
                     widget.vibe!.mediaUrl!.isNotEmpty) ...[
-                  // Squared status media container
+                  // Squircle status media container
                   Container(
-                    width: 52,
-                    height: 52,
+                    width: 56,
+                    height: 56,
                     decoration: BoxDecoration(
-                      color: U.card,
-                      borderRadius: BorderRadius.circular(13),
+                      color: U.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(18),
                       border: Border.all(
                         color: U.primary,
-                        width: 1.8,
+                        width: 2.0,
                       ),
                     ),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(11),
+                      borderRadius: BorderRadius.circular(16),
                       child: CachedNetworkImage(
                         imageUrl: widget.vibe!.mediaUrl!,
                         fit: BoxFit.cover,
@@ -1694,28 +1938,28 @@ class _PeerListTileState extends State<_PeerListTile> {
                       ),
                     ),
                   ),
-                  // Reduced-size profile icon overlay
+                  // Small profile icon overlay
                   Positioned(
                     right: -2,
                     bottom: -2,
                     child: Container(
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        border: Border.all(color: U.surface, width: 1.4),
+                        border: Border.all(color: U.surface, width: 1.8),
                       ),
                       child: CircleAvatar(
-                        radius: 8.5,
-                        backgroundColor: U.primary.withValues(alpha: 0.12),
+                        radius: 9,
+                        backgroundColor: U.surfaceContainerHigh,
                         backgroundImage: photoUrl != null && photoUrl.isNotEmpty
                             ? CachedNetworkImageProvider(photoUrl)
                             : null,
                         child: photoUrl == null || photoUrl.isEmpty
                             ? Text(
                                 displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
-                                style: GoogleFonts.outfit(
+                                style: GoogleFonts.robotoFlex(
                                   color: U.primary,
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.w700,
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               )
                             : null,
@@ -1727,27 +1971,45 @@ class _PeerListTileState extends State<_PeerListTile> {
                     right: -8,
                     child: ThoughtCloudBadge(
                       vibe: widget.vibe,
-                      avatarRadius: 26,
+                      avatarRadius: 28,
                       compact: true,
                     ),
                   ),
                 ] else ...[
-                  CircleAvatar(
-                    radius: 26,
-                    backgroundColor: U.primary.withValues(alpha: 0.12),
-                    backgroundImage: photoUrl != null && photoUrl.isNotEmpty
-                        ? CachedNetworkImageProvider(photoUrl)
-                        : null,
-                    child: photoUrl == null || photoUrl.isEmpty
-                        ? Text(
-                            displayName.isEmpty ? 'U' : displayName[0].toUpperCase(),
-                            style: GoogleFonts.outfit(
-                              color: U.primary,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: U.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: widget.vibe != null ? U.primary : U.outlineVariant.withValues(alpha: 0.35),
+                        width: widget.vibe != null ? 2.0 : 0.8,
+                      ),
+                    ),
+                    padding: const EdgeInsets.all(2.5),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(15),
+                      child: photoUrl != null && photoUrl.isNotEmpty
+                          ? CachedNetworkImage(
+                              imageUrl: photoUrl,
+                              fit: BoxFit.cover,
+                            )
+                          : Container(
+                              color: U.primary.withValues(alpha: 0.14),
+                              alignment: Alignment.center,
+                              child: Text(
+                                displayName.isNotEmpty
+                                    ? displayName[0].toUpperCase()
+                                    : 'U',
+                                style: GoogleFonts.robotoFlex(
+                                  color: U.primary,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
                             ),
-                          )
-                        : null,
+                    ),
                   ),
                   if (widget.vibe != null)
                     Positioned(
@@ -1755,7 +2017,7 @@ class _PeerListTileState extends State<_PeerListTile> {
                       right: -8,
                       child: ThoughtCloudBadge(
                         vibe: widget.vibe,
-                        avatarRadius: 26,
+                        avatarRadius: 28,
                         compact: true,
                       ),
                     ),
@@ -1776,10 +2038,10 @@ class _PeerListTileState extends State<_PeerListTile> {
                           displayName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.outfit(
+                          style: GoogleFonts.robotoFlex(
                             color: U.text,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                       ),
@@ -1791,48 +2053,44 @@ class _PeerListTileState extends State<_PeerListTile> {
                         const SizedBox(width: 4),
                         InstagramBadge(handle: instagramId, iconSize: 12, showHandle: false),
                       ],
-                      if (branch.isNotEmpty) ...[
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: U.surface,
-                              borderRadius: BorderRadius.circular(5),
-                              border: Border.all(color: U.border, width: 0.6),
-                            ),
-                            child: Text(
-                              branch,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.outfit(
-                                color: U.sub,
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
                     ],
                   ),
+                  const SizedBox(height: 3),
+                  if (branch.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: U.surfaceContainerHighest,
+                        borderRadius: M3Shapes.fullRadius,
+                      ),
+                      child: Text(
+                        branch,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.robotoFlex(
+                          color: U.sub,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
                   if (widget.vibe != null) ...[
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Text(
                       '${widget.vibe!.emoji} ${widget.vibe!.text}',
-                      style: GoogleFonts.outfit(
+                      style: GoogleFonts.robotoFlex(
                         color: U.primary,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ] else if (bio.isNotEmpty) ...[
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Text(
                       bio,
-                      style: GoogleFonts.outfit(color: U.sub, fontSize: 11.5),
+                      style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 12),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1848,8 +2106,8 @@ class _PeerListTileState extends State<_PeerListTile> {
                 hasWaved: _hasWaved,
                 onWave: _handleWave,
                 variant: WaveButtonVariant.iconOnly,
-                width: 30,
-                height: 30,
+                width: 36,
+                height: 36,
               ),
               const SizedBox(width: 8),
               StreamBuilder<FollowStatus>(
@@ -1872,7 +2130,7 @@ class _PeerListTileState extends State<_PeerListTile> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// INLINE FOLLOW BUTTON
+// INLINE FOLLOW BUTTON (Material 3 Expressive Pill)
 // ────────────────────────────────────────────────────────────────────────────
 class _InlineFollowButton extends StatelessWidget {
   const _InlineFollowButton({
@@ -1901,27 +2159,32 @@ class _InlineFollowButton extends StatelessWidget {
         break;
       case FollowStatus.requested:
         label = 'Requested';
-        bg = Colors.transparent;
+        bg = U.surfaceContainerHigh;
         fg = U.sub;
         bordered = true;
         break;
       case FollowStatus.following:
         label = 'Following';
-        bg = Colors.transparent;
+        bg = U.surfaceContainerHigh;
         fg = U.sub;
         bordered = true;
         break;
     }
 
-    return GestureDetector(
+    return M3Pressable(
       onTap: onTap,
+      scaleFactor: 0.92,
+      borderRadius: M3Shapes.fullRadius,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
         decoration: BoxDecoration(
           color: bg,
-          borderRadius: BorderRadius.circular(10),
-          border: bordered ? Border.all(color: U.border, width: 0.8) : null,
+          borderRadius: M3Shapes.fullRadius,
+          border: bordered
+              ? Border.all(color: U.outlineVariant.withValues(alpha: 0.4), width: 0.8)
+              : null,
         ),
         child: Center(
           child: loading
@@ -1929,10 +2192,10 @@ class _InlineFollowButton extends StatelessWidget {
               : Text(
                   label,
                   maxLines: 1,
-                  style: GoogleFonts.outfit(
+                  style: GoogleFonts.robotoFlex(
                     color: fg,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
         ),
@@ -1942,7 +2205,7 @@ class _InlineFollowButton extends StatelessWidget {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// SET CAMPUS STATUS BOTTOM SHEET (Streamlined & Human)
+// SET CAMPUS STATUS BOTTOM SHEET (Material 3 Expressive)
 // ────────────────────────────────────────────────────────────────────────────
 class _SetStatusSheet extends StatefulWidget {
   const _SetStatusSheet({
@@ -2069,77 +2332,113 @@ class _SetStatusSheetState extends State<_SetStatusSheet> {
               : _selectedEmoji;
 
           return AlertDialog(
-            backgroundColor: U.surface,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            backgroundColor: U.surfaceContainerHigh,
+            shape: RoundedRectangleBorder(borderRadius: M3Shapes.extraLargeRadius),
             title: Row(
               children: [
                 Icon(Icons.emoji_emotions_outlined, color: U.primary, size: 22),
                 const SizedBox(width: 8),
                 Text(
-                  'Choose Any Emoji',
-                  style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w700, fontSize: 17),
+                  'Choose Emoji',
+                  style: GoogleFonts.robotoFlex(color: U.text, fontWeight: FontWeight.w800, fontSize: 17),
                 ),
               ],
             ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Pick or type any emoji from your keyboard',
-                  style: GoogleFonts.outfit(color: U.sub, fontSize: 12.5),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  width: 68,
-                  height: 68,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: U.card,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: U.primary, width: 1.5),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Pick a quick emoji or type any from your keyboard',
+                    style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 12.5),
                   ),
-                  child: Text(
-                    previewEmoji,
-                    style: const TextStyle(fontSize: 32),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: emojiController,
-                  autofocus: true,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 22),
-                  decoration: InputDecoration(
-                    hintText: 'Type any emoji here...',
-                    hintStyle: GoogleFonts.outfit(color: U.sub, fontSize: 13),
-                    filled: true,
-                    fillColor: U.card,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: U.border),
+                  const SizedBox(height: 14),
+                  Container(
+                    width: 64,
+                    height: 64,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: U.surfaceContainerLowest,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: U.primary, width: 1.5),
                     ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: U.primary, width: 1.5),
+                    child: Text(
+                      previewEmoji,
+                      style: const TextStyle(fontSize: 30),
                     ),
+                  ).animate().scale(curve: Curves.easeOutBack, duration: 250.ms),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    alignment: WrapAlignment.center,
+                    children: _emojis.map((e) {
+                      return GestureDetector(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          emojiController.text = e;
+                          setDialogState(() {});
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          width: 36,
+                          height: 36,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: previewEmoji == e
+                                ? U.primary.withValues(alpha: 0.18)
+                                : U.surfaceContainerLowest,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: previewEmoji == e
+                                  ? U.primary
+                                  : U.outlineVariant.withValues(alpha: 0.35),
+                              width: 0.8,
+                            ),
+                          ),
+                          child: Text(e, style: const TextStyle(fontSize: 18)),
+                        ),
+                      );
+                    }).toList(),
                   ),
-                  onChanged: (val) {
-                    setDialogState(() {});
-                  },
-                ),
-              ],
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: emojiController,
+                    autofocus: false,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 20),
+                    decoration: InputDecoration(
+                      hintText: 'Or type any emoji...',
+                      hintStyle: GoogleFonts.robotoFlex(color: U.sub, fontSize: 13),
+                      filled: true,
+                      fillColor: U.surfaceContainerLowest,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      border: OutlineInputBorder(
+                        borderRadius: M3Shapes.mediumRadius,
+                        borderSide: BorderSide(color: U.outlineVariant.withValues(alpha: 0.35)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: M3Shapes.mediumRadius,
+                        borderSide: BorderSide(color: U.primary, width: 1.8),
+                      ),
+                    ),
+                    onChanged: (val) {
+                      setDialogState(() {});
+                    },
+                  ),
+                ],
+              ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: Text('Cancel', style: GoogleFonts.outfit(color: U.sub, fontWeight: FontWeight.w600)),
+                child: Text('Cancel', style: GoogleFonts.robotoFlex(color: U.sub, fontWeight: FontWeight.w700)),
               ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
+              FilledButton(
+                style: FilledButton.styleFrom(
                   backgroundColor: U.primary,
                   foregroundColor: U.getContrastColor(U.primary),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  shape: RoundedRectangleBorder(borderRadius: M3Shapes.fullRadius),
                   elevation: 0,
                 ),
                 onPressed: () {
@@ -2152,7 +2451,7 @@ class _SetStatusSheetState extends State<_SetStatusSheet> {
                   }
                   Navigator.pop(ctx);
                 },
-                child: Text('Apply', style: GoogleFonts.outfit(fontWeight: FontWeight.w700)),
+                child: Text('Apply', style: GoogleFonts.robotoFlex(fontWeight: FontWeight.w800)),
               ),
             ],
           );
@@ -2168,384 +2467,392 @@ class _SetStatusSheetState extends State<_SetStatusSheet> {
     final hasMedia = _selectedMediaUrl != null && _selectedMediaUrl!.isNotEmpty;
     final isEmpty = currentText.isEmpty && !hasMedia;
 
-    return SafeArea(
-      top: false,
-      child: Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.88,
-        ),
-        decoration: BoxDecoration(
-          color: U.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(color: U.border, width: 0.8),
-        ),
-        padding: EdgeInsets.fromLTRB(20, 14, 20, MediaQuery.of(context).viewInsets.bottom + 20),
+    return Container(
+      decoration: BoxDecoration(
+        color: U.surfaceContainerHigh,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        border: Border.all(color: U.outlineVariant.withValues(alpha: 0.35), width: 0.8),
+      ),
+      padding: EdgeInsets.fromLTRB(20, 12, 20, MediaQuery.of(context).viewInsets.bottom + 20),
+      child: SafeArea(
+        top: false,
         child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // M3 Drag Handle
               Center(
                 child: Container(
                   width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: U.border,
-                    borderRadius: BorderRadius.circular(2),
+                    color: U.outlineVariant,
+                    borderRadius: M3Shapes.fullRadius,
                   ),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
 
-              // Title Row
+              // Header Row
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Campus Status',
-                    style: GoogleFonts.outfit(
-                      color: U.text,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (hasActive)
-                    GestureDetector(
-                      onTap: _clear,
-                      child: Text(
-                        'Clear Status',
-                        style: GoogleFonts.outfit(
-                          color: U.red,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        hasActive ? 'Update Status' : 'Set Campus Status',
+                        style: GoogleFonts.robotoFlex(
+                          color: U.text,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
                         ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        'Share what you\'re up to with classmates',
+                        style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 11.5),
+                      ),
+                    ],
+                  ),
+                  if (hasActive)
+                    TextButton.icon(
+                      onPressed: _clear,
+                      icon: Icon(Icons.delete_outline_rounded, size: 15, color: U.red),
+                      label: Text(
+                        'Clear',
+                        style: GoogleFonts.robotoFlex(
+                          color: U.red,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      style: TextButton.styleFrom(
+                        backgroundColor: U.red.withValues(alpha: 0.08),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: M3Shapes.fullRadius),
                       ),
                     ),
                 ],
               ),
-              const SizedBox(height: 2),
-              Text(
-                'Let classmates know what you are currently up to.',
-                style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
-              ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
-              // Main Status Input Card
+              // ── 1. Unified Status Composer Card ──
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: U.card,
-                  borderRadius: BorderRadius.circular(14),
+                  color: U.surfaceContainer,
+                  borderRadius: BorderRadius.circular(22),
                   border: Border.all(
-                    color: isEmpty ? U.border : U.primary.withValues(alpha: 0.4),
-                    width: isEmpty ? 0.8 : 1.2,
+                    color: !isEmpty ? U.primary.withValues(alpha: 0.5) : U.outlineVariant.withValues(alpha: 0.4),
+                    width: !isEmpty ? 1.4 : 0.8,
                   ),
                 ),
-                child: Row(
+                padding: const EdgeInsets.all(12),
+                child: Column(
                   children: [
-                    if (!hasMedia) ...[
-                      GestureDetector(
-                        onTap: _openCustomEmojiDialog,
-                        child: Stack(
-                          children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: U.surface,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: U.border, width: 0.8),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Emoji Avatar Button
+                        M3Pressable(
+                          onTap: _openCustomEmojiDialog,
+                          scaleFactor: 0.92,
+                          borderRadius: BorderRadius.circular(16),
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Container(
+                                width: 48,
+                                height: 48,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: U.primary.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: U.primary.withValues(alpha: 0.25),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Text(
+                                  _selectedEmoji,
+                                  style: const TextStyle(fontSize: 24),
+                                ),
                               ),
-                              child: Text(
-                                _selectedEmoji,
-                                style: const TextStyle(fontSize: 22),
+                              Positioned(
+                                right: -2,
+                                bottom: -2,
+                                child: Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: BoxDecoration(
+                                    color: U.primary,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: U.surfaceContainer, width: 1.5),
+                                  ),
+                                  child: Icon(
+                                    Icons.edit,
+                                    size: 8,
+                                    color: U.getContrastColor(U.primary),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+
+                        // Text Field
+                        Expanded(
+                          child: TextField(
+                            controller: _textController,
+                            autofocus: widget.initialVibe == null && !hasMedia,
+                            style: GoogleFonts.robotoFlex(
+                              color: U.text,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLength: 50,
+                            decoration: InputDecoration(
+                              hintText: hasMedia ? 'Add a caption (optional)...' : 'What\'s happening?',
+                              hintStyle: GoogleFonts.robotoFlex(
+                                color: U.sub.withValues(alpha: 0.7),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w400,
+                              ),
+                              border: InputBorder.none,
+                              isDense: true,
+                              counterText: '',
+                              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                            ),
+                          ),
+                        ),
+
+                        // Clear text button
+                        if (_textController.text.isNotEmpty)
+                          IconButton(
+                            icon: Icon(Icons.cancel_rounded, size: 18, color: U.sub),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                            onPressed: () {
+                              HapticFeedback.selectionClick();
+                              _textController.clear();
+                              setState(() {});
+                            },
+                          ),
+                      ],
+                    ),
+
+                    // Attached Media Preview
+                    if (hasMedia) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: U.surfaceContainerLowest,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: U.primary.withValues(alpha: 0.35), width: 1),
+                        ),
+                        child: Row(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: CachedNetworkImage(
+                                imageUrl: _selectedMediaUrl!,
+                                width: 44,
+                                height: 44,
+                                fit: BoxFit.cover,
+                                placeholder: (context, url) => SizedBox(
+                                  width: 44,
+                                  height: 44,
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(U.primary)),
+                                    ),
+                                  ),
+                                ),
+                                errorWidget: (context, url, error) => const Icon(Icons.broken_image_rounded, size: 20),
                               ),
                             ),
-                            Positioned(
-                              right: 2,
-                              bottom: 2,
-                              child: Container(
-                                padding: const EdgeInsets.all(2),
-                                decoration: BoxDecoration(
-                                  color: U.primary,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Icon(
-                                  Icons.edit,
-                                  size: 8,
-                                  color: U.getContrastColor(U.primary),
-                                ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Attached Media',
+                                    style: GoogleFonts.robotoFlex(
+                                      color: U.primary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Will show on your campus bubble',
+                                    style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 10.5),
+                                  ),
+                                ],
                               ),
+                            ),
+                            TextButton(
+                              onPressed: _openMediaPicker,
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                minimumSize: Size.zero,
+                              ),
+                              child: Text('Change', style: GoogleFonts.robotoFlex(fontSize: 11.5, fontWeight: FontWeight.w700, color: U.primary)),
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.close_rounded, size: 16, color: U.red),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                              onPressed: () {
+                                HapticFeedback.lightImpact();
+                                setState(() => _selectedMediaUrl = null);
+                              },
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                    ] else ...[
-                      Container(
-                        width: 36,
-                        height: 36,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: U.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(9),
-                        ),
-                        child: Icon(Icons.edit_note_rounded, size: 20, color: U.primary),
-                      ),
-                      const SizedBox(width: 10),
+                      ).animate().fadeIn(duration: 200.ms).scale(curve: Curves.easeOutBack),
                     ],
-                    Expanded(
-                      child: TextField(
-                        controller: _textController,
-                        autofocus: widget.initialVibe == null && !hasMedia,
-                        style: GoogleFonts.outfit(color: U.text, fontSize: 14, fontWeight: FontWeight.w500),
-                        maxLength: 50,
-                        decoration: InputDecoration(
-                          hintText: hasMedia ? 'Add a caption (optional)...' : 'What are you up to?',
-                          hintStyle: GoogleFonts.outfit(color: U.sub.withValues(alpha: 0.7), fontSize: 13.5),
-                          border: InputBorder.none,
-                          isDense: true,
-                          counterText: '',
-                          contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                        ),
-                      ),
-                    ),
-                    if (_textController.text.isNotEmpty)
-                      GestureDetector(
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          _textController.clear();
-                          setState(() {});
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.all(4.0),
-                          child: Icon(Icons.cancel_rounded, size: 18, color: U.sub),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
 
-              // Attached GIF / Sticker Preview or Add Button
-              if (hasMedia)
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: U.card,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: U.primary.withValues(alpha: 0.4), width: 1.2),
-                  ),
-                  child: Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Container(
-                          width: 58,
-                          height: 58,
-                          color: U.surface,
-                          child: CachedNetworkImage(
-                            imageUrl: _selectedMediaUrl!,
-                            fit: BoxFit.cover,
-                            placeholder: (context, url) => Center(
-                              child: SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(U.primary),
-                                ),
+                    const SizedBox(height: 8),
+                    Divider(height: 1, thickness: 0.5, color: U.outlineVariant.withValues(alpha: 0.3)),
+                    const SizedBox(height: 8),
+
+                    // Quick Action Badges (GIF, Location, Expiry)
+                    Row(
+                      children: [
+                        // GIF / Sticker Trigger
+                        M3Pressable(
+                          onTap: _openMediaPicker,
+                          scaleFactor: 0.94,
+                          borderRadius: M3Shapes.fullRadius,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: hasMedia ? U.primary.withValues(alpha: 0.14) : U.surfaceContainerHigh,
+                              borderRadius: M3Shapes.fullRadius,
+                              border: Border.all(
+                                color: hasMedia ? U.primary : U.outlineVariant.withValues(alpha: 0.35),
+                                width: 0.8,
                               ),
                             ),
-                            errorWidget: (context, url, error) => Icon(Icons.broken_image_rounded, size: 20, color: U.sub),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.auto_awesome, size: 13, color: U.primary),
+                                Icon(Icons.gif_box_rounded, size: 14, color: hasMedia ? U.primary : U.sub),
                                 const SizedBox(width: 4),
                                 Text(
-                                  'Attached Media',
-                                  style: GoogleFonts.outfit(
-                                    color: U.primary,
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w700,
+                                  hasMedia ? 'GIF Added' : 'GIF / Sticker',
+                                  style: GoogleFonts.robotoFlex(
+                                    color: hasMedia ? U.primary : U.text,
+                                    fontSize: 11,
+                                    fontWeight: hasMedia ? FontWeight.w700 : FontWeight.w600,
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Rendered squared in status view',
-                              style: GoogleFonts.outfit(color: U.sub, fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: _openMediaPicker,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: U.surface,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: U.border, width: 0.8),
-                          ),
-                          child: Text(
-                            'Change',
-                            style: GoogleFonts.outfit(color: U.text, fontSize: 11.5, fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      GestureDetector(
-                        onTap: () {
-                          HapticFeedback.lightImpact();
-                          setState(() => _selectedMediaUrl = null);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(5),
-                          decoration: BoxDecoration(
-                            color: U.red.withValues(alpha: 0.1),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(Icons.close_rounded, size: 15, color: U.red),
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              else ...[
-                GestureDetector(
-                  onTap: _openMediaPicker,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: U.card,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: U.border, width: 0.8),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.gif_box_outlined, size: 19, color: U.primary),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Add GIF or Sticker',
-                          style: GoogleFonts.outfit(
-                            color: U.primary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         const SizedBox(width: 6),
-                        Text(
-                          '• GIPHY & Packs',
-                          style: GoogleFonts.outfit(color: U.sub, fontSize: 11, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
 
-                // Quick Emoji Selection Bar
-                SizedBox(
-                  height: 38,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    children: [
-                      // If current selected emoji is custom (not in _emojis), show it first
-                      if (!_emojis.contains(_selectedEmoji)) ...[
-                        GestureDetector(
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
-                            width: 38,
-                            height: 38,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: U.primary.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: U.primary, width: 1.4),
-                            ),
-                            child: Text(_selectedEmoji, style: const TextStyle(fontSize: 18)),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                      ],
-                      for (final emoji in _emojis) ...[
-                        GestureDetector(
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            setState(() => _selectedEmoji = emoji);
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
-                            width: 38,
-                            height: 38,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: _selectedEmoji == emoji ? U.primary.withValues(alpha: 0.15) : U.card,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: _selectedEmoji == emoji ? U.primary : U.border,
-                                width: _selectedEmoji == emoji ? 1.4 : 0.8,
+                        // Location Spot Pill
+                        if (_selectedLocation != null) ...[
+                          M3Pressable(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              setState(() => _selectedLocation = null);
+                            },
+                            scaleFactor: 0.94,
+                            borderRadius: M3Shapes.fullRadius,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: U.primary.withValues(alpha: 0.14),
+                                borderRadius: M3Shapes.fullRadius,
+                                border: Border.all(color: U.primary, width: 0.8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.location_on_rounded, size: 13, color: U.primary),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    _selectedLocation!,
+                                    style: GoogleFonts.robotoFlex(
+                                      color: U.primary,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Icon(Icons.close_rounded, size: 11, color: U.primary),
+                                ],
                               ),
                             ),
-                            child: Text(emoji, style: const TextStyle(fontSize: 18)),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                      ],
-                      // Custom emoji / Keyboard button
-                      GestureDetector(
-                        onTap: _openCustomEmojiDialog,
-                        child: Container(
-                          width: 38,
-                          height: 38,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: U.card,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: U.border, width: 0.8),
-                          ),
-                          child: Icon(Icons.add_reaction_outlined, size: 18, color: U.primary),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
+                          ).animate().scale(curve: Curves.easeOutBack, duration: 180.ms),
+                          const SizedBox(width: 6),
+                        ],
 
-                // Quick presets section
-                Text(
-                  'PRESETS',
-                  style: GoogleFonts.outfit(
-                    color: U.sub,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8,
-                  ),
+                        const Spacer(),
+
+                        // Expiry Pill
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: U.surfaceContainerLowest,
+                            borderRadius: M3Shapes.fullRadius,
+                            border: Border.all(color: U.outlineVariant.withValues(alpha: 0.3), width: 0.7),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.timer_outlined, size: 12, color: U.sub),
+                              const SizedBox(width: 3),
+                              Text(
+                                _selectedDurationHours == 24 ? '24h' : '${_selectedDurationHours}h',
+                                style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 10.5, fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: _presets.map((p) {
+              ),
+              const SizedBox(height: 16),
+
+              // ── 2. Quick Vibes (Curated Horizontal Row) ──
+              Text(
+                'QUICK VIBES',
+                style: GoogleFonts.robotoFlex(
+                  color: U.sub,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.0,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 34,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: _presets.length,
+                  separatorBuilder: (context, index) => const SizedBox(width: 6),
+                  itemBuilder: (context, index) {
+                    final p = _presets[index];
                     final isSelected = _selectedEmoji == p['emoji'] && _textController.text == p['text'];
-                    return GestureDetector(
+                    return M3Pressable(
                       onTap: () {
                         HapticFeedback.selectionClick();
                         setState(() {
@@ -2553,45 +2860,48 @@ class _SetStatusSheetState extends State<_SetStatusSheet> {
                           _textController.text = p['text']!;
                         });
                       },
+                      scaleFactor: 0.94,
+                      borderRadius: M3Shapes.fullRadius,
                       child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        duration: const Duration(milliseconds: 160),
+                        curve: Curves.easeOutCubic,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
-                          color: isSelected ? U.primary.withValues(alpha: 0.14) : U.card,
-                          borderRadius: BorderRadius.circular(10),
+                          color: isSelected ? U.primary.withValues(alpha: 0.16) : U.surfaceContainer,
+                          borderRadius: M3Shapes.fullRadius,
                           border: Border.all(
-                            color: isSelected ? U.primary : U.border,
-                            width: isSelected ? 1.2 : 0.7,
+                            color: isSelected ? U.primary : U.outlineVariant.withValues(alpha: 0.35),
+                            width: isSelected ? 1.4 : 0.7,
                           ),
                         ),
                         child: Text(
                           '${p['emoji']} ${p['text']}',
-                          style: GoogleFonts.outfit(
+                          style: GoogleFonts.robotoFlex(
                             color: isSelected ? U.primary : U.text,
                             fontSize: 12,
-                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
                           ),
                         ),
                       ),
                     );
-                  }).toList(),
+                  },
                 ),
-              ],
+              ),
               const SizedBox(height: 16),
 
-              // Location Spot selector
+              // ── 3. Campus Location Spots (Horizontal Chips) ──
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'LOCATION (OPTIONAL)',
-                    style: GoogleFonts.outfit(
+                    'CAMPUS SPOT',
+                    style: GoogleFonts.robotoFlex(
                       color: U.sub,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.0,
                     ),
                   ),
-                  const Spacer(),
                   if (_selectedLocation != null)
                     GestureDetector(
                       onTap: () {
@@ -2600,66 +2910,75 @@ class _SetStatusSheetState extends State<_SetStatusSheet> {
                       },
                       child: Text(
                         'Clear',
-                        style: GoogleFonts.outfit(color: U.primary, fontSize: 11.5, fontWeight: FontWeight.w600),
+                        style: GoogleFonts.robotoFlex(color: U.primary, fontSize: 11, fontWeight: FontWeight.w700),
                       ),
                     ),
                 ],
               ),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: _spots.map((spot) {
-                  final isSelected = _selectedLocation == spot;
-                  return GestureDetector(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _selectedLocation = isSelected ? null : spot);
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: isSelected ? U.primary.withValues(alpha: 0.14) : U.card,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: isSelected ? U.primary : U.border,
-                          width: isSelected ? 1.2 : 0.7,
+              SizedBox(
+                height: 34,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: _spots.length,
+                  separatorBuilder: (context, index) => const SizedBox(width: 6),
+                  itemBuilder: (context, index) {
+                    final spot = _spots[index];
+                    final isSelected = _selectedLocation == spot;
+                    return M3Pressable(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _selectedLocation = isSelected ? null : spot);
+                      },
+                      scaleFactor: 0.94,
+                      borderRadius: M3Shapes.fullRadius,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        curve: Curves.easeOutCubic,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isSelected ? U.primary.withValues(alpha: 0.16) : U.surfaceContainer,
+                          borderRadius: M3Shapes.fullRadius,
+                          border: Border.all(
+                            color: isSelected ? U.primary : U.outlineVariant.withValues(alpha: 0.35),
+                            width: isSelected ? 1.4 : 0.7,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.location_on_outlined,
+                              size: 13,
+                              color: isSelected ? U.primary : U.sub,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              spot,
+                              style: GoogleFonts.robotoFlex(
+                                color: isSelected ? U.primary : U.text,
+                                fontSize: 11.5,
+                                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.location_on_outlined,
-                            size: 13,
-                            color: isSelected ? U.primary : U.sub,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            spot,
-                            style: GoogleFonts.outfit(
-                              color: isSelected ? U.primary : U.text,
-                              fontSize: 11.5,
-                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
+                    );
+                  },
+                ),
               ),
               const SizedBox(height: 16),
 
-              // Duration selector
+              // ── 4. Expiry Duration (Material 3 Segmented Row) ──
               Text(
                 'EXPIRES IN',
-                style: GoogleFonts.outfit(
+                style: GoogleFonts.robotoFlex(
                   color: U.sub,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.0,
                 ),
               ),
               const SizedBox(height: 8),
@@ -2667,29 +2986,32 @@ class _SetStatusSheetState extends State<_SetStatusSheet> {
                 children: [
                   for (final dur in [2, 4, 8, 24]) ...[
                     Expanded(
-                      child: GestureDetector(
+                      child: M3Pressable(
                         onTap: () {
                           HapticFeedback.selectionClick();
                           setState(() => _selectedDurationHours = dur);
                         },
+                        scaleFactor: 0.94,
+                        borderRadius: M3Shapes.fullRadius,
                         child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 150),
+                          duration: const Duration(milliseconds: 160),
+                          curve: Curves.easeOutCubic,
                           padding: const EdgeInsets.symmetric(vertical: 8),
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: _selectedDurationHours == dur ? U.primary.withValues(alpha: 0.14) : U.card,
-                            borderRadius: BorderRadius.circular(10),
+                            color: _selectedDurationHours == dur ? U.primary.withValues(alpha: 0.16) : U.surfaceContainer,
+                            borderRadius: M3Shapes.fullRadius,
                             border: Border.all(
-                              color: _selectedDurationHours == dur ? U.primary : U.border,
-                              width: _selectedDurationHours == dur ? 1.2 : 0.7,
+                              color: _selectedDurationHours == dur ? U.primary : U.outlineVariant.withValues(alpha: 0.35),
+                              width: _selectedDurationHours == dur ? 1.4 : 0.7,
                             ),
                           ),
                           child: Text(
                             dur == 24 ? 'Today (24h)' : '${dur}h',
-                            style: GoogleFonts.outfit(
+                            style: GoogleFonts.robotoFlex(
                               color: _selectedDurationHours == dur ? U.primary : U.text,
                               fontSize: 12,
-                              fontWeight: _selectedDurationHours == dur ? FontWeight.w700 : FontWeight.w500,
+                              fontWeight: _selectedDurationHours == dur ? FontWeight.w800 : FontWeight.w600,
                             ),
                           ),
                         ),
@@ -2701,23 +3023,30 @@ class _SetStatusSheetState extends State<_SetStatusSheet> {
               ),
               const SizedBox(height: 20),
 
-              // Save button
+              // ── 5. Primary Save Button ──
               SizedBox(
                 width: double.infinity,
                 height: 48,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: U.primary,
-                    foregroundColor: U.getContrastColor(U.primary),
-                    disabledBackgroundColor: U.primary.withValues(alpha: 0.3),
-                    disabledForegroundColor: U.getContrastColor(U.primary).withValues(alpha: 0.6),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    elevation: 0,
-                  ),
-                  onPressed: isEmpty ? null : _save,
-                  child: Text(
-                    hasActive ? 'Update Status' : 'Set Status',
-                    style: GoogleFonts.outfit(fontSize: 14.5, fontWeight: FontWeight.w700),
+                child: M3Pressable(
+                  onTap: isEmpty ? null : _save,
+                  scaleFactor: 0.96,
+                  borderRadius: M3Shapes.fullRadius,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isEmpty ? U.primary.withValues(alpha: 0.3) : U.primary,
+                      borderRadius: M3Shapes.fullRadius,
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      hasActive ? 'Update Status' : 'Set Status',
+                      style: GoogleFonts.robotoFlex(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                        color: isEmpty
+                            ? U.getContrastColor(U.primary).withValues(alpha: 0.6)
+                            : U.getContrastColor(U.primary),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -2730,7 +3059,7 @@ class _SetStatusSheetState extends State<_SetStatusSheet> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// QUICK PEEK PROFILE SHEET
+// QUICK PEEK PROFILE SHEET (Material 3 Expressive)
 // ────────────────────────────────────────────────────────────────────────────
 class _QuickPeekProfileSheet extends StatefulWidget {
   const _QuickPeekProfileSheet({
@@ -2825,9 +3154,9 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
       top: false,
       child: Container(
         decoration: BoxDecoration(
-          color: U.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(color: U.border, width: 0.8),
+          color: U.surfaceContainer,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          border: Border.all(color: U.outlineVariant.withValues(alpha: 0.35), width: 0.8),
         ),
         padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
         child: Column(
@@ -2839,7 +3168,7 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: U.border,
+                  color: U.outlineVariant.withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -2857,25 +3186,31 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Compact Profile Header (Reduced-size icon)
+                    // Compact Profile Header (Squircle)
                     Row(
                       children: [
-                        CircleAvatar(
-                          radius: 18,
-                          backgroundColor: U.primary.withValues(alpha: 0.12),
-                          backgroundImage: photoUrl != null && photoUrl.isNotEmpty
-                              ? CachedNetworkImageProvider(photoUrl)
-                              : null,
-                          child: photoUrl == null || photoUrl.isEmpty
-                              ? Text(
-                                  displayName.isEmpty ? 'U' : displayName[0].toUpperCase(),
-                                  style: GoogleFonts.outfit(
-                                    color: U.primary,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: U.surfaceContainerHigh,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: photoUrl != null && photoUrl.isNotEmpty
+                                ? CachedNetworkImage(imageUrl: photoUrl, fit: BoxFit.cover)
+                                : Center(
+                                    child: Text(
+                                      displayName.isEmpty ? 'U' : displayName[0].toUpperCase(),
+                                      style: GoogleFonts.robotoFlex(
+                                        color: U.primary,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
                                   ),
-                                )
-                              : null,
+                          ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -2889,10 +3224,10 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                                       displayName,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.outfit(
+                                      style: GoogleFonts.robotoFlex(
                                         color: U.text,
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w700,
+                                        fontSize: 15.5,
+                                        fontWeight: FontWeight.w800,
                                       ),
                                     ),
                                   ),
@@ -2905,7 +3240,7 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                               if (branch.isNotEmpty)
                                 Text(
                                   branch,
-                                  style: GoogleFonts.outfit(color: U.sub, fontSize: 10.5, fontWeight: FontWeight.w500),
+                                  style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 11, fontWeight: FontWeight.w600),
                                 ),
                             ],
                           ),
@@ -2929,26 +3264,19 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                           maxHeight: (MediaQuery.of(context).size.width - 40).clamp(200.0, 260.0),
                         ),
                         decoration: BoxDecoration(
-                          color: U.card,
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: U.primary.withValues(alpha: 0.35), width: 1.2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: U.primary.withValues(alpha: 0.08),
-                              blurRadius: 14,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
+                          color: U.surfaceContainerHigh,
+                          borderRadius: M3Shapes.cardRadius,
+                          border: Border.all(color: U.primary.withValues(alpha: 0.4), width: 1.5),
                         ),
                         child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: M3Shapes.cardRadius,
                           child: AspectRatio(
                             aspectRatio: 1.0,
                             child: CachedNetworkImage(
                               imageUrl: widget.vibe!.mediaUrl!,
                               fit: BoxFit.contain,
                               placeholder: (context, url) => Container(
-                                color: U.surface,
+                                color: U.surfaceContainerLowest,
                                 alignment: Alignment.center,
                                 child: SizedBox(
                                   width: 24,
@@ -2975,8 +3303,8 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
-                          color: U.card,
-                          borderRadius: BorderRadius.circular(12),
+                          color: U.surfaceContainerHigh,
+                          borderRadius: M3Shapes.mediumRadius,
                           border: Border.all(color: U.primary.withValues(alpha: 0.25), width: 0.8),
                         ),
                         child: Row(
@@ -2992,16 +3320,16 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                                   if (widget.vibe!.text.isNotEmpty)
                                     Text(
                                       widget.vibe!.text,
-                                      style: GoogleFonts.outfit(
+                                      style: GoogleFonts.robotoFlex(
                                         color: U.primary,
                                         fontSize: 12.5,
-                                        fontWeight: FontWeight.w700,
+                                        fontWeight: FontWeight.w800,
                                       ),
                                     ),
                                   if (widget.vibe!.location != null)
                                     Text(
                                       '📍 ${widget.vibe!.location!}',
-                                      style: GoogleFonts.outfit(color: U.sub, fontSize: 11),
+                                      style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 11),
                                     ),
                                 ],
                               ),
@@ -3014,7 +3342,7 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                 );
               }
 
-              // Standard Profile Header Row (when no media status is applied)
+              // Standard Profile Header Row
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -3024,22 +3352,35 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                       Stack(
                         clipBehavior: Clip.none,
                         children: [
-                          CircleAvatar(
-                            radius: 35,
-                            backgroundColor: U.primary.withValues(alpha: 0.12),
-                            backgroundImage: photoUrl != null && photoUrl.isNotEmpty
-                                ? CachedNetworkImageProvider(photoUrl)
-                                : null,
-                            child: photoUrl == null || photoUrl.isEmpty
-                                ? Text(
-                                    displayName.isEmpty ? 'U' : displayName[0].toUpperCase(),
-                                    style: GoogleFonts.outfit(
-                                      color: U.primary,
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.w700,
+                          Container(
+                            width: 68,
+                            height: 68,
+                            decoration: BoxDecoration(
+                              color: U.surfaceContainerHigh,
+                              borderRadius: BorderRadius.circular(22),
+                              border: Border.all(
+                                color: widget.vibe != null ? U.primary : U.outlineVariant.withValues(alpha: 0.35),
+                                width: widget.vibe != null ? 2.0 : 1.0,
+                              ),
+                            ),
+                            padding: const EdgeInsets.all(3),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(18),
+                              child: photoUrl != null && photoUrl.isNotEmpty
+                                  ? CachedNetworkImage(imageUrl: photoUrl, fit: BoxFit.cover)
+                                  : Container(
+                                      color: U.primary.withValues(alpha: 0.14),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        displayName.isEmpty ? 'U' : displayName[0].toUpperCase(),
+                                        style: GoogleFonts.robotoFlex(
+                                          color: U.primary,
+                                          fontSize: 24,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
                                     ),
-                                  )
-                                : null,
+                            ),
                           ),
                           if (widget.vibe != null)
                             Positioned(
@@ -3047,7 +3388,7 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                               right: -8,
                               child: ThoughtCloudBadge(
                                 vibe: widget.vibe,
-                                avatarRadius: 35,
+                                avatarRadius: 34,
                               ),
                             ),
                         ],
@@ -3064,10 +3405,10 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                                     displayName,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: GoogleFonts.outfit(
+                                    style: GoogleFonts.robotoFlex(
                                       color: U.text,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w700,
+                                      fontSize: 16.5,
+                                      fontWeight: FontWeight.w800,
                                     ),
                                   ),
                                 ),
@@ -3084,15 +3425,14 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                               children: [
                                 if (branch.isNotEmpty)
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                                     decoration: BoxDecoration(
-                                      color: U.card,
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: U.border, width: 0.6),
+                                      color: U.surfaceContainerLowest,
+                                      borderRadius: M3Shapes.fullRadius,
                                     ),
                                     child: Text(
                                       branch,
-                                      style: GoogleFonts.outfit(color: U.sub, fontSize: 11, fontWeight: FontWeight.w600),
+                                      style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 11, fontWeight: FontWeight.w600),
                                     ),
                                   ),
                                 if (instagramId.isNotEmpty)
@@ -3113,8 +3453,8 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: U.card,
-                        borderRadius: BorderRadius.circular(14),
+                        color: U.surfaceContainerHigh,
+                        borderRadius: M3Shapes.largeRadius,
                         border: Border.all(color: U.primary.withValues(alpha: 0.3), width: 0.8),
                       ),
                       child: Row(
@@ -3127,16 +3467,16 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                               children: [
                                 Text(
                                   widget.vibe!.text,
-                                  style: GoogleFonts.outfit(
+                                  style: GoogleFonts.robotoFlex(
                                     color: U.primary,
                                     fontSize: 13,
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: FontWeight.w800,
                                   ),
                                 ),
                                 if (widget.vibe!.location != null)
                                   Text(
                                     '📍 ${widget.vibe!.location!}',
-                                    style: GoogleFonts.outfit(color: U.sub, fontSize: 11),
+                                    style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 11),
                                   ),
                               ],
                             ),
@@ -3154,7 +3494,7 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
               const SizedBox(height: 12),
               Text(
                 bio,
-                style: GoogleFonts.outfit(color: U.text, fontSize: 13, height: 1.35),
+                style: GoogleFonts.robotoFlex(color: U.text, fontSize: 13, height: 1.35),
               ),
             ],
 
@@ -3176,8 +3516,8 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                     child: OutlinedButton(
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 11),
-                        side: BorderSide(color: U.border),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        side: BorderSide(color: U.outlineVariant.withValues(alpha: 0.4)),
+                        shape: RoundedRectangleBorder(borderRadius: M3Shapes.fullRadius),
                       ),
                       onPressed: _openChat,
                       child: Row(
@@ -3185,7 +3525,7 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                         children: [
                           Icon(Icons.chat_bubble_outline_rounded, size: 14, color: U.text),
                           const SizedBox(width: 6),
-                          Text('Message', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w700)),
+                          Text('Message', style: GoogleFonts.robotoFlex(color: U.text, fontWeight: FontWeight.w800)),
                         ],
                       ),
                     ),
@@ -3198,15 +3538,15 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                         final status = statusSnap.data ?? FollowStatus.notFollowing;
                         final isFollowing = status == FollowStatus.following;
 
-                        return ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: isFollowing ? U.card : U.primary,
+                        return FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: isFollowing ? U.surfaceContainerHigh : U.primary,
                             foregroundColor: isFollowing ? U.text : U.getContrastColor(U.primary),
                             padding: const EdgeInsets.symmetric(vertical: 11),
                             elevation: 0,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              side: isFollowing ? BorderSide(color: U.border) : BorderSide.none,
+                              borderRadius: M3Shapes.fullRadius,
+                              side: isFollowing ? BorderSide(color: U.outlineVariant.withValues(alpha: 0.4)) : BorderSide.none,
                             ),
                           ),
                           onPressed: () => _handleFollow(status),
@@ -3216,7 +3556,7 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                                 : status == FollowStatus.requested
                                     ? 'Requested'
                                     : 'Following',
-                            style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+                            style: GoogleFonts.robotoFlex(fontWeight: FontWeight.w800),
                           ),
                         );
                       },
@@ -3232,10 +3572,7 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// BRANCH PICKER SHEET
-// ────────────────────────────────────────────────────────────────────────────
-// ────────────────────────────────────────────────────────────────────────────
-// BRANCH PICKER SHEET
+// BRANCH PICKER SHEET (Material 3 Expressive)
 // ────────────────────────────────────────────────────────────────────────────
 class _BranchPickerSheet extends StatefulWidget {
   const _BranchPickerSheet({
@@ -3266,9 +3603,9 @@ class _BranchPickerSheetState extends State<_BranchPickerSheet> {
           maxHeight: MediaQuery.of(context).size.height * 0.75,
         ),
         decoration: BoxDecoration(
-          color: U.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(color: U.border, width: 0.8),
+          color: U.surfaceContainer,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          border: Border.all(color: U.outlineVariant.withValues(alpha: 0.35), width: 0.8),
         ),
         padding: EdgeInsets.fromLTRB(20, 14, 20, MediaQuery.of(context).viewInsets.bottom + 20),
         child: Material(
@@ -3282,7 +3619,7 @@ class _BranchPickerSheetState extends State<_BranchPickerSheet> {
                   width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: U.border,
+                    color: U.outlineVariant.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -3290,10 +3627,10 @@ class _BranchPickerSheetState extends State<_BranchPickerSheet> {
               const SizedBox(height: 16),
               Text(
                 'Filter by Academic Branch',
-                style: GoogleFonts.outfit(
+                style: GoogleFonts.robotoFlex(
                   color: U.text,
                   fontSize: 18,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
               const SizedBox(height: 12),
@@ -3306,13 +3643,13 @@ class _BranchPickerSheetState extends State<_BranchPickerSheet> {
                   children: [
                     ListTile(
                       dense: true,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(borderRadius: M3Shapes.mediumRadius),
                       tileColor: widget.selectedBranch == 'All' ? U.primary.withValues(alpha: 0.12) : null,
                       title: Text(
                         'All Branches',
-                        style: GoogleFonts.outfit(
+                        style: GoogleFonts.robotoFlex(
                           color: widget.selectedBranch == 'All' ? U.primary : U.text,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                       trailing: Row(
@@ -3320,20 +3657,19 @@ class _BranchPickerSheetState extends State<_BranchPickerSheet> {
                         children: [
                           if (widget.totalCount > 0)
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
                               decoration: BoxDecoration(
                                 color: widget.selectedBranch == 'All'
                                     ? U.primary.withValues(alpha: 0.18)
-                                    : U.card,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: U.border, width: 0.6),
+                                    : U.surfaceContainerHighest,
+                                borderRadius: M3Shapes.fullRadius,
                               ),
                               child: Text(
                                 '${widget.totalCount} members',
-                                style: GoogleFonts.outfit(
+                                style: GoogleFonts.robotoFlex(
                                   color: widget.selectedBranch == 'All' ? U.primary : U.sub,
                                   fontSize: 11,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
                             ),
@@ -3353,39 +3689,38 @@ class _BranchPickerSheetState extends State<_BranchPickerSheet> {
                       final isSelected = widget.selectedBranch == b;
                       return ListTile(
                         dense: true,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(borderRadius: M3Shapes.mediumRadius),
                         tileColor: isSelected ? U.primary.withValues(alpha: 0.12) : null,
                         title: Text(
                           b,
-                          style: GoogleFonts.outfit(
+                          style: GoogleFonts.robotoFlex(
                             color: isSelected ? U.primary : U.text,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
                               decoration: BoxDecoration(
                                 color: isSelected
                                     ? U.primary.withValues(alpha: 0.18)
                                     : count > 0
-                                        ? U.card
+                                        ? U.surfaceContainerHighest
                                         : Colors.transparent,
-                                borderRadius: BorderRadius.circular(8),
-                                border: count > 0 ? Border.all(color: U.border, width: 0.6) : null,
+                                borderRadius: M3Shapes.fullRadius,
                               ),
                               child: Text(
                                 count > 0 ? '$count ${count == 1 ? 'member' : 'members'}' : '0',
-                                style: GoogleFonts.outfit(
+                                style: GoogleFonts.robotoFlex(
                                   color: isSelected
                                       ? U.primary
                                       : count > 0
                                           ? U.text
                                           : U.sub.withValues(alpha: 0.5),
                                   fontSize: 11,
-                                  fontWeight: count > 0 ? FontWeight.w600 : FontWeight.w400,
+                                  fontWeight: count > 0 ? FontWeight.w700 : FontWeight.w500,
                                 ),
                               ),
                             ),
@@ -3413,7 +3748,7 @@ class _BranchPickerSheetState extends State<_BranchPickerSheet> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// SET USER BRANCH BOTTOM SHEET
+// SET USER BRANCH BOTTOM SHEET (Material 3 Expressive)
 // ────────────────────────────────────────────────────────────────────────────
 class _SetUserBranchSheet extends StatefulWidget {
   const _SetUserBranchSheet({
@@ -3479,9 +3814,9 @@ class _SetUserBranchSheetState extends State<_SetUserBranchSheet> {
           maxHeight: MediaQuery.of(context).size.height * 0.8,
         ),
         decoration: BoxDecoration(
-          color: U.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(color: U.border, width: 0.8),
+          color: U.surfaceContainer,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          border: Border.all(color: U.outlineVariant.withValues(alpha: 0.35), width: 0.8),
         ),
         padding: EdgeInsets.fromLTRB(20, 14, 20, MediaQuery.of(context).viewInsets.bottom + 20),
         child: Material(
@@ -3495,7 +3830,7 @@ class _SetUserBranchSheetState extends State<_SetUserBranchSheet> {
                   width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: U.border,
+                    color: U.outlineVariant.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -3503,39 +3838,39 @@ class _SetUserBranchSheetState extends State<_SetUserBranchSheet> {
               const SizedBox(height: 16),
               Text(
                 'Select Academic Branch',
-                style: GoogleFonts.outfit(
+                style: GoogleFonts.robotoFlex(
                   color: U.text,
                   fontSize: 18,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 'Personalize your peer directory and campus connections.',
-                style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
+                style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 12),
               ),
               const SizedBox(height: 12),
 
-              // Search field
+              // Search field (Stadium)
               Container(
-                height: 42,
+                height: 46,
                 decoration: BoxDecoration(
-                  color: U.card,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: U.border),
+                  color: U.surfaceContainerHigh,
+                  borderRadius: M3Shapes.fullRadius,
+                  border: Border.all(color: U.outlineVariant.withValues(alpha: 0.35)),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
                 child: Row(
                   children: [
-                    Icon(Icons.search_rounded, color: U.sub, size: 17),
+                    Icon(Icons.search_rounded, color: U.sub, size: 18),
                     const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
                         controller: _filterController,
-                        style: GoogleFonts.outfit(color: U.text, fontSize: 13),
+                        style: GoogleFonts.robotoFlex(color: U.text, fontSize: 13.5),
                         decoration: InputDecoration(
                           hintText: 'Search branches...',
-                          hintStyle: GoogleFonts.outfit(color: U.sub, fontSize: 13),
+                          hintStyle: GoogleFonts.robotoFlex(color: U.sub, fontSize: 13.5),
                           border: InputBorder.none,
                           isDense: true,
                         ),
@@ -3558,15 +3893,15 @@ class _SetUserBranchSheetState extends State<_SetUserBranchSheet> {
                     final count = widget.branchCounts[branch] ?? 0;
                     return ListTile(
                       dense: true,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(borderRadius: M3Shapes.mediumRadius),
                       title: Text(
                         branch,
-                        style: GoogleFonts.outfit(color: U.text, fontSize: 13.5, fontWeight: FontWeight.w500),
+                        style: GoogleFonts.robotoFlex(color: U.text, fontSize: 13.5, fontWeight: FontWeight.w600),
                       ),
                       subtitle: count > 0
                           ? Text(
                               '$count ${count == 1 ? 'student' : 'students'} in this branch',
-                              style: GoogleFonts.outfit(color: U.sub, fontSize: 11),
+                              style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 11),
                             )
                           : null,
                       trailing: Row(
@@ -3574,15 +3909,14 @@ class _SetUserBranchSheetState extends State<_SetUserBranchSheet> {
                         children: [
                           if (count > 0)
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
                               decoration: BoxDecoration(
-                                color: U.card,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: U.border, width: 0.6),
+                                color: U.surfaceContainerHighest,
+                                borderRadius: M3Shapes.fullRadius,
                               ),
                               child: Text(
                                 '$count',
-                                style: GoogleFonts.outfit(color: U.primary, fontSize: 11, fontWeight: FontWeight.w700),
+                                style: GoogleFonts.robotoFlex(color: U.primary, fontSize: 11, fontWeight: FontWeight.w800),
                               ),
                             ),
                           const SizedBox(width: 4),
@@ -3617,7 +3951,7 @@ class _PeopleSkeleton extends StatelessWidget {
         physics: const NeverScrollableScrollPhysics(),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
-          childAspectRatio: 0.70,
+          childAspectRatio: 0.77,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
         ),
@@ -3625,20 +3959,20 @@ class _PeopleSkeleton extends StatelessWidget {
         itemBuilder: (context, index) {
           return Container(
             decoration: BoxDecoration(
-              color: U.card,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: U.border),
+              color: U.surfaceContainerLow,
+              borderRadius: M3Shapes.cardRadius,
+              border: Border.all(color: U.outlineVariant.withValues(alpha: 0.35)),
             ),
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(14),
             child: Column(
               children: const [
-                SkeletonBox(height: 62, width: 62, radius: 31),
-                SizedBox(height: 10),
+                SkeletonBox(height: 74, width: 74, radius: 22),
+                SizedBox(height: 12),
                 SkeletonBox(height: 14, width: 85, radius: 6),
                 SizedBox(height: 6),
                 SkeletonBox(height: 10, width: 60, radius: 5),
                 Spacer(),
-                SkeletonBox(height: 30, width: double.infinity, radius: 10),
+                SkeletonBox(height: 32, width: double.infinity, radius: 999),
               ],
             ),
           ).animate(onPlay: (c) => c.repeat(reverse: true)).fade(
@@ -3674,21 +4008,28 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 36, color: U.sub.withValues(alpha: 0.5)),
-            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: U.surfaceContainerHigh,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 36, color: U.primary),
+            ),
+            const SizedBox(height: 14),
             Text(
               title,
-              style: GoogleFonts.outfit(
+              style: GoogleFonts.robotoFlex(
                 color: U.text,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
               ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 6),
             Text(
               subtitle,
-              style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
+              style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 12.5),
               textAlign: TextAlign.center,
             ),
           ],

@@ -35,7 +35,7 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   final FollowService _followService = FollowService();
-  final PeopleInteractionService _sparkService = PeopleInteractionService();
+  final PeopleInteractionService _interactionService = PeopleInteractionService();
 
   List<EventModel> _endingSoon = [];
   List<EventModel> _newEvents = [];
@@ -73,7 +73,7 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
     _dismissedIds = await NotificationService.getDismissedNotificationIds();
     _lastClearedAt = await NotificationService.getLastNotificationsClearedAt();
     _setupSubscriptions();
-    _sparkService.syncMyWavesCount();
+    _interactionService.syncMyWavesCount();
     await _loadEventsAndCertificates();
   }
 
@@ -100,7 +100,7 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
 
     // 2. Waves received stream
     _wavesSub?.cancel();
-    _wavesSub = _sparkService.getMyWavesStream().listen((wavesList) {
+    _wavesSub = _interactionService.getMyWavesStream().listen((wavesList) {
       if (mounted) {
         setState(() {
           _waves = wavesList
@@ -799,7 +799,7 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
                   wavedLabel: 'Waved Back',
                   hasWaved: false,
                   onWave: () async {
-                    await _sparkService.sendWave(
+                    await _interactionService.sendWave(
                       senderId,
                       isReply: true,
                       replyToWaveId: waveId,

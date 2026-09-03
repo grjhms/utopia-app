@@ -41,9 +41,9 @@ class DelveTheme {
       ? Color.lerp(background, Colors.white, 0.03)!
       : Color.lerp(background, Colors.black, 0.02)!;
 
-  Color get textSecondary => text.withValues(alpha: 0.6);
+  Color get textSecondary => text.withValues(alpha: 0.75);
 
-  Color get divider => text.withValues(alpha: 0.1);
+  Color get divider => text.withValues(alpha: 0.12);
 
   ThemeData toThemeData() {
     return ThemeData(

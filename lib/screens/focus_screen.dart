@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:math';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -21,11 +20,13 @@ import '../services/event_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/app_motion.dart';
 import '../widgets/minimal_news_pill.dart';
+import '../theme/m3_expressive_theme.dart';
 import '../services/focus_supabase_service.dart';
 import '../services/cache_service.dart';
 import '../services/secure_storage_service.dart';
 import '../services/attendance_cache_service.dart';
 import '../services/uni_chat_service.dart';
+import '../widgets/dynamic_attendance_card.dart';
 
 class FocusScreen extends StatefulWidget {
   const FocusScreen({super.key});
@@ -40,8 +41,8 @@ class _FocusScreenState extends State<FocusScreen> {
   String _greetingText = '';
   double? _attendancePct;
   String _studentName = '';
-  int _belowTargetCount = 0;
   bool _isAttendanceConnected = false;
+  DateTime? _lastAttendanceFetched;
 
   String _weatherCity = '';
   double? _weatherTemp;
@@ -504,8 +505,8 @@ class _FocusScreenState extends State<FocusScreen> {
     try {
       double? attendancePct;
       String studentName = '';
-      int belowTargetCount = 0;
       bool isConnected = false;
+      DateTime? lastFetched;
       try {
         final credentials = await SecureStorageService.getCredentials();
         if (credentials != null) {
@@ -516,12 +517,20 @@ class _FocusScreenState extends State<FocusScreen> {
             if (cachedAttendance != null) {
               attendancePct = cachedAttendance.data['overallPercentage'] as double?;
               studentName = (cachedAttendance.data['studentName'] as String? ?? '').trim();
-              final subjects = (cachedAttendance.data['subjects'] as List<dynamic>? ?? const [])
-                  .cast<Map<String, dynamic>>();
-              belowTargetCount = subjects.where((subject) {
-                final percentage = (subject['percentage'] as num?)?.toDouble() ?? 0;
-                return percentage < 75.0;
-              }).length;
+              lastFetched = cachedAttendance.cachedAt;
+            } else {
+              final prefs = await SharedPreferences.getInstance();
+              final currJson = prefs.getString('attendance_history_curr_${roll.trim().toUpperCase()}');
+              if (currJson != null) {
+                try {
+                  final Map<String, dynamic> currMap = jsonDecode(currJson);
+                  final tsStr = currMap['timestamp'] as String?;
+                  if (tsStr != null) {
+                    lastFetched = DateTime.tryParse(tsStr);
+                  }
+                  attendancePct ??= (currMap['overallPercentage'] as num?)?.toDouble();
+                } catch (_) {}
+              }
             }
           }
         }
@@ -533,8 +542,8 @@ class _FocusScreenState extends State<FocusScreen> {
         setState(() {
           _attendancePct = attendancePct;
           _studentName = studentName;
-          _belowTargetCount = belowTargetCount;
           _isAttendanceConnected = isConnected;
+          _lastAttendanceFetched = lastFetched;
         });
       }
     } catch (_) {}
@@ -546,49 +555,39 @@ class _FocusScreenState extends State<FocusScreen> {
     required Color color,
     VoidCallback? onTap,
   }) {
-    final isDark = appThemeNotifier.value.isDark;
-    return GestureDetector(
+    return M3Pressable(
       onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? color.withValues(alpha: 0.06)
-                  : color.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: isDark
-                    ? color.withValues(alpha: 0.2)
-                    : color.withValues(alpha: 0.25),
-                width: 0.8,
+      scaleFactor: 0.94,
+      borderRadius: M3Shapes.fullRadius,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: U.surfaceContainerHigh,
+          borderRadius: M3Shapes.fullRadius,
+          border: Border.all(
+            color: U.outlineVariant.withValues(alpha: 0.35),
+            width: 0.8,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 15,
+              color: color,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: GoogleFonts.robotoFlex(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: U.text,
+                letterSpacing: 0.1,
               ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  icon,
-                  size: 14,
-                  color: isDark ? color.withValues(alpha: 0.95) : color.withValues(alpha: 0.85),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: isDark ? color.withValues(alpha: 0.95) : color.withValues(alpha: 0.85),
-                    letterSpacing: 0.2,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          ],
         ),
       ),
     );
@@ -652,7 +651,7 @@ class _FocusScreenState extends State<FocusScreen> {
                             ),
                           ],
                         ),
-                        GestureDetector(
+                        M3Pressable(
                           onTap: () async {
                             await Navigator.push(
                               context,
@@ -666,18 +665,16 @@ class _FocusScreenState extends State<FocusScreen> {
                             clipBehavior: Clip.none,
                             children: [
                               Container(
-                                width: 40,
-                                height: 40,
+                                width: 42,
+                                height: 42,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   color: isDarkTheme
-                                      ? Colors.white.withValues(alpha: 0.08)
-                                      : Colors.black.withValues(alpha: 0.05),
+                                      ? U.surfaceContainerHighest.withValues(alpha: 0.6)
+                                      : U.surfaceContainerHighest.withValues(alpha: 0.8),
                                   border: Border.all(
-                                    color: isDarkTheme
-                                        ? Colors.white.withValues(alpha: 0.1)
-                                        : Colors.black.withValues(alpha: 0.05),
-                                    width: 1,
+                                    color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.5),
+                                    width: 0.8,
                                   ),
                                 ),
                                 child: Icon(
@@ -707,8 +704,8 @@ class _FocusScreenState extends State<FocusScreen> {
                                     child: Center(
                                       child: Text(
                                         _notificationCount > 9 ? '9+' : _notificationCount.toString(),
-                                        style: GoogleFonts.plusJakartaSans(
-                                          color: isDarkTheme ? Colors.black : Colors.white,
+                                        style: GoogleFonts.robotoFlex(
+                                          color: U.getContrastColor(U.primary),
                                           fontSize: 8,
                                           fontWeight: FontWeight.bold,
                                           height: 1.0,
@@ -734,20 +731,20 @@ class _FocusScreenState extends State<FocusScreen> {
                             children: [
                               TextSpan(
                                 text: '$greetingPart, ',
-                                style: GoogleFonts.plusJakartaSans(
+                                style: GoogleFonts.robotoFlex(
                                   fontSize: 22,
                                   fontWeight: FontWeight.w300,
                                   color: U.text,
-                                  letterSpacing: -0.4,
+                                  letterSpacing: -0.3,
                                 ),
                               ),
                               TextSpan(
                                 text: namePart,
-                                style: GoogleFonts.outfit(
+                                style: GoogleFonts.robotoFlex(
                                   fontSize: 23,
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w700,
                                   color: U.text,
-                                  letterSpacing: -0.6,
+                                  letterSpacing: -0.4,
                                 ),
                               ),
                             ],
@@ -756,11 +753,11 @@ class _FocusScreenState extends State<FocusScreen> {
                       } else {
                         return Text(
                           _greetingText,
-                          style: GoogleFonts.plusJakartaSans(
+                          style: GoogleFonts.robotoFlex(
                             fontSize: 22,
                             fontWeight: FontWeight.w400,
                             color: U.text,
-                            letterSpacing: -0.4,
+                            letterSpacing: -0.3,
                           ),
                         );
                       }
@@ -772,8 +769,8 @@ class _FocusScreenState extends State<FocusScreen> {
                         decoration: BoxDecoration(
                           border: Border(
                             left: BorderSide(
-                              color: U.primary.withValues(alpha: 0.25),
-                              width: 1.5,
+                              color: U.primary.withValues(alpha: 0.4),
+                              width: 2.0,
                             ),
                           ),
                         ),
@@ -824,332 +821,22 @@ class _FocusScreenState extends State<FocusScreen> {
 
               const SizedBox(height: 20),
 
-              // ── Attendance Tracker Hero Card (Wide) ──
+              // ── Dynamic Motion Attendance Hero Card (Always in Motion) ──
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: PressableCard(
+                child: DynamicMotionAttendanceCard(
+                  isConnected: _isAttendanceConnected,
+                  attendancePct: _attendancePct,
+                  studentName: _studentName,
+                  lastFetched: _lastAttendanceFetched,
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const AttendanceScreen()),
                   ).then((_) => _loadData()),
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: isDarkTheme
-                            ? [
-                                U.card.withValues(alpha: 0.95),
-                                U.card.withValues(alpha: 0.8),
-                              ]
-                            : [
-                                Colors.white,
-                                U.card.withValues(alpha: 0.95),
-                              ],
-                      ),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(
-                        color: isDarkTheme
-                            ? Colors.white.withValues(alpha: 0.05)
-                            : Colors.white.withValues(alpha: 0.5),
-                        width: 1.0,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(
-                            alpha: isDarkTheme ? 0.45 : 0.12,
-                          ),
-                          blurRadius: 20,
-                          offset: const Offset(0, 8),
-                          spreadRadius: -2,
-                        ),
-                        BoxShadow(
-                          color: isDarkTheme
-                              ? Colors.white.withValues(alpha: 0.03)
-                              : Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                          spreadRadius: 0,
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  // Neumorphic icon container
-                                  Container(
-                                    width: 32,
-                                    height: 32,
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                        colors: isDarkTheme
-                                            ? [
-                                                U.card,
-                                                U.card.withValues(alpha: 0.7),
-                                              ]
-                                            : [
-                                                Colors.white,
-                                                U.card.withValues(alpha: 0.9),
-                                              ],
-                                      ),
-                                      shape: BoxShape.circle,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(alpha: isDarkTheme ? 0.25 : 0.05),
-                                          blurRadius: 4,
-                                          offset: const Offset(2, 2),
-                                        ),
-                                        BoxShadow(
-                                          color: isDarkTheme 
-                                              ? Colors.white.withValues(alpha: 0.02) 
-                                              : Colors.white,
-                                          blurRadius: 4,
-                                          offset: const Offset(-2, -2),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Icon(
-                                      Icons.school_rounded,
-                                      color: _attendancePct != null && _attendancePct! >= 75
-                                          ? U.green
-                                          : _attendancePct != null && _attendancePct! >= 65
-                                              ? U.peach
-                                              : U.red,
-                                      size: 15,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Flexible(
-                                    child: Text(
-                                      'ACADEMIC PROFILE',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.plusJakartaSans(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w800,
-                                        letterSpacing: 1.2,
-                                        color: (_attendancePct != null && _attendancePct! >= 75
-                                                ? U.green
-                                                : _attendancePct != null && _attendancePct! >= 65
-                                                    ? U.peach
-                                                    : U.red)
-                                            .withValues(alpha: 0.85),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                _isAttendanceConnected ? 'Attendance Report' : 'Connect Attendance',
-                                style: GoogleFonts.newsreader(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                  fontStyle: FontStyle.italic,
-                                  color: U.text,
-                                  letterSpacing: -0.4,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              if (!_isAttendanceConnected)
-                                Text(
-                                  'Tap to link your college portal & track progress',
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 13,
-                                    color: U.sub,
-                                  ),
-                                )
-                              else if (_attendancePct == null)
-                                Text(
-                                  'Connected',
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 13,
-                                    color: U.sub,
-                                  ),
-                                )
-                              else ...[
-                                if (_studentName.isNotEmpty) ...[
-                                  Text(
-                                    _studentName.toUpperCase(),
-                                    style: GoogleFonts.plusJakartaSans(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 0.8,
-                                      color: U.sub,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 3),
-                                ],
-                                Text(
-                                  _belowTargetCount > 0
-                                      ? '$_belowTargetCount subject${_belowTargetCount == 1 ? '' : 's'} need attention'
-                                      : 'All subjects on track',
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                    color: U.sub,
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 16),
-                              Container(
-                                padding: const EdgeInsets.all(2),
-                                decoration: BoxDecoration(
-                                  color: U.surface,
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: U.border.withValues(alpha: 0.3), width: 0.5),
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(4),
-                                  child: LinearProgressIndicator(
-                                    value: _attendancePct != null ? (_attendancePct! / 100).clamp(0.0, 1.0) : 0.0,
-                                    backgroundColor: Colors.transparent,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      _attendancePct != null && _attendancePct! >= 75
-                                          ? U.green
-                                          : _attendancePct != null && _attendancePct! >= 65
-                                              ? U.peach
-                                              : U.red,
-                                    ),
-                                    minHeight: 6,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        (() {
-                          final pctValue = _attendancePct != null ? _attendancePct! / 100 : 0.0;
-                          return SizedBox(
-                            width: 76,
-                            height: 76,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                // Outer Neumorphic circular track/plate (complementary concave depth)
-                                Container(
-                                  width: 76,
-                                  height: 76,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: isDarkTheme
-                                          ? [
-                                              U.card.withValues(alpha: 0.8),
-                                              U.card,
-                                            ]
-                                          : [
-                                              U.card.withValues(alpha: 0.9),
-                                              Colors.white,
-                                            ],
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(alpha: isDarkTheme ? 0.25 : 0.04),
-                                        blurRadius: 6,
-                                        offset: const Offset(3, 3),
-                                      ),
-                                      BoxShadow(
-                                        color: isDarkTheme 
-                                            ? Colors.white.withValues(alpha: 0.02) 
-                                            : Colors.white.withValues(alpha: 0.8),
-                                        blurRadius: 6,
-                                        offset: const Offset(-3, -3),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                // Circular Progress ring
-                                SizedBox(
-                                  width: 70,
-                                  height: 70,
-                                  child: CircularProgressIndicator(
-                                    value: pctValue,
-                                    backgroundColor: U.surface,
-                                    color: _attendancePct != null && _attendancePct! >= 75
-                                        ? U.green
-                                        : _attendancePct != null && _attendancePct! >= 65
-                                            ? U.peach
-                                            : U.red,
-                                    strokeWidth: 6,
-                                    strokeCap: StrokeCap.round,
-                                  ),
-                                ),
-                                // Inner Neumorphic raised circular button (raised convex dome)
-                                Container(
-                                  width: 50,
-                                  height: 50,
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: isDarkTheme
-                                          ? [
-                                              U.card,
-                                              U.card.withValues(alpha: 0.7),
-                                            ]
-                                          : [
-                                              Colors.white,
-                                              U.card.withValues(alpha: 0.9),
-                                            ],
-                                    ),
-                                    shape: BoxShape.circle,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(alpha: isDarkTheme ? 0.3 : 0.06),
-                                        blurRadius: 5,
-                                        offset: const Offset(2, 2),
-                                      ),
-                                      BoxShadow(
-                                        color: isDarkTheme 
-                                            ? Colors.white.withValues(alpha: 0.03) 
-                                            : Colors.white,
-                                        blurRadius: 5,
-                                        offset: const Offset(-2, -2),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Center(
-                                    child: _isAttendanceConnected
-                                        ? Text(
-                                            '${(pctValue * 100).toInt()}%',
-                                            style: GoogleFonts.outfit(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w800,
-                                              color: U.text,
-                                            ),
-                                          )
-                                        : Icon(
-                                            Icons.sync_lock_rounded,
-                                            color: U.sub,
-                                            size: 16,
-                                          ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                      })(),
-                    ],
-                  ),
                 ),
-              ),
-            ).animate()
-                .fadeIn(delay: 250.ms, duration: 500.ms)
-                .slideY(begin: 0.1, end: 0, delay: 250.ms, duration: 500.ms, curve: Curves.easeOutCubic),
+              ).animate()
+                  .fadeIn(delay: 250.ms, duration: 500.ms)
+                  .slideY(begin: 0.1, end: 0, delay: 250.ms, duration: 500.ms, curve: Curves.easeOutCubic),
 
             const SizedBox(height: 16),
 
@@ -1160,7 +847,7 @@ class _FocusScreenState extends State<FocusScreen> {
                 children: [
                   // University Card
                   Expanded(
-                    child: PressableCard(
+                    child: M3Pressable(
                       onTap: () {
                         Navigator.push(
                           context,
@@ -1168,46 +855,14 @@ class _FocusScreenState extends State<FocusScreen> {
                         );
                       },
                       child: Container(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: isDarkTheme
-                                ? [
-                                    U.card.withValues(alpha: 0.95),
-                                    U.card.withValues(alpha: 0.8),
-                                  ]
-                                : [
-                                    Colors.white,
-                                    U.card.withValues(alpha: 0.95),
-                                  ],
-                          ),
-                          borderRadius: BorderRadius.circular(24),
+                          color: U.surfaceContainer,
+                          borderRadius: BorderRadius.circular(28),
                           border: Border.all(
-                            color: isDarkTheme
-                                ? Colors.white.withValues(alpha: 0.05)
-                                : Colors.white.withValues(alpha: 0.5),
-                            width: 1.0,
+                            color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.45),
+                            width: 0.8,
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(
-                                alpha: isDarkTheme ? 0.45 : 0.12,
-                              ),
-                              blurRadius: 20,
-                              offset: const Offset(0, 8),
-                              spreadRadius: -2,
-                            ),
-                            BoxShadow(
-                              color: isDarkTheme
-                                  ? Colors.white.withValues(alpha: 0.03)
-                                  : Colors.black.withValues(alpha: 0.04),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
-                              spreadRadius: 0,
-                            ),
-                          ],
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1216,43 +871,17 @@ class _FocusScreenState extends State<FocusScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Container(
-                                  width: 38,
-                                  height: 38,
+                                  width: 50,
+                                  height: 50,
                                   decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: isDarkTheme
-                                          ? [
-                                              U.card,
-                                              U.card.withValues(alpha: 0.7),
-                                            ]
-                                          : [
-                                              Colors.white,
-                                              U.card.withValues(alpha: 0.9),
-                                            ],
-                                    ),
-                                    shape: BoxShape.circle,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(alpha: isDarkTheme ? 0.25 : 0.08),
-                                        blurRadius: 6,
-                                        offset: const Offset(2, 3),
-                                      ),
-                                      BoxShadow(
-                                        color: isDarkTheme
-                                            ? Colors.white.withValues(alpha: 0.02)
-                                            : Colors.white,
-                                        blurRadius: 4,
-                                        offset: const Offset(-2, -2),
-                                      ),
-                                    ],
+                                    color: U.primaryContainer,
+                                    borderRadius: BorderRadius.circular(18),
                                   ),
                                   child: Center(
                                     child: Icon(
                                       Icons.school_rounded,
-                                      color: U.primary,
-                                      size: 19,
+                                      color: U.onPrimaryContainer,
+                                      size: 24,
                                     ),
                                   ),
                                 ),
@@ -1260,20 +889,20 @@ class _FocusScreenState extends State<FocusScreen> {
                                 Flexible(
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 7,
-                                      vertical: 3,
+                                      horizontal: 10,
+                                      vertical: 4,
                                     ),
                                     decoration: BoxDecoration(
                                       color: U.primary.withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(8),
+                                      borderRadius: M3Shapes.fullRadius,
                                     ),
                                     child: Text(
                                       'Campus',
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.outfit(
+                                      style: GoogleFonts.robotoFlex(
                                         color: U.primary,
-                                        fontSize: 10,
+                                        fontSize: 10.5,
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
@@ -1281,22 +910,22 @@ class _FocusScreenState extends State<FocusScreen> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 14),
+                            const SizedBox(height: 18),
                             Text(
                               'University',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.outfit(
+                              style: GoogleFonts.robotoFlex(
                                 color: U.text,
-                                fontSize: 15.5,
+                                fontSize: 17,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               'Events, docs & hub',
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 12,
+                              style: GoogleFonts.robotoFlex(
+                                fontSize: 12.5,
                                 color: U.sub,
                               ),
                               maxLines: 1,
@@ -1331,7 +960,7 @@ class _FocusScreenState extends State<FocusScreen> {
                               initialData: false,
                               builder: (context, snapshot) {
                                 final hasUnread = snapshot.data ?? false;
-                                return PressableCard(
+                                return M3Pressable(
                                   onTap: () {
                                     Navigator.push(
                                       context,
@@ -1339,46 +968,14 @@ class _FocusScreenState extends State<FocusScreen> {
                                     );
                                   },
                                   child: Container(
-                                    padding: const EdgeInsets.all(16),
+                                    padding: const EdgeInsets.all(20),
                                     decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                        colors: isDarkTheme
-                                            ? [
-                                                U.card.withValues(alpha: 0.95),
-                                                U.card.withValues(alpha: 0.8),
-                                              ]
-                                            : [
-                                                Colors.white,
-                                                U.card.withValues(alpha: 0.95),
-                                              ],
-                                      ),
-                                      borderRadius: BorderRadius.circular(24),
+                                      color: U.surfaceContainer,
+                                      borderRadius: BorderRadius.circular(28),
                                       border: Border.all(
-                                        color: isDarkTheme
-                                            ? Colors.white.withValues(alpha: 0.05)
-                                            : Colors.white.withValues(alpha: 0.5),
-                                        width: 1.0,
+                                        color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.45),
+                                        width: 0.8,
                                       ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(
-                                            alpha: isDarkTheme ? 0.45 : 0.12,
-                                          ),
-                                          blurRadius: 20,
-                                          offset: const Offset(0, 8),
-                                          spreadRadius: -2,
-                                        ),
-                                        BoxShadow(
-                                          color: isDarkTheme
-                                              ? Colors.white.withValues(alpha: 0.03)
-                                              : Colors.black.withValues(alpha: 0.04),
-                                          blurRadius: 6,
-                                          offset: const Offset(0, 2),
-                                          spreadRadius: 0,
-                                        ),
-                                      ],
                                     ),
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1387,37 +984,11 @@ class _FocusScreenState extends State<FocusScreen> {
                                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                           children: [
                                             Container(
-                                              width: 38,
-                                              height: 38,
+                                              width: 50,
+                                              height: 50,
                                               decoration: BoxDecoration(
-                                                gradient: LinearGradient(
-                                                  begin: Alignment.topLeft,
-                                                  end: Alignment.bottomRight,
-                                                  colors: isDarkTheme
-                                                      ? [
-                                                          U.card,
-                                                          U.card.withValues(alpha: 0.7),
-                                                        ]
-                                                      : [
-                                                          Colors.white,
-                                                          U.card.withValues(alpha: 0.9),
-                                                        ],
-                                                ),
-                                                shape: BoxShape.circle,
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: Colors.black.withValues(alpha: isDarkTheme ? 0.25 : 0.08),
-                                                    blurRadius: 6,
-                                                    offset: const Offset(2, 3),
-                                                  ),
-                                                  BoxShadow(
-                                                    color: isDarkTheme
-                                                        ? Colors.white.withValues(alpha: 0.02)
-                                                        : Colors.white,
-                                                    blurRadius: 4,
-                                                    offset: const Offset(-2, -2),
-                                                  ),
-                                                ],
+                                                color: U.secondaryContainer,
+                                                borderRadius: BorderRadius.circular(18),
                                               ),
                                               child: Center(
                                                 child: Stack(
@@ -1425,13 +996,13 @@ class _FocusScreenState extends State<FocusScreen> {
                                                   children: [
                                                     Icon(
                                                       Icons.forum_rounded,
-                                                      color: U.teal,
-                                                      size: 19,
+                                                      color: U.onSecondaryContainer,
+                                                      size: 24,
                                                     ),
                                                     if (hasUnread)
                                                       Container(
-                                                        width: 5,
-                                                        height: 5,
+                                                        width: 7,
+                                                        height: 7,
                                                         decoration: const BoxDecoration(
                                                           color: Colors.redAccent,
                                                           shape: BoxShape.circle,
@@ -1443,30 +1014,30 @@ class _FocusScreenState extends State<FocusScreen> {
                                             ),
                                             Container(
                                               padding: const EdgeInsets.symmetric(
-                                                horizontal: 8,
-                                                vertical: 3,
+                                                horizontal: 10,
+                                                vertical: 4,
                                               ),
                                               decoration: BoxDecoration(
                                                 color: U.teal.withValues(alpha: 0.12),
-                                                borderRadius: BorderRadius.circular(8),
+                                                borderRadius: M3Shapes.fullRadius,
                                               ),
                                               child: Text(
                                                 'Chat',
-                                                style: GoogleFonts.outfit(
+                                                style: GoogleFonts.robotoFlex(
                                                   color: U.teal,
-                                                  fontSize: 10,
+                                                  fontSize: 10.5,
                                                   fontWeight: FontWeight.w700,
                                                 ),
                                               ),
                                             ),
                                           ],
                                         ),
-                                        const SizedBox(height: 14),
+                                        const SizedBox(height: 18),
                                         Text(
                                           'Chat to Utopia',
-                                          style: GoogleFonts.outfit(
+                                          style: GoogleFonts.robotoFlex(
                                             color: U.text,
-                                            fontSize: 15.5,
+                                            fontSize: 17,
                                             fontWeight: FontWeight.w700,
                                           ),
                                           maxLines: 1,
@@ -1475,8 +1046,8 @@ class _FocusScreenState extends State<FocusScreen> {
                                         const SizedBox(height: 4),
                                         Text(
                                           'Campus chat',
-                                          style: GoogleFonts.plusJakartaSans(
-                                            fontSize: 12,
+                                          style: GoogleFonts.robotoFlex(
+                                            fontSize: 12.5,
                                             color: U.sub,
                                           ),
                                           maxLines: 1,
@@ -1485,14 +1056,14 @@ class _FocusScreenState extends State<FocusScreen> {
                                       ],
                                     ),
                                   ),
+                                );
+                              },
                             );
                           },
                         );
                       },
-                    );
-                  },
-                ),
-              ),
+                    ),
+                  ),
                 ],
               ),
             ).animate()
@@ -1504,7 +1075,7 @@ class _FocusScreenState extends State<FocusScreen> {
             // ── Community Notes Card (Rectangle) ──
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: PressableCard(
+              child: M3Pressable(
                 onTap: () {
                   final uniId = U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : 'support';
                   Navigator.push(
@@ -1513,91 +1084,33 @@ class _FocusScreenState extends State<FocusScreen> {
                   );
                 },
                 child: Container(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(22),
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: isDarkTheme
-                          ? [
-                              U.card.withValues(alpha: 0.95),
-                              U.card.withValues(alpha: 0.8),
-                            ]
-                          : [
-                              Colors.white,
-                              U.card.withValues(alpha: 0.95),
-                            ],
-                    ),
-                    borderRadius: BorderRadius.circular(24),
+                    color: U.surfaceContainer,
+                    borderRadius: BorderRadius.circular(28),
                     border: Border.all(
-                      color: isDarkTheme
-                          ? Colors.white.withValues(alpha: 0.05)
-                          : Colors.white.withValues(alpha: 0.5),
-                      width: 1.0,
+                      color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.45),
+                      width: 0.8,
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(
-                          alpha: isDarkTheme ? 0.45 : 0.12,
-                        ),
-                        blurRadius: 20,
-                        offset: const Offset(0, 8),
-                        spreadRadius: -2,
-                      ),
-                      BoxShadow(
-                        color: isDarkTheme
-                            ? Colors.white.withValues(alpha: 0.03)
-                            : Colors.black.withValues(alpha: 0.04),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
-                        spreadRadius: 0,
-                      ),
-                    ],
                   ),
                   child: Row(
                     children: [
                       Container(
-                        width: 44,
-                        height: 44,
+                        width: 52,
+                        height: 52,
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: isDarkTheme
-                                ? [
-                                    U.card,
-                                    U.card.withValues(alpha: 0.7),
-                                  ]
-                                : [
-                                    Colors.white,
-                                    U.card.withValues(alpha: 0.9),
-                                  ],
-                          ),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: isDarkTheme ? 0.25 : 0.08),
-                              blurRadius: 6,
-                              offset: const Offset(2, 3),
-                            ),
-                            BoxShadow(
-                              color: isDarkTheme
-                                  ? Colors.white.withValues(alpha: 0.02)
-                                  : Colors.white,
-                              blurRadius: 4,
-                              offset: const Offset(-2, -2),
-                            ),
-                          ],
+                          color: U.primaryContainer,
+                          borderRadius: BorderRadius.circular(18),
                         ),
                         child: Center(
                           child: Icon(
                             Icons.menu_book_rounded,
-                            color: U.blue,
-                            size: 20,
+                            color: U.onPrimaryContainer,
+                            size: 26,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 14),
+                      const SizedBox(width: 16),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1609,9 +1122,9 @@ class _FocusScreenState extends State<FocusScreen> {
                                     'Community Notes',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: GoogleFonts.outfit(
+                                    style: GoogleFonts.robotoFlex(
                                       color: U.text,
-                                      fontSize: 16,
+                                      fontSize: 17,
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
@@ -1619,16 +1132,16 @@ class _FocusScreenState extends State<FocusScreen> {
                                 const SizedBox(width: 6),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 7,
-                                    vertical: 2,
+                                    horizontal: 10,
+                                    vertical: 3,
                                   ),
                                   decoration: BoxDecoration(
                                     color: U.blue.withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(8),
+                                    borderRadius: M3Shapes.fullRadius,
                                   ),
                                   child: Text(
                                     'Academics',
-                                    style: GoogleFonts.outfit(
+                                    style: GoogleFonts.robotoFlex(
                                       color: U.blue,
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
@@ -1640,8 +1153,8 @@ class _FocusScreenState extends State<FocusScreen> {
                             const SizedBox(height: 4),
                             Text(
                               'Campus notes & study materials',
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 12,
+                              style: GoogleFonts.robotoFlex(
+                                fontSize: 12.5,
                                 color: U.sub,
                               ),
                               maxLines: 1,
@@ -1651,10 +1164,20 @@ class _FocusScreenState extends State<FocusScreen> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        color: U.sub,
-                        size: 16,
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: U.surfaceContainerHighest,
+                        ),
+                        child: Center(
+                          child: Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            color: U.sub,
+                            size: 14,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -1663,8 +1186,6 @@ class _FocusScreenState extends State<FocusScreen> {
             ).animate()
                 .fadeIn(delay: 350.ms, duration: 500.ms)
                 .slideY(begin: 0.1, end: 0, delay: 350.ms, duration: 500.ms, curve: Curves.easeOutCubic),
-
-              // ── Community Notes & Classes cards hidden ──
 
               // ── Dynamic Online News Card ──
               StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -1694,44 +1215,12 @@ class _FocusScreenState extends State<FocusScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: isDarkTheme
-                              ? [
-                                  U.card.withValues(alpha: 0.95),
-                                  U.card.withValues(alpha: 0.8),
-                                ]
-                              : [
-                                  Colors.white,
-                                  U.card.withValues(alpha: 0.95),
-                                ],
-                        ),
+                        color: U.surfaceContainerLow,
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(
-                          color: isDarkTheme
-                              ? Colors.white.withValues(alpha: 0.05)
-                              : Colors.white.withValues(alpha: 0.5),
-                          width: 1.0,
+                          color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.45),
+                          width: 0.8,
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(
-                              alpha: isDarkTheme ? 0.45 : 0.12,
-                            ),
-                            blurRadius: 20,
-                            offset: const Offset(0, 8),
-                            spreadRadius: -2,
-                          ),
-                          BoxShadow(
-                            color: isDarkTheme
-                                ? Colors.white.withValues(alpha: 0.03)
-                                : Colors.black.withValues(alpha: 0.04),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                            spreadRadius: 0,
-                          ),
-                        ],
                       ),
                       child: Stack(
                         children: [
@@ -1759,38 +1248,12 @@ class _FocusScreenState extends State<FocusScreen> {
                             children: [
                               Row(
                                 children: [
-                                  // Neumorphic pill tag
+                                  // Tonal tag
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                     decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                        colors: isDarkTheme
-                                            ? [
-                                                U.card,
-                                                U.card.withValues(alpha: 0.7),
-                                              ]
-                                            : [
-                                                Colors.white,
-                                                U.card.withValues(alpha: 0.9),
-                                              ],
-                                      ),
-                                      borderRadius: BorderRadius.circular(10),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(alpha: isDarkTheme ? 0.20 : 0.04),
-                                          blurRadius: 4,
-                                          offset: const Offset(2, 2),
-                                        ),
-                                        BoxShadow(
-                                          color: isDarkTheme
-                                              ? Colors.white.withValues(alpha: 0.02)
-                                              : Colors.white,
-                                          blurRadius: 4,
-                                          offset: const Offset(-2, -2),
-                                        ),
-                                      ],
+                                      color: U.primary.withValues(alpha: 0.12),
+                                      borderRadius: M3Shapes.smallRadius,
                                     ),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
@@ -1798,16 +1261,16 @@ class _FocusScreenState extends State<FocusScreen> {
                                         Icon(
                                           Icons.newspaper_rounded,
                                           size: 12,
-                                          color: U.primary.withValues(alpha: 0.85),
+                                          color: U.primary,
                                         ),
                                         const SizedBox(width: 5),
                                         Text(
                                           'NEWS',
-                                          style: GoogleFonts.plusJakartaSans(
-                                            fontSize: 9,
+                                          style: GoogleFonts.robotoFlex(
+                                            fontSize: 9.5,
                                             fontWeight: FontWeight.w800,
                                             letterSpacing: 1.2,
-                                            color: U.primary.withValues(alpha: 0.85),
+                                            color: U.primary,
                                           ),
                                         ),
                                       ],
@@ -1830,7 +1293,7 @@ class _FocusScreenState extends State<FocusScreen> {
                                 const SizedBox(height: 6),
                                 Text(
                                   description,
-                                  style: GoogleFonts.plusJakartaSans(
+                                  style: GoogleFonts.robotoFlex(
                                     fontSize: 13,
                                     color: U.sub,
                                     height: 1.4,
@@ -1857,7 +1320,7 @@ class _FocusScreenState extends State<FocusScreen> {
   }
 }
 
-class PressableCard extends StatefulWidget {
+class PressableCard extends StatelessWidget {
   final Widget child;
   final VoidCallback onTap;
   final double scaleFactor;
@@ -1866,29 +1329,15 @@ class PressableCard extends StatefulWidget {
     super.key,
     required this.child,
     required this.onTap,
-    this.scaleFactor = 0.97,
+    this.scaleFactor = 0.965,
   });
 
   @override
-  State<PressableCard> createState() => _PressableCardState();
-}
-
-class _PressableCardState extends State<PressableCard> {
-  bool _isPressed = false;
-
-  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _isPressed = true),
-      onTapUp: (_) => setState(() => _isPressed = false),
-      onTapCancel: () => setState(() => _isPressed = false),
-      onTap: widget.onTap,
-      child: AnimatedScale(
-        scale: _isPressed ? widget.scaleFactor : 1.0,
-        duration: const Duration(milliseconds: 100),
-        curve: Curves.easeOutCubic,
-        child: widget.child,
-      ),
+    return M3Pressable(
+      onTap: onTap,
+      scaleFactor: scaleFactor,
+      child: child,
     );
   }
 }
@@ -1923,7 +1372,7 @@ class _AnimatedWaveformState extends State<AnimatedWaveform> with SingleTickerPr
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _controller,
-      builder: (context, child) {
+      builder: (context, _) {
         final heights = [0.35, 0.75, 0.5, 0.95, 0.65, 0.45, 0.25];
         return Row(
           mainAxisSize: MainAxisSize.min,

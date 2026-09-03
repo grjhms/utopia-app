@@ -1067,7 +1067,7 @@ class _EditorScreenState extends State<EditorScreen> {
           : FloatingActionButton(
               onPressed: _showAddBlockSheet,
               backgroundColor: U.primary,
-              foregroundColor: appThemeNotifier.value.isDark ? Colors.black : Colors.white,
+              foregroundColor: U.getContrastColor(U.primary),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               child: const Icon(Icons.add_rounded),
             ),

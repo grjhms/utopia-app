@@ -44,12 +44,13 @@ async function sendPushToUser(recipientId, { title, body, data = {} }, category 
 
   if (Array.isArray(userData.fcmTokens) && userData.fcmTokens.length > 0) {
     tokens = [...userData.fcmTokens];
-  } else if (userData.fcmToken) {
-    tokens = [userData.fcmToken];
+  }
+  if (userData.fcmToken && typeof userData.fcmToken === "string") {
+    tokens.unshift(userData.fcmToken);
   }
 
-  // Remove duplicates and empty strings
-  tokens = [...new Set(tokens.filter((t) => typeof t === "string" && t.trim().length > 0))];
+  // Remove duplicates, empty strings, and limit to recent valid tokens
+  tokens = [...new Set(tokens.filter((t) => typeof t === "string" && t.trim().length > 0))].slice(0, 3);
 
   if (tokens.length === 0) {
     logger.info(`Recipient users/${recipientId} has no registered FCM tokens`);
@@ -65,6 +66,14 @@ async function sendPushToUser(recipientId, { title, body, data = {} }, category 
   }
   stringifiedData.click_action = "FLUTTER_NOTIFICATION_CLICK";
 
+  // Compute a deterministic collapse key / notification tag so devices deduplicate multiple deliveries
+  const collapseTag = stringifiedData.messageId ||
+                      stringifiedData.waveId ||
+                      stringifiedData.followDocId ||
+                      stringifiedData.notificationId ||
+                      (stringifiedData.type && stringifiedData.chatId ? `${stringifiedData.type}_${stringifiedData.chatId}` : null) ||
+                      (stringifiedData.type ? `${stringifiedData.type}` : "utopia_general");
+
   const message = {
     tokens,
     notification: {
@@ -74,15 +83,20 @@ async function sendPushToUser(recipientId, { title, body, data = {} }, category 
     data: stringifiedData,
     android: {
       priority: "high",
+      collapseKey: collapseTag,
       notification: {
         channelId: "utopia_high_importance_v3",
         priority: "high",
         defaultSound: true,
         defaultVibrateTimings: true,
         icon: "ic_notification",
+        tag: collapseTag,
       },
     },
     apns: {
+      headers: {
+        "apns-collapse-id": collapseTag,
+      },
       payload: {
         aps: {
           alert: {
@@ -139,6 +153,7 @@ exports.onChatMessageCreated = onDocumentCreated(
 
     const message = snapshot.data();
     const chatId = event.params.chatId;
+    const messageId = event.params.messageId;
     const senderId = message.senderId;
     const text = (message.text || "").toString().trim();
 
@@ -167,6 +182,7 @@ exports.onChatMessageCreated = onDocumentCreated(
         data: {
           type: "chat",
           chatId,
+          messageId,
           senderId,
           senderName,
           body: preview,
@@ -176,8 +192,6 @@ exports.onChatMessageCreated = onDocumentCreated(
     );
   },
 );
-
-exports.sendChatNotification = exports.onChatMessageCreated;
 
 // ─── TRIGGER 2: Waves ───────────────────────────────────────────────────────
 exports.onWaveCreated = onDocumentCreated(

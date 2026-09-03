@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../main.dart';
+import '../theme/m3_expressive_theme.dart';
+import 'app_motion.dart';
 
 class MinimalNewsPill extends StatelessWidget {
   const MinimalNewsPill({super.key});
@@ -22,8 +24,8 @@ class MinimalNewsPill extends StatelessWidget {
     final textPainter = TextPainter(
       text: TextSpan(
         text: title,
-        style: GoogleFonts.plusJakartaSans(
-          fontSize: 11,
+        style: GoogleFonts.robotoFlex(
+          fontSize: 11.5,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.1,
         ),
@@ -46,9 +48,9 @@ class MinimalNewsPill extends StatelessWidget {
       builder: (context) {
         return Container(
           decoration: BoxDecoration(
-            color: U.card,
+            color: U.surfaceContainerHigh,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            border: Border.all(color: U.border.withValues(alpha: 0.5)),
+            border: Border.all(color: U.outlineVariant.withValues(alpha: 0.4)),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.1),
@@ -64,11 +66,11 @@ class MinimalNewsPill extends StatelessWidget {
             children: [
               Center(
                 child: Container(
-                  width: 38,
+                  width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: U.border,
-                    borderRadius: BorderRadius.circular(99),
+                    color: U.outlineVariant,
+                    borderRadius: M3Shapes.fullRadius,
                   ),
                 ),
               ),
@@ -78,9 +80,8 @@ class MinimalNewsPill extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: U.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: U.primary.withValues(alpha: 0.2)),
+                      color: U.primary.withValues(alpha: 0.12),
+                      borderRadius: M3Shapes.smallRadius,
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -89,7 +90,7 @@ class MinimalNewsPill extends StatelessWidget {
                         const SizedBox(width: 5),
                         Text(
                           'CAMPUS NEWS',
-                          style: GoogleFonts.plusJakartaSans(
+                          style: GoogleFonts.robotoFlex(
                             fontSize: 9.5,
                             fontWeight: FontWeight.w800,
                             letterSpacing: 1.2,
@@ -116,7 +117,7 @@ class MinimalNewsPill extends StatelessWidget {
                 const SizedBox(height: 12),
                 Text(
                   item['description']!,
-                  style: GoogleFonts.plusJakartaSans(
+                  style: GoogleFonts.robotoFlex(
                     fontSize: 14,
                     color: U.sub,
                     height: 1.5,
@@ -130,14 +131,14 @@ class MinimalNewsPill extends StatelessWidget {
                   onPressed: () => Navigator.pop(context),
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    backgroundColor: U.primary.withValues(alpha: 0.1),
+                    backgroundColor: U.primary.withValues(alpha: 0.12),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: M3Shapes.fullRadius,
                     ),
                   ),
                   child: Text(
                     'Close',
-                    style: GoogleFonts.plusJakartaSans(
+                    style: GoogleFonts.robotoFlex(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: U.primary,
@@ -205,71 +206,58 @@ class MinimalNewsPill extends StatelessWidget {
         final activeTitle = activeItem['title'] ?? '';
         final pillWidth = _calculatePillWidth(activeTitle);
 
-        return GestureDetector(
+        return M3Pressable(
           onTap: () {
             _showNewsDetails(context, newsItems, 0);
           },
-          behavior: HitTestBehavior.opaque,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-              child: Container(
-                width: pillWidth,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? pillColor.withValues(alpha: 0.06)
-                      : pillColor.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: isDark
-                        ? pillColor.withValues(alpha: 0.2)
-                        : pillColor.withValues(alpha: 0.25),
-                    width: 0.8,
-                  ),
-                ),
-                child: Row(
+          scaleFactor: 0.94,
+          borderRadius: M3Shapes.fullRadius,
+          child: Container(
+            width: pillWidth,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: U.surfaceContainerHigh,
+              borderRadius: M3Shapes.fullRadius,
+              border: Border.all(
+                color: U.outlineVariant.withValues(alpha: 0.35),
+                width: 0.8,
+              ),
+            ),
+            child: Row(
+              children: [
+                Stack(
+                  alignment: Alignment.topRight,
                   children: [
-                    Stack(
-                      alignment: Alignment.topRight,
-                      children: [
-                        Icon(
-                          Icons.newspaper_rounded,
-                          size: 14,
-                          color: isDark
-                              ? pillColor.withValues(alpha: 0.95)
-                              : pillColor.withValues(alpha: 0.85),
-                        ),
-                        Container(
-                          width: 4,
-                          height: 4,
-                          decoration: const BoxDecoration(
-                            color: Colors.redAccent,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ],
+                    Icon(
+                      Icons.newspaper_rounded,
+                      size: 15,
+                      color: pillColor,
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        activeTitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: isDark
-                              ? pillColor.withValues(alpha: 0.95)
-                              : pillColor.withValues(alpha: 0.85),
-                          letterSpacing: 0.1,
-                        ),
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: const BoxDecoration(
+                        color: Colors.redAccent,
+                        shape: BoxShape.circle,
                       ),
                     ),
                   ],
                 ),
-              ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    activeTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.robotoFlex(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: U.text,
+                      letterSpacing: 0.1,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         );

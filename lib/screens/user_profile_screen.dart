@@ -347,6 +347,71 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                        ],
                                      ),
                                    ],
+
+                                   // ── Theme badge ──────────────────────────────
+                                   () {
+                                     final showTheme = (userData['showThemeOnProfile'] as bool?) ?? true;
+                                     final themeKey = (userData['themeAccent'] ?? '').toString().trim();
+                                     if (!showTheme || themeKey.isEmpty) return const SizedBox.shrink();
+                                     final userTheme = U.themeForKey(themeKey);
+                                     return Padding(
+                                       padding: const EdgeInsets.only(top: 10),
+                                       child: Container(
+                                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                         decoration: BoxDecoration(
+                                           color: userTheme.primary.withValues(alpha: 0.10),
+                                           borderRadius: BorderRadius.circular(16),
+                                           border: Border.all(
+                                             color: userTheme.primary.withValues(alpha: 0.30),
+                                             width: 0.8,
+                                           ),
+                                         ),
+                                         child: Row(
+                                           mainAxisSize: MainAxisSize.min,
+                                           children: [
+                                             // Dual-tone swatch
+                                             Container(
+                                               width: 16,
+                                               height: 16,
+                                               decoration: BoxDecoration(
+                                                 shape: BoxShape.circle,
+                                                 color: userTheme.bg,
+                                                 border: Border.all(
+                                                   color: userTheme.primary.withValues(alpha: 0.5),
+                                                   width: 1,
+                                                 ),
+                                               ),
+                                               child: Center(
+                                                 child: Container(
+                                                   width: 8,
+                                                   height: 8,
+                                                   decoration: BoxDecoration(
+                                                     shape: BoxShape.circle,
+                                                     color: userTheme.primary,
+                                                   ),
+                                                 ),
+                                               ),
+                                             ),
+                                             const SizedBox(width: 6),
+                                             Text(
+                                               userTheme.label,
+                                               style: GoogleFonts.outfit(
+                                                 color: userTheme.primary,
+                                                 fontSize: 11,
+                                                 fontWeight: FontWeight.w600,
+                                               ),
+                                             ),
+                                             const SizedBox(width: 4),
+                                             Icon(
+                                               userTheme.isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+                                               size: 11,
+                                               color: userTheme.primary.withValues(alpha: 0.7),
+                                             ),
+                                           ],
+                                         ),
+                                       ),
+                                     );
+                                   }(),
                                 ],
                               ),
                             ),

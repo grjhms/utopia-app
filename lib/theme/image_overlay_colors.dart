@@ -61,32 +61,32 @@ class ImageOverlayColors {
 
   // ── Orchid ── (dark theme)
   static const _orchid = {
-    'morning':   _Quad(Color(0xFF2D1A47), Color(0xFF230947), Color(0xFF220345), Color(0xFF220345)),
-    'afternoon': _Quad(Color(0xFF2D1A47), Color(0xFF230947), Color(0xFF220345), Color(0xFF220345)),
+    'morning':   _Quad(Color(0xFFECECF6), Color(0xCCB0B0CE), Color(0xFFCBA6F7), Color(0xDDECECF6)),
+    'afternoon': _Quad(Color(0xFFECECF6), Color(0xCCB0B0CE), Color(0xFFCBA6F7), Color(0xDDECECF6)),
     'evening':   _Quad(Color(0xFFCBA6F7), Color(0xCCE8E8F0), Color(0xFFCBA6F7), Color(0xDDE8E8F0)),
     'night':     _Quad(Color(0xFFCBA6F7), Color(0xCCE8E8F0), Color(0xFFCBA6F7), Color(0xDDE8E8F0)),
   };
 
   // ── Gruvbox ── (dark theme)
   static const _gruvbox = {
-    'morning':   _Quad(Color(0xFF260900), Color(0xFF292821), Color(0xFF211600), Color(0xFF292821)),
-    'afternoon': _Quad(Color(0xFF260900), Color(0xFF292821), Color(0xFF211600), Color(0xFF292821)),
+    'morning':   _Quad(Color(0xFFFBF1C7), Color(0xCCD5C4A1), Color(0xFFFE8019), Color(0xDDFBF1C7)),
+    'afternoon': _Quad(Color(0xFFFBF1C7), Color(0xCCD5C4A1), Color(0xFFFE8019), Color(0xDDFBF1C7)),
     'evening':   _Quad(Color(0xFFFE8019), Color(0xCCEBDBB2), Color(0xFFFE8019), Color(0xDDEBDBB2)),
-    'night':     _Quad(Color(0xFFFB4934), Color(0xCCEBDBB2), Color(0xFFFB4934), Color(0xDDEBDBB2)),
+    'night':     _Quad(Color(0xFFFE8019), Color(0xCCEBDBB2), Color(0xFFFE8019), Color(0xDDEBDBB2)),
   };
 
   // ── Everforest ── (dark theme)
   static const _everforest = {
-    'morning':   _Quad(Color(0xFF1D3000), Color(0xFF131C04),  Color(0xFF111C00),  Color(0xFF111C00)),
-    'afternoon': _Quad(Color(0xFF1D3000), Color(0xFF131C04),  Color(0xFF111C00),  Color(0xFF111C00)),
+    'morning':   _Quad(Color(0xFFE4D5B7), Color(0xCCBDC3C7), Color(0xFFA7C080), Color(0xDDE4D5B7)),
+    'afternoon': _Quad(Color(0xFFE4D5B7), Color(0xCCBDC3C7), Color(0xFFA7C080), Color(0xDDE4D5B7)),
     'evening':   _Quad(Color(0xFFA7C080), Color(0xCCD5C4A1), Color(0xFFA7C080), Color(0xDDD5C4A1)),
     'night':     _Quad(Color(0xFFA7C080), Color(0xCCD5C4A1), Color(0xFFA7C080), Color(0xDDD5C4A1)),
   };
 
   // ── GitHub Dark ── (dark theme)
   static const _githubDark = {
-    'morning':   _Quad(Color(0xFF0B213B), Color(0xFF132A45), Color(0xFF0B213B), Color(0xFF0B213B)),
-    'afternoon': _Quad(Color(0xFF0B213B), Color(0xFF132A45), Color(0xFF0B213B), Color(0xFF0B213B)),
+    'morning':   _Quad(Color(0xFFF0F6FC), Color(0xCC8B949E), Color(0xFF58A6FF), Color(0xDDF0F6FC)),
+    'afternoon': _Quad(Color(0xFFF0F6FC), Color(0xCC8B949E), Color(0xFF58A6FF), Color(0xDDF0F6FC)),
     'evening':   _Quad(Color(0xFF58A6FF), Color(0xCCC9D1D9), Color(0xFF58A6FF), Color(0xDDC9D1D9)),
     'night':     _Quad(Color(0xFF58A6FF), Color(0xCCC9D1D9), Color(0xFF58A6FF), Color(0xDDC9D1D9)),
   };

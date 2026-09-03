@@ -95,6 +95,15 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         >()
         ?.createNotificationChannel(channel);
 
+    final notifTag = (message.data['messageId'] ??
+        message.data['waveId'] ??
+        message.data['followDocId'] ??
+        message.data['notificationId'] ??
+        (message.data['type'] != null && message.data['chatId'] != null ? '${message.data['type']}_${message.data['chatId']}' : null) ??
+        message.messageId ??
+        '${title}_$body').toString();
+    final notifId = notifTag.hashCode & 0x7FFFFFFF;
+
     final details = NotificationDetails(
       android: AndroidNotificationDetails(
         'utopia_high_importance_v3',
@@ -106,6 +115,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         enableVibration: true,
         enableLights: true,
         category: AndroidNotificationCategory.message,
+        tag: notifTag,
         styleInformation: BigTextStyleInformation(
           body,
           contentTitle: title,
@@ -124,7 +134,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     );
 
     await localNotifications.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      notifId,
       title,
       body,
       details,
@@ -148,6 +158,10 @@ class NotificationService {
   static StreamSubscription<User?>? _authSubscription;
   static bool _isAppForeground = true;
   static String? _activeChatId;
+
+  // Deduplication cache for incoming FCM payloads
+  static final Set<String> _recentlyHandledMessageIds = <String>{};
+  static final Map<String, DateTime> _recentMessageTimestamps = <String, DateTime>{};
 
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
     'utopia_high_importance_v3',
@@ -306,6 +320,23 @@ class NotificationService {
             debugPrint('[FCM_FOREGROUND] Dropped empty message payload');
             return;
           }
+
+          // Deduplicate incoming messages within 30-second window
+          final rawMsgId = message.messageId;
+          final msgKey = (rawMsgId != null && rawMsgId.isNotEmpty)
+              ? rawMsgId
+              : '${rawTitle}_${rawBody}_${message.data['type']}_${message.data['chatId'] ?? message.data['messageId']}';
+
+          final now = DateTime.now();
+          _recentMessageTimestamps.removeWhere((k, t) => now.difference(t).inSeconds > 30);
+          _recentlyHandledMessageIds.removeWhere((id) => !_recentMessageTimestamps.containsKey(id));
+
+          if (_recentlyHandledMessageIds.contains(msgKey)) {
+            debugPrint('[FCM_FOREGROUND] Dropped duplicate incoming message: $msgKey');
+            return;
+          }
+          _recentlyHandledMessageIds.add(msgKey);
+          _recentMessageTimestamps[msgKey] = now;
 
           final title = rawTitle.isNotEmpty ? rawTitle : 'UTOPIA';
           final body = rawBody;
@@ -507,10 +538,19 @@ class NotificationService {
     required String title,
     required String body,
     Map<String, dynamic>? data,
+    int? notificationId,
   }) async {
     if (body.trim().isEmpty) {
       return;
     }
+
+    final notifTag = (data?['messageId'] ??
+        data?['waveId'] ??
+        data?['followDocId'] ??
+        data?['notificationId'] ??
+        (data != null && data['type'] != null && data['chatId'] != null ? '${data['type']}_${data['chatId']}' : null) ??
+        '${title}_$body').toString();
+    final notifId = notificationId ?? (notifTag.hashCode & 0x7FFFFFFF);
 
     final payloadString = jsonEncode({
       'title': title,
@@ -539,6 +579,7 @@ class NotificationService {
           enableVibration: true,
           enableLights: true,
           category: AndroidNotificationCategory.message,
+          tag: notifTag,
           styleInformation: BigTextStyleInformation(
             body,
             contentTitle: title,
@@ -551,7 +592,7 @@ class NotificationService {
       );
 
       await _localNotifications.show(
-        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        notifId,
         title,
         body,
         details,
@@ -575,6 +616,7 @@ class NotificationService {
           enableVibration: true,
           enableLights: true,
           category: AndroidNotificationCategory.message,
+          tag: notifTag,
           styleInformation: BigTextStyleInformation(
             body,
             contentTitle: title,
@@ -586,7 +628,7 @@ class NotificationService {
       );
 
       await _localNotifications.show(
-        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        notifId,
         title,
         body,
         details,
@@ -831,7 +873,7 @@ class NotificationService {
 
       // Cancel all existing timetable notifications
       await _localNotifications.cancel(100);
-      for (int i = 101; i <= 106; i++) {
+      for (int i = 101; i <= 107; i++) {
         await _localNotifications.cancel(i);
       }
 
@@ -1067,7 +1109,7 @@ class NotificationService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('timetable_notif_enabled', false);
       await _localNotifications.cancel(100);
-      for (int i = 101; i <= 106; i++) {
+      for (int i = 101; i <= 107; i++) {
         await _localNotifications.cancel(i);
       }
       debugPrint("NOTIF: Timetable notifications cancelled successfully.");
@@ -1388,6 +1430,11 @@ class NotificationService {
       await _ensureTimezone();
       final localLocation = tz.local;
       final now = tz.TZDateTime.now(localLocation);
+
+      // Clean up previous Delve notifications before scheduling to prevent duplicates
+      await _localNotifications.cancel(_delveNotifMorningId);
+      await _localNotifications.cancel(_delveNotifAfternoonId);
+      await _localNotifications.cancel(_delveNotifEveningId);
 
       final reminders = <Map<String, dynamic>>[
         {

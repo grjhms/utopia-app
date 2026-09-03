@@ -464,28 +464,40 @@ class _ChatScreenState extends State<ChatScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: U.card,
+      elevation: 2,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (context) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  width: 38,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: U.border,
-                    borderRadius: BorderRadius.circular(99),
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: U.border.withValues(alpha: 0.8),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 18),
                 ListTile(
-                  leading: Icon(Icons.reply_rounded, color: U.primary),
-                  title: Text('Reply', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  leading: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: U.primary.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.reply_rounded, color: U.primary, size: 20),
+                  ),
+                  title: Text('Reply', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600, fontSize: 15)),
                   onTap: () {
                     Navigator.pop(context);
                     _startReply(data, messageId, senderName);
@@ -493,8 +505,17 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 if (isMedia)
                   ListTile(
-                    leading: Icon(Icons.fullscreen_rounded, color: U.teal),
-                    title: Text('View Full Size', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    leading: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: U.teal.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.fullscreen_rounded, color: U.teal, size: 20),
+                    ),
+                    title: Text('View Full Size', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600, fontSize: 15)),
                     onTap: () {
                       Navigator.pop(context);
                       _openMediaPreview(mediaUrl);
@@ -502,8 +523,17 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 if (isMe && !isMedia && messageType == 'text')
                   ListTile(
-                    leading: Icon(Icons.edit_rounded, color: U.primary),
-                    title: Text('Edit message', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    leading: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: U.blue.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.edit_rounded, color: U.blue, size: 20),
+                    ),
+                    title: Text('Edit message', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600, fontSize: 15)),
                     onTap: () {
                       Navigator.pop(context);
                       _startEditing(messageId, text);
@@ -511,8 +541,17 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 if (isMe)
                   ListTile(
-                    leading: Icon(Icons.delete_outline_rounded, color: U.red),
-                    title: Text('Unsend message', style: GoogleFonts.outfit(color: U.red, fontWeight: FontWeight.w600)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    leading: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: U.red.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.delete_outline_rounded, color: U.red, size: 20),
+                    ),
+                    title: Text('Unsend message', style: GoogleFonts.outfit(color: U.red, fontWeight: FontWeight.w600, fontSize: 15)),
                     onTap: () {
                       Navigator.pop(context);
                       _unsendMessage(messageId);
@@ -520,8 +559,17 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 if (!isMedia && text.isNotEmpty)
                   ListTile(
-                    leading: Icon(Icons.copy_rounded, color: U.sub),
-                    title: Text('Copy text', style: GoogleFonts.outfit(color: U.text)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    leading: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: U.sub.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.copy_rounded, color: U.sub, size: 20),
+                    ),
+                    title: Text('Copy text', style: GoogleFonts.outfit(color: U.text, fontSize: 15)),
                     onTap: () {
                       Navigator.pop(context);
                       Clipboard.setData(ClipboardData(text: text));
@@ -1485,10 +1533,10 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
-    // ── 5. Standard Text Bubble (Modern Gradient for Me, Elevated Card for Others) ──
+    // ── 5. Standard Text Bubble (Precision Engineered Material 3 Shapes & Palette) ──
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+      margin: const EdgeInsets.only(bottom: 6),
+      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         gradient: isMe
@@ -1497,16 +1545,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 end: Alignment.bottomRight,
                 colors: [
                   U.primary,
-                  U.primary.withValues(alpha: 0.85),
+                  U.primary.withValues(alpha: 0.88),
                 ],
               )
             : null,
         color: isMe ? null : U.card,
         borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(18),
-          topRight: const Radius.circular(18),
-          bottomLeft: Radius.circular(isMe ? 18 : 4),
-          bottomRight: Radius.circular(isMe ? 4 : 18),
+          topLeft: const Radius.circular(20),
+          topRight: const Radius.circular(20),
+          bottomLeft: Radius.circular(isMe ? 20 : 5),
+          bottomRight: Radius.circular(isMe ? 5 : 20),
         ),
         border: isMe
             ? null
@@ -1518,9 +1566,9 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(
-              alpha: isDarkTheme ? (isMe ? 0.25 : 0.3) : 0.05,
-            ),
+            color: isMe
+                ? U.primary.withValues(alpha: isDarkTheme ? 0.25 : 0.18)
+                : Colors.black.withValues(alpha: isDarkTheme ? 0.25 : 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -1536,7 +1584,8 @@ class _ChatScreenState extends State<ChatScreen> {
             style: GoogleFonts.outfit(
               color: isMe ? Colors.white : U.text,
               fontSize: 15,
-              height: 1.3,
+              height: 1.35,
+              letterSpacing: -0.1,
             ),
           ),
           const SizedBox(height: 4),
@@ -1546,8 +1595,8 @@ class _ChatScreenState extends State<ChatScreen> {
               Text(
                 '${_formatTime(ts)}${data['edited'] == true || data['isEdited'] == true ? ' • edited' : ''}',
                 style: GoogleFonts.outfit(
-                  color: isMe ? Colors.white.withValues(alpha: 0.65) : U.dim,
-                  fontSize: 10,
+                  color: isMe ? Colors.white.withValues(alpha: 0.72) : U.dim,
+                  fontSize: 10.5,
                   fontWeight: FontWeight.w500,
                 ),
               ),

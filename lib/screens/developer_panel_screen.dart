@@ -2,11 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../main.dart';
 import '../services/notification_service.dart';
-import '../services/people_interaction_service.dart';
 import '../services/writer_firestore_service.dart';
 import '../widgets/utopia_snackbar.dart';
 import 'broadcast_screen.dart';
@@ -30,18 +28,6 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
   final _newsTitleController = TextEditingController();
   final _newsDescController = TextEditingController();
 
-  // ── Campus Spark controls ──
-  final PeopleInteractionService _sparkService = PeopleInteractionService();
-  bool _sparkEnabled = true;
-  bool _savingSpark = false;
-  final _sparkQuestionController = TextEditingController();
-  final _sparkCategoryController = TextEditingController();
-  final List<TextEditingController> _sparkOptionControllers = [
-    TextEditingController(text: 'Late-night owl 🦉'),
-    TextEditingController(text: 'Early-morning grinder 🌅'),
-    TextEditingController(text: 'Panic 2h before deadline ⏳'),
-  ];
-  bool _sparkResetVotes = false;
 
   @override
   void initState() {
@@ -49,7 +35,6 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadStats();
       _loadNewsConfig();
-      _loadSparkConfig();
     });
   }
 
@@ -57,11 +42,6 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
   void dispose() {
     _newsTitleController.dispose();
     _newsDescController.dispose();
-    _sparkQuestionController.dispose();
-    _sparkCategoryController.dispose();
-    for (final c in _sparkOptionControllers) {
-      c.dispose();
-    }
     super.dispose();
   }
 
@@ -75,38 +55,6 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
             _newsEnabled = data['news_enabled'] as bool? ?? false;
             _newsTitleController.text = data['news_title'] as String? ?? '';
             _newsDescController.text = data['news_description'] as String? ?? '';
-          });
-        }
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _loadSparkConfig() async {
-    try {
-      final doc = await FirebaseFirestore.instance.collection('config').doc('campus_spark').get();
-      if (doc.exists && doc.data() != null) {
-        final data = doc.data()!;
-        final q = SparkQuestion.fromMap(data);
-        if (mounted) {
-          setState(() {
-            _sparkEnabled = q.enabled;
-            _sparkQuestionController.text = q.question;
-            _sparkCategoryController.text = q.category;
-            for (final c in _sparkOptionControllers) {
-              c.dispose();
-            }
-            _sparkOptionControllers.clear();
-            _sparkOptionControllers.addAll(
-              q.options.map((opt) => TextEditingController(text: opt)),
-            );
-          });
-        }
-      } else {
-        final fallback = _sparkService.getTodaysSparkFallback();
-        if (mounted) {
-          setState(() {
-            _sparkQuestionController.text = fallback.question;
-            _sparkCategoryController.text = fallback.category;
           });
         }
       }
@@ -142,46 +90,6 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
       }
     } finally {
       if (mounted) setState(() => _savingNews = false);
-    }
-  }
-
-  Future<void> _saveSparkConfig() async {
-    final question = _sparkQuestionController.text.trim();
-    final category = _sparkCategoryController.text.trim();
-    final options = _sparkOptionControllers.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
-
-    if (question.isEmpty || options.length < 2) {
-      showUtopiaSnackBar(context, message: 'Please enter question and at least 2 options', tone: UtopiaSnackBarTone.error);
-      return;
-    }
-
-    setState(() => _savingSpark = true);
-    try {
-      await _sparkService.updateSparkConfig(
-        question: question,
-        options: options,
-        category: category.isNotEmpty ? category : 'Campus Spark',
-        enabled: _sparkEnabled,
-        createNewPoll: _sparkResetVotes,
-      );
-
-      if (mounted) {
-        showUtopiaSnackBar(
-          context,
-          message: 'Campus Spark updated & broadcasted! ✨',
-          tone: UtopiaSnackBarTone.success,
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        showUtopiaSnackBar(
-          context,
-          message: 'Failed to update Campus Spark: $e',
-          tone: UtopiaSnackBarTone.error,
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _savingSpark = false);
     }
   }
 
@@ -437,7 +345,6 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
             children: [
               _buildStatsSection(),
-              _buildCampusSparkSection(),
               _buildNewsCardSection(),
               _sectionHeader('Announcements'),
               _actionTile(
@@ -488,223 +395,7 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
     );
   }
 
-  Widget _buildCampusSparkSection() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionHeader('Campus Spark (QOTD & Polls) ⚡'),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: U.card,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.04),
-              width: 1,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                activeTrackColor: U.primary,
-                title: Text(
-                  'Enable Campus Spark Card',
-                  style: GoogleFonts.outfit(
-                    color: U.text,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                  ),
-                ),
-                subtitle: Text(
-                  'Shows the interactive icebreaker poll on top of People screen',
-                  style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
-                ),
-                value: _sparkEnabled,
-                onChanged: (val) => setState(() => _sparkEnabled = val),
-              ),
-              const SizedBox(height: 12),
-
-              // Quick Templates
-              Text(
-                'QUICK TEMPLATES',
-                style: GoogleFonts.outfit(color: U.sub, fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.8),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 32,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  children: PeopleInteractionService.sparkPool.map((tpl) {
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: GestureDetector(
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          setState(() {
-                            _sparkQuestionController.text = tpl.question;
-                            _sparkCategoryController.text = tpl.category;
-                            for (final c in _sparkOptionControllers) {
-                              c.dispose();
-                            }
-                            _sparkOptionControllers.clear();
-                            _sparkOptionControllers.addAll(
-                              tpl.options.map((opt) => TextEditingController(text: opt)),
-                            );
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: U.surface,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: U.border),
-                          ),
-                          child: Text(
-                            tpl.question,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.outfit(color: U.text, fontSize: 11, fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              // Category
-              TextField(
-                controller: _sparkCategoryController,
-                style: GoogleFonts.outfit(color: U.text, fontSize: 13),
-                decoration: InputDecoration(
-                  labelText: 'Category / Badge',
-                  labelStyle: GoogleFonts.outfit(color: U.sub),
-                  hintText: 'e.g. Study Habit, Campus Vibe',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: U.primary),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Question
-              TextField(
-                controller: _sparkQuestionController,
-                maxLines: 2,
-                style: GoogleFonts.outfit(color: U.text, fontSize: 13.5),
-                decoration: InputDecoration(
-                  labelText: 'Question of the Day',
-                  labelStyle: GoogleFonts.outfit(color: U.sub),
-                  hintText: 'e.g. Your peak productivity hours? ⚡',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: U.primary),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Options
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Poll Options', style: GoogleFonts.outfit(color: U.sub, fontSize: 12, fontWeight: FontWeight.w700)),
-                  if (_sparkOptionControllers.length < 4)
-                    GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _sparkOptionControllers.add(TextEditingController(text: 'Option ${_sparkOptionControllers.length + 1}'));
-                        });
-                      },
-                      child: Text('+ Add Option', style: GoogleFonts.outfit(color: U.primary, fontSize: 12, fontWeight: FontWeight.w700)),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              ...List.generate(_sparkOptionControllers.length, (idx) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _sparkOptionControllers[idx],
-                          style: GoogleFonts.outfit(color: U.text, fontSize: 13),
-                          decoration: InputDecoration(
-                            labelText: 'Option ${idx + 1}',
-                            labelStyle: GoogleFonts.outfit(color: U.sub, fontSize: 12),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                            isDense: true,
-                          ),
-                        ),
-                      ),
-                      if (_sparkOptionControllers.length > 2) ...[
-                        const SizedBox(width: 6),
-                        IconButton(
-                          icon: Icon(Icons.remove_circle_outline_rounded, color: U.red, size: 20),
-                          onPressed: () {
-                            setState(() {
-                              final removed = _sparkOptionControllers.removeAt(idx);
-                              removed.dispose();
-                            });
-                          },
-                        ),
-                      ],
-                    ],
-                  ),
-                );
-              }),
-
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                value: _sparkResetVotes,
-                title: Text(
-                  'Reset poll votes (create new poll ID)',
-                  style: GoogleFonts.outfit(color: U.text, fontSize: 12.5, fontWeight: FontWeight.w600),
-                ),
-                activeColor: U.primary,
-                onChanged: (v) => setState(() => _sparkResetVotes = v ?? false),
-              ),
-
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _savingSpark ? null : _saveSparkConfig,
-                  icon: _savingSpark
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.bolt_rounded, size: 18),
-                  label: Text(
-                    _savingSpark ? 'Publishing...' : 'Save & Broadcast Spark',
-                    style: GoogleFonts.outfit(fontWeight: FontWeight.w600),
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: U.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 
   Widget _buildNewsCardSection() {
     final isDark = Theme.of(context).brightness == Brightness.dark;

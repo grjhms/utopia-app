@@ -243,9 +243,9 @@ class _NotificationSettingsScreenState
                   _buildDivider(),
                   _buildToggleTile(
                     icon: Icons.waving_hand_outlined,
-                    title: 'Waves & Campus Sparks',
+                    title: 'Waves',
                     subtitle:
-                        'Get notified when classmates wave or interact with you',
+                        'Get notified when classmates wave to you',
                     value: _wavesEnabled,
                     onChanged: (val) => _updatePreference('waves', val),
                   ),
@@ -273,9 +273,9 @@ class _NotificationSettingsScreenState
                   _buildDivider(),
                   _buildToggleTile(
                     icon: Icons.wb_sunny_outlined,
-                    title: 'Daily Morning Spark',
+                    title: 'Daily Morning Digest',
                     subtitle:
-                        'Morning quotes, daily icebreaker polls, and daily greetings',
+                        'Morning quotes and daily greetings',
                     value: _morningEnabled,
                     onChanged: (val) => _updatePreference('morning', val),
                   ),

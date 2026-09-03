@@ -16,8 +16,18 @@ import '../widgets/utopia_loader.dart';
 import '../widgets/student_sprint_loader.dart';
 import '../models/user_timetable.dart';
 import '../services/user_timetable_service.dart';
+import '../theme/m3_expressive_theme.dart';
 
 enum _AttendanceViewState { initial, loading, loaded, error }
+
+enum AttendanceFilterSort {
+  defaultOrder,
+  lowestFirst,
+  highestFirst,
+  criticalOnly,
+  alphabetical,
+  mostClasses,
+}
 
 typedef _AttendanceRangeMode = AttendanceRangeMode;
 
@@ -45,6 +55,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   String? _cacheAgeLabel;
   int _currentTabIndex = 0;
   DateTime _selectedCalendarDate = DateTime.now();
+  AttendanceFilterSort _selectedSortFilter = AttendanceFilterSort.defaultOrder;
 
   // ── Attendance loader progress ──
   double _fetchProgress = 0.0;
@@ -837,10 +848,218 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  List<Map<String, dynamic>> _getProcessedSubjects(List<Map<String, dynamic>> rawSubjects) {
+    List<Map<String, dynamic>> list = List.from(rawSubjects);
+
+    switch (_selectedSortFilter) {
+      case AttendanceFilterSort.defaultOrder:
+        return list;
+      case AttendanceFilterSort.lowestFirst:
+        list.sort((a, b) {
+          final aPct = (a['percentage'] as num?)?.toDouble() ?? 0.0;
+          final bPct = (b['percentage'] as num?)?.toDouble() ?? 0.0;
+          return aPct.compareTo(bPct);
+        });
+        return list;
+      case AttendanceFilterSort.highestFirst:
+        list.sort((a, b) {
+          final aPct = (a['percentage'] as num?)?.toDouble() ?? 0.0;
+          final bPct = (b['percentage'] as num?)?.toDouble() ?? 0.0;
+          return bPct.compareTo(aPct);
+        });
+        return list;
+      case AttendanceFilterSort.criticalOnly:
+        return list.where((s) {
+          final pct = (s['percentage'] as num?)?.toDouble() ?? 0.0;
+          return pct < 75.0;
+        }).toList();
+      case AttendanceFilterSort.alphabetical:
+        list.sort((a, b) {
+          final aName = (a['subject'] ?? '').toString();
+          final bName = (b['subject'] ?? '').toString();
+          return aName.toLowerCase().compareTo(bName.toLowerCase());
+        });
+        return list;
+      case AttendanceFilterSort.mostClasses:
+        list.sort((a, b) {
+          final aHeld = (a['totalClasses'] as num?)?.toInt() ?? 0;
+          final bHeld = (b['totalClasses'] as num?)?.toInt() ?? 0;
+          return bHeld.compareTo(aHeld);
+        });
+        return list;
+    }
+  }
+
+  String _getSortFilterLabel(AttendanceFilterSort sort) {
+    switch (sort) {
+      case AttendanceFilterSort.defaultOrder:
+        return 'Default Portal Order';
+      case AttendanceFilterSort.lowestFirst:
+        return 'Lowest Attendance First';
+      case AttendanceFilterSort.highestFirst:
+        return 'Highest Attendance First';
+      case AttendanceFilterSort.criticalOnly:
+        return 'Needs Attention Only (< 75%)';
+      case AttendanceFilterSort.alphabetical:
+        return 'Alphabetical (A → Z)';
+      case AttendanceFilterSort.mostClasses:
+        return 'Most Classes Held';
+    }
+  }
+
+  String _getSortFilterShortLabel(AttendanceFilterSort sort) {
+    switch (sort) {
+      case AttendanceFilterSort.defaultOrder:
+        return 'Default';
+      case AttendanceFilterSort.lowestFirst:
+        return 'Lowest %';
+      case AttendanceFilterSort.highestFirst:
+        return 'Highest %';
+      case AttendanceFilterSort.criticalOnly:
+        return '< 75% Only';
+      case AttendanceFilterSort.alphabetical:
+        return 'A → Z';
+      case AttendanceFilterSort.mostClasses:
+        return 'Most Held';
+    }
+  }
+
+  IconData _getSortFilterIcon(AttendanceFilterSort sort) {
+    switch (sort) {
+      case AttendanceFilterSort.defaultOrder:
+        return Icons.swap_vert_rounded;
+      case AttendanceFilterSort.lowestFirst:
+        return Icons.warning_amber_rounded;
+      case AttendanceFilterSort.highestFirst:
+        return Icons.check_circle_outline_rounded;
+      case AttendanceFilterSort.criticalOnly:
+        return Icons.filter_alt_rounded;
+      case AttendanceFilterSort.alphabetical:
+        return Icons.sort_by_alpha_rounded;
+      case AttendanceFilterSort.mostClasses:
+        return Icons.bar_chart_rounded;
+    }
+  }
+
+  Widget _buildFilterDropdown() {
+    return Theme(
+      data: Theme.of(context).copyWith(
+        popupMenuTheme: PopupMenuThemeData(
+          color: U.surfaceContainerHigh,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(
+              color: U.outlineVariant.withValues(alpha: 0.4),
+              width: 0.8,
+            ),
+          ),
+          elevation: 8,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: M3Shapes.fullRadius,
+        child: PopupMenuButton<AttendanceFilterSort>(
+          initialValue: _selectedSortFilter,
+          borderRadius: M3Shapes.fullRadius,
+          clipBehavior: Clip.antiAlias,
+          tooltip: 'Filter subjects',
+          onSelected: (sort) {
+            setState(() {
+              _selectedSortFilter = sort;
+            });
+          },
+          offset: const Offset(0, 44),
+          itemBuilder: (context) {
+            return AttendanceFilterSort.values.map((sort) {
+              final isSelected = sort == _selectedSortFilter;
+              return PopupMenuItem<AttendanceFilterSort>(
+                value: sort,
+                child: Row(
+                  children: [
+                    Icon(
+                      _getSortFilterIcon(sort),
+                      size: 18,
+                      color: isSelected ? U.primary : U.sub,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _getSortFilterLabel(sort),
+                        style: GoogleFonts.robotoFlex(
+                          fontSize: 13,
+                          fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                          color: isSelected ? U.primary : U.text,
+                        ),
+                      ),
+                    ),
+                    if (isSelected)
+                      Icon(
+                        Icons.check_rounded,
+                        size: 18,
+                        color: U.primary,
+                      ),
+                  ],
+                ),
+              );
+            }).toList();
+          },
+          child: Container(
+            height: 38,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: _selectedSortFilter != AttendanceFilterSort.defaultOrder
+                  ? U.primary.withValues(alpha: 0.14)
+                  : U.surfaceContainerHigh,
+              borderRadius: M3Shapes.fullRadius,
+              border: Border.all(
+                color: _selectedSortFilter != AttendanceFilterSort.defaultOrder
+                  ? U.primary.withValues(alpha: 0.5)
+                  : U.outlineVariant.withValues(alpha: 0.4),
+                width: 0.8,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _getSortFilterIcon(_selectedSortFilter),
+                  size: 16,
+                  color: _selectedSortFilter != AttendanceFilterSort.defaultOrder
+                      ? U.primary
+                      : U.text,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _getSortFilterShortLabel(_selectedSortFilter),
+                  style: GoogleFonts.robotoFlex(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: _selectedSortFilter != AttendanceFilterSort.defaultOrder
+                        ? U.primary
+                        : U.text,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 18,
+                  color: _selectedSortFilter != AttendanceFilterSort.defaultOrder
+                      ? U.primary
+                      : U.sub,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildOverviewTab() {
     final data = _attendanceData ?? const <String, dynamic>{};
     final subjects = (data['subjects'] as List<dynamic>? ?? const [])
         .cast<Map<String, dynamic>>();
+    final processedSubjects = _getProcessedSubjects(subjects);
     final studentName = (data['studentName'] as String? ?? '').trim();
     final overall = (data['overallPercentage'] as num?)?.toDouble() ?? 0;
     final overallColor = _percentageColor(overall);
@@ -882,7 +1101,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                           child: Text(
                             'Portal unreachable — showing cached data'
                             '${_cacheAgeLabel != null ? ' from $_cacheAgeLabel' : ''}. Pull to retry.',
-                            style: GoogleFonts.outfit(
+                            style: GoogleFonts.robotoFlex(
                               color: U.peach,
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
@@ -908,38 +1127,107 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                         accent: overallColor,
                         subtitleColor: belowTarget > 0 ? U.red : null,
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Subjects',
-                        style: GoogleFonts.outfit(
-                          color: U.text,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Subject-wise attendance snapshot',
-                        style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Subjects',
+                                style: GoogleFonts.robotoFlex(
+                                  color: U.text,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _selectedSortFilter == AttendanceFilterSort.criticalOnly
+                                    ? '${processedSubjects.length} of ${subjects.length} subjects in danger'
+                                    : '${processedSubjects.length} subjects enrolled',
+                                style: GoogleFonts.robotoFlex(
+                                  color: U.sub,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                          _buildFilterDropdown(),
+                        ],
                       ),
                     ],
                   ),
                 ),
               ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) => Padding(
-                      padding: EdgeInsets.only(
-                        bottom: index == subjects.length - 1 ? 0 : 12,
+              if (processedSubjects.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                    child: Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: U.surfaceContainer,
+                        borderRadius: M3Shapes.cardRadius,
+                        border: Border.all(
+                          color: U.outlineVariant.withValues(alpha: 0.35),
+                          width: 0.8,
+                        ),
                       ),
-                      child: _buildSubjectCard(subjects[index]),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 52,
+                            height: 52,
+                            decoration: BoxDecoration(
+                              color: U.green.withValues(alpha: 0.14),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(Icons.verified_rounded, color: U.green, size: 26),
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            'No subjects below 75%!',
+                            style: GoogleFonts.robotoFlex(
+                              color: U.text,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'All your enrolled subjects are currently meeting or exceeding the attendance threshold.',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.robotoFlex(
+                              color: U.sub,
+                              fontSize: 12.5,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    childCount: subjects.length,
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) => Padding(
+                        padding: EdgeInsets.only(
+                          bottom: index == processedSubjects.length - 1 ? 0 : 12,
+                        ),
+                        child: _buildSubjectCard(processedSubjects[index]),
+                      ),
+                      childCount: processedSubjects.length,
+                    ),
                   ),
                 ),
-              ),
               // Footnote for server type at the end of the scrollview instead of floating overlay
               SliverToBoxAdapter(
                 child: Padding(
@@ -2628,90 +2916,108 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
     return Container(
       decoration: BoxDecoration(
-        color: U.card,
-        borderRadius: BorderRadius.circular(24),
+        color: U.surfaceContainer,
+        borderRadius: M3Shapes.cardRadius,
         border: Border.all(
-          color: U.border.withValues(alpha: 0.8),
-          width: 1.0,
+          color: U.outlineVariant.withValues(alpha: 0.35),
+          width: 0.8,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: appThemeNotifier.value.isDark ? 0.2 : 0.03),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-            spreadRadius: -2,
-          ),
-        ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Container(
-                  width: 42,
-                  height: 42,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.16),
+                    color: color.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(_subjectIcon(name), color: color, size: 22),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         name,
-                        style: GoogleFonts.outfit(
+                        style: GoogleFonts.robotoFlex(
                           color: U.text,
-                          fontSize: 16,
+                          fontSize: 15.5,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 3),
                       Text(
-                        '$attendedClasses / $totalClasses classes',
-                        style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
+                        '$attendedClasses / $totalClasses classes attended',
+                        style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 12),
                       ),
                     ],
                   ),
                 ),
-                Text(
-                  '${percentage.toStringAsFixed(1)}%',
-                  style: GoogleFonts.outfit(
-                    color: color,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: M3Shapes.fullRadius,
+                  ),
+                  child: Text(
+                    '${percentage.toStringAsFixed(1)}%',
+                    style: GoogleFonts.robotoFlex(
+                      color: color,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: LinearProgressIndicator(
-                minHeight: 4,
-                backgroundColor: U.surface,
-                valueColor: AlwaysStoppedAnimation<Color>(color),
-                value: totalClasses == 0
-                    ? 0
-                    : (percentage / 100).clamp(0.0, 1.0),
+            Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: U.surfaceContainerLowest,
+                borderRadius: M3Shapes.fullRadius,
+              ),
+              child: ClipRRect(
+                borderRadius: M3Shapes.fullRadius,
+                child: LinearProgressIndicator(
+                  minHeight: 6,
+                  backgroundColor: Colors.transparent,
+                  valueColor: AlwaysStoppedAnimation<Color>(color),
+                  value: totalClasses == 0
+                      ? 0
+                      : (percentage / 100).clamp(0.0, 1.0),
+                ),
               ),
             ),
             const SizedBox(height: 12),
-            Text(
-              bufferLine,
-              style: GoogleFonts.outfit(
-                color: percentage >= 75 ? U.sub : color,
-                fontSize: 12,
-                fontWeight: percentage >= 75
-                    ? FontWeight.w500
-                    : FontWeight.w600,
-              ),
+            Row(
+              children: [
+                Icon(
+                  percentage >= 75 ? Icons.check_circle_outline_rounded : Icons.info_outline_rounded,
+                  size: 14,
+                  color: percentage >= 75 ? U.sub : color,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    bufferLine,
+                    style: GoogleFonts.robotoFlex(
+                      color: percentage >= 75 ? U.sub : color,
+                      fontSize: 12,
+                      fontWeight: percentage >= 75
+                          ? FontWeight.w500
+                          : FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

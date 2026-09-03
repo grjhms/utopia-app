@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../theme/m3_expressive_theme.dart';
+import '../widgets/app_motion.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -93,14 +95,15 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                 elevation: 0,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: U.surface,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: U.primary.withValues(alpha: 0.3), width: 1.5),
+                    color: U.surfaceContainerHigh,
+                    borderRadius: M3Shapes.extraLargeRadius,
+                    border: Border.all(color: U.outlineVariant.withValues(alpha: 0.5), width: 1.0),
                     boxShadow: [
                       BoxShadow(
-                        color: U.primary.withValues(alpha: 0.2),
+                        color: Colors.black.withValues(alpha: appThemeNotifier.value.isDark ? 0.4 : 0.12),
                         blurRadius: 32,
-                        spreadRadius: 4,
+                        offset: const Offset(0, 12),
+                        spreadRadius: 2,
                       ),
                     ],
                   ),
@@ -111,41 +114,41 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: U.primary.withValues(alpha: 0.1),
+                          color: U.primaryContainer.withValues(alpha: 0.7),
                           shape: BoxShape.circle,
                         ),
-                        child: Icon(Icons.auto_awesome, color: U.primary, size: 36),
+                        child: Icon(Icons.auto_awesome_rounded, color: U.primary, size: 32),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
                       Text(
                         'Share UTOPIA',
-                        style: GoogleFonts.playfairDisplay(
+                        style: GoogleFonts.robotoFlex(
                           color: U.text,
-                          fontSize: 28,
+                          fontSize: 24,
                           fontWeight: FontWeight.w700,
-                          fontStyle: FontStyle.italic,
+                          letterSpacing: -0.3,
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       Text(
                         'Love using UTOPIA? Help your friends elevate their university experience by inviting them to the app!',
-                        style: GoogleFonts.outfit(color: U.sub, fontSize: 15, height: 1.4),
+                        style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 14, height: 1.45),
                         textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 28),
                       Row(
                         children: [
                           Expanded(
                             child: OutlinedButton(
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: U.text,
-                                side: BorderSide(color: U.border),
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                side: BorderSide(color: U.outlineVariant),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: M3Shapes.fullRadius),
                               ),
                               onPressed: () => Navigator.pop(context),
-                              child: Text('Later', style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+                              child: Text('Later', style: GoogleFonts.robotoFlex(fontWeight: FontWeight.w600)),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -153,15 +156,19 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                             child: FilledButton(
                               style: FilledButton.styleFrom(
                                 backgroundColor: U.primary,
-                                foregroundColor: U.bg,
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                foregroundColor: U.colorScheme.onPrimary,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: M3Shapes.fullRadius),
                               ),
                               onPressed: () {
-                                Share.share('Join me on UTOPIA! 🚀 The productivity platform.\n\nhttps://inferalis.space/download-utopia');
+                                SharePlus.instance.share(
+                                  ShareParams(
+                                    text: 'Join me on UTOPIA! 🚀 The productivity platform.\n\nhttps://inferalis.space/download-utopia',
+                                  ),
+                                );
                                 Navigator.pop(context);
                               },
-                              child: Text('Share App', style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+                              child: Text('Share App', style: GoogleFonts.robotoFlex(fontWeight: FontWeight.w600)),
                             ),
                           ),
                         ],
@@ -232,7 +239,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
         return AnnotatedRegion<SystemUiOverlayStyle>(
           value: systemUiStyle,
           child: Scaffold(
-            backgroundColor: U.bg,
+            backgroundColor: theme.bg,
             extendBody: true,
             body: Stack(
               children: [
@@ -250,131 +257,97 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                     _KeepAliveWrapper(child: _getScreen(1)),
                     _KeepAliveWrapper(child: _getScreen(2)),
                   ],
-              ),
-              // Floating glassmorphic nav bar
-              Positioned(
-                left: 40,
-                right: 40,
-                bottom: MediaQuery.paddingOf(context).bottom + 24,
-                child: AnimatedSlide(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOutCubic,
-                  offset: isKeyboardOpen ? const Offset(0, 1.5) : Offset.zero,
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 200),
-                    opacity: isKeyboardOpen ? 0.0 : 1.0,
-                    child: Builder(
-                      builder: (context) {
-                        final isDark = appThemeNotifier.value.isDark;
-                        return ClipRRect(
-                          borderRadius: BorderRadius.circular(32),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-                            child: Container(
-                              height: 64,
-                              decoration: BoxDecoration(
-                                color: isDark
-                                    ? U.surface.withValues(alpha: 0.55)
-                                    : U.surface.withValues(alpha: 0.65),
-                                borderRadius: BorderRadius.circular(32),
-                                border: Border.all(
+                ),
+                // Floating Material 3 Expressive Capsule Nav Bar
+                Positioned(
+                  left: 24,
+                  right: 24,
+                  bottom: MediaQuery.paddingOf(context).bottom + 14,
+                  child: AnimatedSlide(
+                    duration: const Duration(milliseconds: 280),
+                    curve: M3Motion.emphasizedDecelerate,
+                    offset: isKeyboardOpen ? const Offset(0, 1.5) : Offset.zero,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 200),
+                      opacity: isKeyboardOpen ? 0.0 : 1.0,
+                      child: Builder(
+                        builder: (context) {
+                          final isDark = appThemeNotifier.value.isDark;
+                          return ClipRRect(
+                            borderRadius: M3Shapes.fullRadius,
+                            child: BackdropFilter(
+                              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                              child: Container(
+                                height: 72,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
                                   color: isDark
-                                      ? Colors.white.withValues(alpha: 0.12)
-                                      : Colors.white.withValues(alpha: 0.6),
-                                  width: 0.8,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.16),
-                                    blurRadius: 28,
-                                    offset: const Offset(0, 10),
-                                    spreadRadius: -2,
+                                      ? U.surfaceContainerHighest.withValues(alpha: 0.85)
+                                      : U.surfaceContainerHighest.withValues(alpha: 0.92),
+                                  borderRadius: M3Shapes.fullRadius,
+                                  border: Border.all(
+                                    color: U.outlineVariant.withValues(alpha: isDark ? 0.25 : 0.4),
+                                    width: 0.8,
                                   ),
-                                  if (!isDark) ...[
+                                  boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.05),
-                                      blurRadius: 6,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                    BoxShadow(
-                                      color: Colors.white.withValues(alpha: 0.5),
-                                      blurRadius: 1,
-                                      offset: const Offset(0, -0.5),
+                                      color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
+                                      blurRadius: 24,
+                                      offset: const Offset(0, 8),
+                                      spreadRadius: -2,
                                     ),
                                   ],
-                                ],
-                              ),
-                              child: Stack(
-                                children: [
-                                  // Inner gloss highlight
-                                  Positioned(
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    height: 28,
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        borderRadius: const BorderRadius.vertical(
-                                          top: Radius.circular(32),
-                                        ),
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topCenter,
-                                          end: Alignment.bottomCenter,
-                                          colors: [
-                                            Colors.white.withValues(alpha: isDark ? 0.06 : 0.25),
-                                            Colors.white.withValues(alpha: 0.0),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  // Nav items row
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                    children: [
-                                      _NavItem(
-                                        icon: Icons.dashboard_outlined,
-                                        activeIcon: Icons.dashboard_rounded,
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    Expanded(
+                                      child: _NavItem(
+                                        icon: Icons.home_outlined,
+                                        activeIcon: Icons.home_rounded,
+                                        label: 'Home',
                                         isActive: _index == 0,
-                                        accent: U.primary,
                                         isDark: isDark,
                                         onTap: () => _setIndex(0),
                                       ),
-                                      _NavItem(
+                                    ),
+                                    Expanded(
+                                      child: _NavItem(
                                         icon: Icons.groups_outlined,
                                         activeIcon: Icons.groups_rounded,
+                                        label: 'Campus',
                                         isActive: _index == 1,
-                                        accent: U.primary,
                                         isDark: isDark,
                                         onTap: () => _setIndex(1),
                                       ),
-                                      _NavItem(
+                                    ),
+                                    Expanded(
+                                      child: _NavItem(
                                         icon: Icons.person_outline_rounded,
                                         activeIcon: Icons.person_rounded,
+                                        label: 'Profile',
                                         isActive: _index == 2,
-                                        accent: U.primary,
                                         isDark: isDark,
                                         onTap: () => _setIndex(2),
                                       ),
-                                    ],
-                                  ),
-                                ],
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      );
-    },
-  );
-}
+        );
+      },
+    );
+  }
 
   Widget _buildMeshGradient(AppTheme theme) {
     final isDark = theme.isDark;
@@ -390,11 +363,11 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
         final alpha1 = isDark
             ? (0.16 + 0.05 * sin(value * 2 * pi)).clamp(0.0, 1.0)
             : (0.15 + 0.03 * sin(value * 2 * pi)).clamp(0.0, 1.0);
-            
+
         final alpha2 = isDark
             ? (0.14 + 0.04 * cos(value * 2 * pi)).clamp(0.0, 1.0)
             : (0.12 + 0.02 * cos(value * 2 * pi)).clamp(0.0, 1.0);
-            
+
         final alpha3 = isDark
             ? (0.08 + 0.03 * sin(value * 2 * pi + pi)).clamp(0.0, 1.0)
             : (0.09 + 0.02 * sin(value * 2 * pi + pi)).clamp(0.0, 1.0);
@@ -434,9 +407,10 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
                       colors: [
-                        (theme.key == 'gruvbox' 
-                            ? theme.peach 
-                            : theme.teal).withValues(alpha: alpha2),
+                        (theme.key == 'gruvbox'
+                                ? theme.peach
+                                : theme.teal)
+                            .withValues(alpha: alpha2),
                         theme.teal.withValues(alpha: 0.0),
                       ],
                     ),
@@ -472,54 +446,72 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
 class _NavItem extends StatelessWidget {
   final IconData icon;
   final IconData activeIcon;
+  final String label;
   final bool isActive;
-  final Color accent;
   final bool isDark;
   final VoidCallback onTap;
 
   const _NavItem({
     required this.icon,
     required this.activeIcon,
+    required this.label,
     required this.isActive,
-    required this.accent,
     required this.isDark,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return M3Pressable(
       onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 64,
+      scaleFactor: 0.92,
+      child: Center(
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              child: Icon(
-                isActive ? activeIcon : icon,
-                key: ValueKey(isActive),
-                color: isActive
-                    ? accent
-                    : isDark
-                        ? Colors.white.withValues(alpha: 0.35)
-                        : Colors.black.withValues(alpha: 0.3),
-                size: 24,
+            // Standard Material 3 Icon Indicator Pill (60 x 32 dp)
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 260),
+              curve: M3Motion.expressiveCurve,
+              width: isActive ? 60 : 36,
+              height: 32,
+              decoration: BoxDecoration(
+                color: isActive ? U.primaryContainer : Colors.transparent,
+                borderRadius: M3Shapes.fullRadius,
+              ),
+              child: Center(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
+                  child: Icon(
+                    isActive ? activeIcon : icon,
+                    key: ValueKey<bool>(isActive),
+                    color: isActive
+                        ? U.onPrimaryContainer
+                        : (isDark
+                            ? Colors.white.withValues(alpha: 0.55)
+                            : Colors.black.withValues(alpha: 0.50)),
+                    size: 24,
+                  ),
+                ),
               ),
             ),
-            const SizedBox(height: 2),
-            // Active indicator dot
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
+            const SizedBox(height: 3),
+            AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 200),
               curve: Curves.easeOutCubic,
-              width: isActive ? 4 : 0,
-              height: isActive ? 4 : 0,
-              decoration: BoxDecoration(
-                color: accent,
-                shape: BoxShape.circle,
+              style: GoogleFonts.robotoFlex(
+                fontSize: 11,
+                fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
+                color: isActive
+                    ? U.text
+                    : (isDark
+                        ? Colors.white.withValues(alpha: 0.50)
+                        : Colors.black.withValues(alpha: 0.45)),
+                letterSpacing: 0.2,
               ),
+              child: Text(label),
             ),
           ],
         ),
