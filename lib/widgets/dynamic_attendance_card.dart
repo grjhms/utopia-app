@@ -51,6 +51,15 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
   double _sloshEnergy = 0.0;
   int _lastTickMicros = 0;
 
+  // Ship lifecycle state: spawns on tilt, sails across, exits off-screen, loops
+  double _shipX = 0.5;
+  double _shipVelocity = 0.0;
+  bool _shipVisible = false;
+  double _shipOpacity = 0.0; // for smooth fade in/out
+  double _shipCooldown = 0.0; // seconds until next spawn allowed
+  double _shipBob = 0.0; // accumulated bob phase for gentle rocking
+  static const double _tiltSpawnThreshold = 0.04; // lower threshold = appears more easily
+
   @override
   void initState() {
     super.initState();
@@ -88,6 +97,53 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
     // Agitation / slosh turbulence builds with motion and decays back to calm
     final motionIntensity = (_tiltVelocity.abs() * 0.8 + displacement.abs() * 0.6);
     _sloshEnergy = (_sloshEnergy * math.exp(-3.2 * dt) + motionIntensity * 0.18).clamp(0.0, 1.0);
+
+    // ── Ship lifecycle: spawn → sail across → exit off-screen → respawn ──
+    if (_shipCooldown > 0) _shipCooldown = (_shipCooldown - dt).clamp(0.0, 10.0);
+
+    if (!_shipVisible) {
+      // Spawn condition: tilt exceeds threshold & cooldown expired
+      if (_currentTilt.abs() > _tiltSpawnThreshold && _shipCooldown <= 0) {
+        _shipVisible = true;
+        _shipOpacity = 0.0;
+        _shipVelocity = 0.0;
+        _shipBob = 0.0;
+        // Spawn just inside the HIGH side edge — it will sail downhill
+        // tilt > 0 → water slopes right-to-left → ship enters from right
+        // tilt < 0 → water slopes left-to-right → ship enters from left
+        _shipX = _currentTilt > 0 ? 1.08 : -0.08;
+      }
+    }
+
+    if (_shipVisible) {
+      // Fade in as ship enters the visible area
+      if (_shipX > 0.0 && _shipX < 1.0) {
+        _shipOpacity = (_shipOpacity + dt * 2.5).clamp(0.0, 1.0);
+      }
+
+      // Accumulate bob phase for gentle rocking
+      _shipBob += dt * 2.8;
+
+      // Gravity slides ship downhill along tilted surface
+      final shipGravity = -_currentTilt * 3.0;
+      final shipDamping = -_shipVelocity * 1.4;
+      _shipVelocity += (shipGravity + shipDamping) * dt;
+      _shipX += _shipVelocity * dt;
+
+      // Ship has fully sailed off-screen → despawn and allow quick respawn
+      if (_shipX < -0.15 || _shipX > 1.15) {
+        _shipVisible = false;
+        _shipCooldown = 0.8; // short cooldown — feels continuous
+        _shipX = 0.5;
+        _shipVelocity = 0.0;
+      } else if (_shipX <= 0.0 || _shipX >= 1.0) {
+        // Ship is exiting — fade out as it sails off edge
+        _shipOpacity = (_shipOpacity - dt * 2.5).clamp(0.0, 1.0);
+      }
+
+      // Allow ship to travel slightly off-screen for smooth exit
+      _shipX = _shipX.clamp(-0.18, 1.18);
+    }
   }
 
   void _startSensors() {
@@ -255,6 +311,11 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
                       isDark: isDark,
                       tiltAngle: _currentTilt,
                       sloshEnergy: _sloshEnergy,
+                      shipX: _shipX,
+                      shipVisible: _shipVisible,
+                      shipOpacity: _shipOpacity,
+                      shipVelocity: _shipVelocity,
+                      shipBob: _shipBob,
                     ),
                   ),
                 ),
@@ -563,6 +624,7 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
 
 /// Custom painter rendering an organic fluid liquid wave tank synced with the attendance percentage
 /// and animated with physical fluid dynamics stimulated by phone gyro and accelerometer sensors.
+/// Includes a detailed sailboat that spawns on tilt, drifts downhill, and vanishes at the edge.
 class _LiquidWavePainter extends CustomPainter {
   _LiquidWavePainter({
     required this.color,
@@ -571,6 +633,11 @@ class _LiquidWavePainter extends CustomPainter {
     required this.isDark,
     required this.tiltAngle,
     required this.sloshEnergy,
+    required this.shipX,
+    required this.shipVisible,
+    required this.shipOpacity,
+    required this.shipVelocity,
+    required this.shipBob,
   });
 
   final Color color;
@@ -579,42 +646,46 @@ class _LiquidWavePainter extends CustomPainter {
   final bool isDark;
   final double tiltAngle;
   final double sloshEnergy;
+  final double shipX;
+  final bool shipVisible;
+  final double shipOpacity;
+  final double shipVelocity;
+  final double shipBob;
+
+  /// Compute front wave Y at a given x position
+  double _frontWaveY(double x, double w, double h, double baseHeight, double frontSlope, double waveAmplitude, double phase) {
+    final dx = x - w / 2;
+    final waveOffset = math.sin((x / w * 2 * math.pi) + phase) * waveAmplitude;
+    return (h - baseHeight - dx * frontSlope + waveOffset).clamp(-20.0, h);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
 
-    // Direct liquid tank fill synced with attendance percentage (50% = half tank, 100% = full tank)
     final clampedFill = fillPercent.clamp(0.0, 1.0);
     if (clampedFill <= 0.0) return;
 
     final baseHeight = h * clampedFill;
-    // Base wave amplitude gently undulating, boosted dynamically when fluid is sloshing
     final baseAmplitude = clampedFill >= 0.98 ? 2.5 : (clampedFill <= 0.04 ? 2.0 : 4.5);
     final waveAmplitude = baseAmplitude + (sloshEnergy * 5.5);
     final phase = progress * 2 * math.pi;
 
-    // Fluid surface slope: tan(tiltAngle)
-    // When phone tilts right (tiltAngle > 0), liquid rushes to the right side of the card.
-    // In canvas coordinates, higher liquid level corresponds to a smaller y.
-    // Therefore at x = w (right edge), y should be smaller than at x = 0 (left edge).
     final frontSlope = math.tan(tiltAngle);
-    final backSlope = math.tan(tiltAngle * 0.82); // Subtle parallax depth for 3D liquid tank effect
+    final backSlope = math.tan(tiltAngle * 0.82);
 
-    // ── WAVE 1 (Back wave - softer opacity with parallax lag) ──
+    // ── WAVE 1 (Back wave) ──
     final backPath = Path();
     backPath.moveTo(0, h);
     final yBack0 = (h - baseHeight - (-w / 2) * backSlope + math.sin(phase + 1.2) * waveAmplitude * 0.75).clamp(-20.0, h);
     backPath.lineTo(0, yBack0);
-
     for (double x = 0; x <= w; x += 3) {
       final dx = x - w / 2;
       final waveOffset = math.sin((x / w * 2 * math.pi) + phase + 1.2) * waveAmplitude * 0.75;
       final y = (h - baseHeight - dx * backSlope + waveOffset).clamp(-20.0, h);
       backPath.lineTo(x, y);
     }
-
     backPath.lineTo(w, h);
     backPath.close();
 
@@ -626,25 +697,20 @@ class _LiquidWavePainter extends CustomPainter {
           color.withValues(alpha: isDark ? 0.09 : 0.07),
           color.withValues(alpha: isDark ? 0.03 : 0.02),
         ],
-      ).createShader(
-        Rect.fromLTWH(0, 0, w, h),
-      );
-
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
     canvas.drawPath(backPath, backPaint);
 
-    // ── WAVE 2 (Front wave - crisper opacity) ──
+    // ── WAVE 2 (Front wave) ──
     final frontPath = Path();
     frontPath.moveTo(0, h);
     final yFront0 = (h - baseHeight - (-w / 2) * frontSlope + math.sin(phase) * waveAmplitude).clamp(-20.0, h);
     frontPath.lineTo(0, yFront0);
-
     for (double x = 0; x <= w; x += 3) {
       final dx = x - w / 2;
       final waveOffset = math.sin((x / w * 2 * math.pi) + phase) * waveAmplitude;
       final y = (h - baseHeight - dx * frontSlope + waveOffset).clamp(-20.0, h);
       frontPath.lineTo(x, y);
     }
-
     frontPath.lineTo(w, h);
     frontPath.close();
 
@@ -656,13 +722,10 @@ class _LiquidWavePainter extends CustomPainter {
           color.withValues(alpha: isDark ? 0.16 : 0.12),
           color.withValues(alpha: isDark ? 0.05 : 0.03),
         ],
-      ).createShader(
-        Rect.fromLTWH(0, 0, w, h),
-      );
-
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
     canvas.drawPath(frontPath, frontPaint);
 
-    // ── WAVE 3: Subtle Luminous Surface Meniscus Shimmer ──
+    // ── WAVE 3: Surface Shimmer ──
     final surfacePath = Path();
     surfacePath.moveTo(0, yFront0);
     for (double x = 3; x <= w; x += 3) {
@@ -683,11 +746,171 @@ class _LiquidWavePainter extends CustomPainter {
           color.withValues(alpha: isDark ? 0.28 : 0.20),
           color.withValues(alpha: isDark ? 0.12 : 0.08),
         ],
-      ).createShader(
-        Rect.fromLTWH(0, 0, w, h),
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
+    canvas.drawPath(surfacePath, surfacePaint);
+
+    // ── LAYER 4: Sailboat (only when visible & enough water) ──
+    if (shipVisible && shipOpacity > 0.01 && clampedFill > 0.08) {
+      // Allow ship to render slightly off-screen for smooth enter/exit
+      final sx = shipX * w;
+      final clampedSxForWave = sx.clamp(0.0, w);
+      final sy = _frontWaveY(clampedSxForWave, w, h, baseHeight, frontSlope, waveAmplitude, phase);
+
+      // Local wave slope for rotation (gentle bobbing)
+      final sxL = (clampedSxForWave - 3.0).clamp(0.0, w);
+      final sxR = (clampedSxForWave + 3.0).clamp(0.0, w);
+      final yL = _frontWaveY(sxL, w, h, baseHeight, frontSlope, waveAmplitude, phase);
+      final yR = _frontWaveY(sxR, w, h, baseHeight, frontSlope, waveAmplitude, phase);
+      final waveSlopeAngle = math.atan2(yR - yL, sxR - sxL);
+
+      // Extra gentle rocking bob
+      final bobAngle = math.sin(shipBob) * 0.04;
+      final slopeAngle = waveSlopeAngle + bobAngle;
+
+      final s = (w * 0.032).clamp(5.0, 14.0); // ship scale
+      final alpha = shipOpacity;
+
+      // Wind/sail billow factor: sails curve based on velocity direction & speed
+      // Positive velocity → moving right → wind blows sails left (negative billow)
+      // The faster the ship moves, the more the sails billow
+      final speedFactor = shipVelocity.abs().clamp(0.0, 1.5);
+      final windDir = shipVelocity > 0 ? -1.0 : 1.0; // sails billow opposite to travel
+      final billowAmount = windDir * (0.6 + speedFactor * 0.8);
+      // Gentle sail flutter
+      final sailFlutter = math.sin(shipBob * 3.2) * 0.12;
+
+      canvas.save();
+      canvas.translate(sx, sy);
+      canvas.rotate(slopeAngle);
+
+      // ── Wake trail (V-shaped ripples trailing behind the ship) ──
+      final wakeDir = shipVelocity > 0 ? -1.0 : 1.0; // wake behind movement
+      final wakeIntensity = speedFactor.clamp(0.1, 1.0);
+      for (int i = 1; i <= 4; i++) {
+        final wakeDist = s * 0.9 * i * wakeDir;
+        final wakeSpread = s * 0.22 * i;
+        final wakeAlpha = (alpha * wakeIntensity * (0.35 - i * 0.07)).clamp(0.0, 1.0);
+        final wakePaint = Paint()
+          ..color = color.withValues(alpha: wakeAlpha * (isDark ? 0.45 : 0.35))
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.6;
+        canvas.drawLine(
+          Offset(wakeDist, 0),
+          Offset(wakeDist + s * 0.35 * wakeDir, -wakeSpread),
+          wakePaint,
+        );
+        canvas.drawLine(
+          Offset(wakeDist, 0),
+          Offset(wakeDist + s * 0.35 * wakeDir, wakeSpread),
+          wakePaint,
+        );
+      }
+
+      // ── Hull (deeper, refined boat shape with raised bow) ──
+      final hullPath = Path();
+      hullPath.moveTo(-s * 1.6, -s * 0.1);
+      hullPath.cubicTo(
+        -s * 1.2, s * 1.1,
+        s * 0.8, s * 1.1,
+        s * 2.0, -s * 0.3,
+      );
+      hullPath.lineTo(s * 1.8, -s * 0.15);
+      hullPath.lineTo(-s * 1.6, -s * 0.1);
+      hullPath.close();
+
+      canvas.drawPath(hullPath, Paint()
+        ..color = color.withValues(alpha: alpha * (isDark ? 0.6 : 0.5))
+        ..style = PaintingStyle.fill);
+      canvas.drawPath(hullPath, Paint()
+        ..color = color.withValues(alpha: alpha * (isDark ? 0.8 : 0.65))
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.9
+        ..strokeCap = StrokeCap.round);
+
+      // ── Hull stripe (waterline detail) ──
+      final stripePath = Path();
+      stripePath.moveTo(-s * 1.3, s * 0.15);
+      stripePath.quadraticBezierTo(0, s * 0.55, s * 1.6, -s * 0.05);
+      canvas.drawPath(stripePath, Paint()
+        ..color = color.withValues(alpha: alpha * (isDark ? 0.3 : 0.2))
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.5);
+
+      // ── Cabin (small rectangle on deck) ──
+      final cabinRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(-s * 0.4, -s * 0.35), width: s * 0.9, height: s * 0.45),
+        Radius.circular(s * 0.1),
+      );
+      canvas.drawRRect(cabinRect, Paint()
+        ..color = color.withValues(alpha: alpha * (isDark ? 0.4 : 0.3))
+        ..style = PaintingStyle.fill);
+      canvas.drawRRect(cabinRect, Paint()
+        ..color = color.withValues(alpha: alpha * (isDark ? 0.55 : 0.4))
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.5);
+
+      // ── Main mast ──
+      canvas.drawLine(
+        Offset(s * 0.3, -s * 0.15),
+        Offset(s * 0.3, -s * 3.2),
+        Paint()
+          ..color = color.withValues(alpha: alpha * (isDark ? 0.65 : 0.55))
+          ..strokeWidth = 1.2
+          ..strokeCap = StrokeCap.round,
       );
 
-    canvas.drawPath(surfacePath, surfacePaint);
+      // ── Main sail (large, curved — billows dynamically with wind) ──
+      final mainBillow = billowAmount + sailFlutter;
+      final mainSailPath = Path();
+      mainSailPath.moveTo(s * 0.3, -s * 3.0);
+      mainSailPath.quadraticBezierTo(
+        s * (0.3 + 1.5 * mainBillow), -s * 1.8,  // billow curves with velocity
+        s * 0.3, -s * 0.4,
+      );
+      mainSailPath.close();
+      canvas.drawPath(mainSailPath, Paint()
+        ..color = color.withValues(alpha: alpha * (isDark ? 0.3 : 0.22))
+        ..style = PaintingStyle.fill);
+      canvas.drawPath(mainSailPath, Paint()
+        ..color = color.withValues(alpha: alpha * (isDark ? 0.5 : 0.38))
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.7);
+
+      // ── Jib sail (front, smaller — also billows) ──
+      final jibBillow = billowAmount * 0.7 + sailFlutter * 0.8;
+      final jibPath = Path();
+      jibPath.moveTo(s * 0.3, -s * 2.6);
+      jibPath.quadraticBezierTo(
+        s * (0.3 + 1.0 * jibBillow), -s * 1.5,
+        s * 1.6, -s * 0.2,
+      );
+      jibPath.lineTo(s * 0.3, -s * 0.3);
+      jibPath.close();
+      canvas.drawPath(jibPath, Paint()
+        ..color = color.withValues(alpha: alpha * (isDark ? 0.2 : 0.15))
+        ..style = PaintingStyle.fill);
+      canvas.drawPath(jibPath, Paint()
+        ..color = color.withValues(alpha: alpha * (isDark ? 0.4 : 0.3))
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.5);
+
+      // ── Flag at mast top (flutters with wind direction) ──
+      final flagFlutter = math.sin(progress * 4 * math.pi) * s * 0.15;
+      final flagDir = windDir; // flag blows same direction as sails
+      final flagPath = Path();
+      flagPath.moveTo(s * 0.3, -s * 3.2);
+      flagPath.quadraticBezierTo(
+        s * (0.3 + 0.5 * flagDir), -s * 3.1 + flagFlutter,
+        s * (0.3 + 0.8 * flagDir), -s * 3.0,
+      );
+      flagPath.lineTo(s * 0.3, -s * 2.85);
+      flagPath.close();
+      canvas.drawPath(flagPath, Paint()
+        ..color = color.withValues(alpha: alpha * (isDark ? 0.55 : 0.45))
+        ..style = PaintingStyle.fill);
+
+      canvas.restore();
+    }
   }
 
   @override
@@ -696,6 +919,11 @@ class _LiquidWavePainter extends CustomPainter {
         oldDelegate.color != color ||
         oldDelegate.fillPercent != fillPercent ||
         oldDelegate.tiltAngle != tiltAngle ||
-        oldDelegate.sloshEnergy != sloshEnergy;
+        oldDelegate.sloshEnergy != sloshEnergy ||
+        oldDelegate.shipX != shipX ||
+        oldDelegate.shipVisible != shipVisible ||
+        oldDelegate.shipOpacity != shipOpacity ||
+        oldDelegate.shipVelocity != shipVelocity ||
+        oldDelegate.shipBob != shipBob;
   }
 }
