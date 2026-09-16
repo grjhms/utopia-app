@@ -258,8 +258,8 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
   List<Map<String, dynamic>> get _generalInAppNotifications {
     return _inAppNotifications.where((n) {
       final type = (n['type'] ?? '').toString();
-      // Follow requests and waves already have rich dedicated cards from real-time streams.
-      if (type == 'follow_request' || type == 'wave') {
+      // Link requests, follow requests, and waves already have rich dedicated cards from real-time streams.
+      if (type == 'follow_request' || type == 'link_request' || type == 'wave') {
         return false;
       }
       return true;
@@ -279,7 +279,7 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
       _waves.length +
       _generalInAppNotifications.where((n) {
         final type = (n['type'] ?? '').toString();
-        return type == 'follow_accept' || type == 'chat' || type == 'broadcast';
+        return type == 'follow_accept' || type == 'link_accept' || type == 'chat' || type == 'broadcast';
       }).length;
 
   int get _eventsCount =>
@@ -391,9 +391,9 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
         physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
         children: [
-          // 1. Follow Requests
+          // 1. Link Requests
           if (_pendingFollowRequests.isNotEmpty) ...[
-            _buildSectionHeader('Follow Requests (${_pendingFollowRequests.length})'),
+            _buildSectionHeader('Link Requests (${_pendingFollowRequests.length})'),
             ..._pendingFollowRequests.map((r) => _buildFollowRequestCard(r)),
             const SizedBox(height: 12),
           ],
@@ -440,12 +440,12 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
 
   Widget _buildSocialTab() {
     if (_socialCount == 0) {
-      return _buildEmptyState('No Social Alerts', 'Follow requests, waves, and new messages will appear here.');
+      return _buildEmptyState('No Social Alerts', 'Link requests, waves, and new messages will appear here.');
     }
 
     final socialNotifications = _generalInAppNotifications.where((n) {
       final type = (n['type'] ?? '').toString();
-      return type == 'follow_accept' || type == 'chat' || type == 'broadcast';
+      return type == 'follow_accept' || type == 'link_accept' || type == 'chat' || type == 'broadcast';
     }).toList();
 
     return ListView(
@@ -453,7 +453,7 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
       physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
       children: [
         if (_pendingFollowRequests.isNotEmpty) ...[
-          _buildSectionHeader('Follow Requests (${_pendingFollowRequests.length})'),
+          _buildSectionHeader('Link Requests (${_pendingFollowRequests.length})'),
           ..._pendingFollowRequests.map((r) => _buildFollowRequestCard(r)),
           const SizedBox(height: 12),
         ],
@@ -612,8 +612,8 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
                   const SizedBox(height: 2),
                   Text(
                     branch.isNotEmpty && branch.toLowerCase() != 'student'
-                        ? 'Follow request • $branch'
-                        : 'Sent you a follow request',
+                        ? 'Link request • $branch'
+                        : 'Sent you a link request',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.plusJakartaSans(
@@ -629,7 +629,7 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Accept Button
+              // Accept / Link Up Button
               ElevatedButton(
                 onPressed: () async {
                   HapticFeedback.lightImpact();
@@ -638,7 +638,7 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
                   if (mounted) {
                     showUtopiaSnackBar(
                       context,
-                      message: 'Accepted $displayName\'s follow request! ✨',
+                      message: 'Linked up with $displayName! 🔗',
                       tone: UtopiaSnackBarTone.success,
                     );
                   }
@@ -655,7 +655,7 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
                   elevation: 0,
                 ),
                 child: Text(
-                  'Accept',
+                  'Link Up',
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
@@ -866,9 +866,9 @@ class _EventNotificationsScreenState extends State<EventNotificationsScreen>
     Color color = U.primary;
     VoidCallback? onTap;
 
-    if (type == 'follow_accept' || type == 'chat') {
-      icon = type == 'follow_accept' ? Icons.favorite_rounded : Icons.chat_bubble_rounded;
-      color = type == 'follow_accept' ? U.teal : U.blue;
+    if (type == 'follow_accept' || type == 'link_accept' || type == 'chat') {
+      icon = (type == 'follow_accept' || type == 'link_accept') ? Icons.link_rounded : Icons.chat_bubble_rounded;
+      color = (type == 'follow_accept' || type == 'link_accept') ? U.teal : U.blue;
       onTap = () async {
         if (senderId.isNotEmpty) {
           String userEmail = email;

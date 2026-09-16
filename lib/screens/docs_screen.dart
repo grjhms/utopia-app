@@ -16,6 +16,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../main.dart';
 import '../services/docs_service.dart';
 import '../widgets/utopia_loader.dart';
+import 'drive_notebooks_screen.dart';
 
 class DocsScreen extends StatefulWidget {
   const DocsScreen({super.key});
@@ -473,12 +474,72 @@ class _DocsScreenState extends State<DocsScreen> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                 child: Text(
                   'University documents, accessible to everyone',
                   style: GoogleFonts.outfit(color: U.dim, fontSize: 13),
                 ).animate().fadeIn(delay: 100.ms, duration: 400.ms),
               ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                child: InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const DriveNotebooksScreen(),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(18),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.04)
+                          : Colors.black.withValues(alpha: 0.03),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: U.primary.withValues(alpha: 0.25),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: U.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(Icons.add_to_drive_rounded, color: U.primary, size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Drive Notebooks',
+                                style: GoogleFonts.outfit(
+                                  color: U.text,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                'Link & sync Google Drive folders',
+                                style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.arrow_forward_ios_rounded, color: U.sub, size: 14),
+                      ],
+                    ),
+                  ),
+                ),
+              ).animate().fadeIn(delay: 150.ms, duration: 400.ms),
 
               // Doc list
               Expanded(

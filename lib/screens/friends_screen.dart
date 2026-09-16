@@ -1,17 +1,21 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
 import '../services/chat_service.dart';
 import '../services/follow_service.dart';
 import '../widgets/app_motion.dart';
+import '../widgets/superuser_badge.dart';
 import 'chat_screen.dart';
 import 'follow_requests_screen.dart';
+import 'link_graph_screen.dart';
 
 /// Friends screen – shows:
 ///   • Tab 0: Following (people the current user follows back, i.e., mutual)
@@ -30,10 +34,6 @@ class _FriendsScreenState extends State<FriendsScreen>
 
   late final TabController _tabController;
 
-  StreamSubscription<Map<String, Map<String, dynamic>>>?
-      _recentChatsSubscription;
-  Map<String, Map<String, dynamic>> _recentChats = const {};
-
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
 
@@ -44,21 +44,14 @@ class _FriendsScreenState extends State<FriendsScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _recentChatsSubscription =
-        _chatService.recentChatsStream().listen((value) {
-      if (!mounted) return;
-      setState(() => _recentChats = value);
-    });
     _searchController.addListener(() {
       if (mounted) setState(() {});
     });
   }
 
-
   @override
   void dispose() {
     _tabController.dispose();
-    _recentChatsSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -190,7 +183,7 @@ class _FriendsScreenState extends State<FriendsScreen>
                                       color: U.primary,
                                       size: 22,
                                     ),
-                                    tooltip: 'Follow Requests',
+                                    tooltip: 'Link Requests',
                                     splashRadius: 20,
                                     visualDensity: VisualDensity.compact,
                                   ),
@@ -233,6 +226,46 @@ class _FriendsScreenState extends State<FriendsScreen>
                             splashRadius: 20,
                             visualDensity: VisualDensity.compact,
                           ),
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              IconButton(
+                                onPressed: () {
+                                  Navigator.of(context).push(
+                                    buildGraphCrossfadeRoute(const LinkGraphScreen()),
+                                  );
+                                },
+                                icon: Icon(
+                                  Icons.hub_outlined,
+                                  color: U.primary,
+                                  size: 20,
+                                ),
+                                tooltip: 'Link Graph View',
+                                splashRadius: 20,
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              Positioned(
+                                top: 0,
+                                right: -2,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: U.primary,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'BETA',
+                                    style: GoogleFonts.robotoFlex(
+                                      fontSize: 7,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
               ),
@@ -247,7 +280,6 @@ class _FriendsScreenState extends State<FriendsScreen>
                 currentUid: _currentUid,
                 chatService: _chatService,
                 followService: _followService,
-                recentChats: _recentChats,
                 query: _searchController.text.trim().toLowerCase(),
               ),
             ),
@@ -258,135 +290,262 @@ class _FriendsScreenState extends State<FriendsScreen>
   }
 }
 
-// ─── Following list ───────────────────────────────────────────────────────────
-
-class _FollowingList extends StatelessWidget {
+class _FollowingList extends StatefulWidget {
   const _FollowingList({
     required this.currentUid,
     required this.chatService,
     required this.followService,
-    required this.recentChats,
     required this.query,
   });
 
   final String currentUid;
   final ChatService chatService;
   final FollowService followService;
-  final Map<String, Map<String, dynamic>> recentChats;
   final String query;
 
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<String>>(
-      stream: followService.followingUidsStream(currentUid),
-      builder: (context, followingSnap) {
-        if (followingSnap.connectionState == ConnectionState.waiting) {
-          return const _FriendsSkeleton();
+  State<_FollowingList> createState() => _FollowingListState();
+}
+
+class _FollowingListState extends State<_FollowingList> {
+  /// Local cache: uid → last-chat-time millis. Persisted to SharedPreferences.
+  Map<String, int> _chatOrderCache = {};
+  /// Cached user data so the list paints instantly while Firestore loads.
+  Map<String, Map<String, dynamic>> _userDataCache = {};
+  bool _cacheLoaded = false;
+
+  static const String _orderCacheKey = 'friends_chat_order_cache';
+  static const String _userCacheKey = 'friends_user_data_cache';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocalCache();
+  }
+
+  /// Load cached chat order and user data from SharedPreferences.
+  Future<void> _loadLocalCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Load chat order cache
+      final orderJson = prefs.getString(_orderCacheKey);
+      if (orderJson != null) {
+        final decoded = (json.decode(orderJson) as Map<String, dynamic>);
+        _chatOrderCache = decoded.map((k, v) => MapEntry(k, (v as num).toInt()));
+      }
+
+      // Load user data cache
+      final userJson = prefs.getString(_userCacheKey);
+      if (userJson != null) {
+        final decoded = (json.decode(userJson) as Map<String, dynamic>);
+        _userDataCache = decoded.map(
+          (k, v) => MapEntry(k, Map<String, dynamic>.from(v as Map)),
+        );
+      }
+    } catch (_) {
+      // Corrupt cache – ignore, will be rebuilt from Firestore
+    }
+    if (mounted) setState(() => _cacheLoaded = true);
+  }
+
+  /// Persist chat order to SharedPreferences (fire-and-forget).
+  void _saveOrderCache(Map<String, int> order) {
+    _chatOrderCache = order;
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString(_orderCacheKey, json.encode(order));
+    }).catchError((_) {});
+  }
+
+  /// Persist user data to SharedPreferences (fire-and-forget).
+  void _saveUserDataCache(Map<String, Map<String, dynamic>> data) {
+    _userDataCache = data;
+    SharedPreferences.getInstance().then((prefs) {
+      // Only cache safe JSON-serialisable fields
+      final safe = data.map((k, v) => MapEntry(k, {
+        'uid': v['uid'],
+        'displayName': v['displayName'],
+        'email': v['email'],
+        'photoUrl': v['photoUrl'],
+        'bio': v['bio'],
+        'role': v['role'],
+        'branch': v['branch'],
+      }));
+      prefs.setString(_userCacheKey, json.encode(safe));
+    }).catchError((_) {});
+  }
+
+  /// Build a map of otherUid → lastMessageTime millis from recentChats data.
+  Map<String, int> _buildSortKeys(Map<String, Map<String, dynamic>> recentChats) {
+    final sortKeys = <String, int>{};
+    for (final entry in recentChats.entries) {
+      final chat = entry.value;
+      final participants = (chat['participants'] as List<dynamic>? ?? const [])
+          .map((p) => p.toString())
+          .toList();
+      var otherUid = participants.firstWhere(
+        (p) => p != widget.currentUid && p.isNotEmpty,
+        orElse: () => '',
+      );
+
+      // Fallback: extract otherUid from doc ID if participants array was missing
+      if (otherUid.isEmpty && entry.key.contains('_')) {
+        final parts = entry.key.split('_');
+        if (parts.length == 2) {
+          if (parts[0] == widget.currentUid) {
+            otherUid = parts[1];
+          } else if (parts[1] == widget.currentUid) {
+            otherUid = parts[0];
+          }
         }
+      }
 
-        final followingUids = followingSnap.data ?? [];
+      if (otherUid.isEmpty) continue;
 
-        // Collect all participants from recent chats
-        final recentChatOtherUids = <String>{};
-        for (final entry in recentChats.entries) {
-          final participants = (entry.value['participants'] as List<dynamic>? ?? const [])
-              .map((p) => p.toString())
-              .toList();
-          for (final p in participants) {
-            if (p != currentUid && p.isNotEmpty) {
-              recentChatOtherUids.add(p);
-            }
+      final raw = chat['lastMessageTime'] ?? chat['timestamp'] ?? chat['updatedAt'];
+      int? millis;
+      if (raw is Timestamp) {
+        millis = raw.toDate().millisecondsSinceEpoch;
+      } else if (raw is DateTime) {
+        millis = raw.millisecondsSinceEpoch;
+      } else if (raw is int) {
+        millis = raw;
+      } else if (raw is String) {
+        millis = DateTime.tryParse(raw)?.millisecondsSinceEpoch;
+      }
+
+      if (millis != null) {
+        // Keep the latest time if multiple chats exist with same user
+        if (!sortKeys.containsKey(otherUid) || millis > sortKeys[otherUid]!) {
+          sortKeys[otherUid] = millis;
+        }
+      }
+    }
+    return sortKeys;
+  }
+
+  Map<String, dynamic>? _getChatMeta(
+    String otherUid,
+    Map<String, Map<String, dynamic>> recentChats,
+  ) {
+    // Direct match by sorted chatId
+    final sortedChatId = widget.chatService.chatIdFor(widget.currentUid, otherUid);
+    final byChatId = recentChats[sortedChatId];
+    if (byChatId != null) return byChatId;
+
+    // Direct match by unsorted / reverse chatId
+    final unsortedChatId = '${widget.currentUid}_$otherUid';
+    if (recentChats[unsortedChatId] != null) return recentChats[unsortedChatId];
+    final reverseChatId = '${otherUid}_${widget.currentUid}';
+    if (recentChats[reverseChatId] != null) return recentChats[reverseChatId];
+
+    // Search all recentChats for any doc where otherUid is a participant or key contains otherUid
+    for (final entry in recentChats.entries) {
+      final chat = entry.value;
+      final participants = (chat['participants'] as List<dynamic>? ?? const [])
+          .map((p) => p.toString())
+          .toList();
+      if (participants.contains(otherUid) || entry.key.contains(otherUid)) return chat;
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<Map<String, Map<String, dynamic>>>(
+      stream: widget.chatService.recentChatsStream(),
+      builder: (context, recentChatsSnap) {
+        final recentChats = recentChatsSnap.data ?? const {};
+        final liveSortKeys = _buildSortKeys(recentChats);
+
+        // Merge live sort keys into the local cache so we always have the freshest
+        if (liveSortKeys.isNotEmpty) {
+          final merged = Map<String, int>.from(_chatOrderCache);
+          merged.addAll(liveSortKeys);
+          if (merged.toString() != _chatOrderCache.toString()) {
+            _saveOrderCache(merged);
           }
         }
 
-        final allRelevantUids = {...followingUids, ...recentChatOtherUids};
+        // Effective sort keys: live data takes priority, cached fills gaps
+        final effectiveSortKeys = Map<String, int>.from(_chatOrderCache);
+        effectiveSortKeys.addAll(liveSortKeys);
 
-        if (allRelevantUids.isEmpty) {
-          return const _FriendsEmptyState(
-            icon: Icons.person_add_outlined,
-            title: 'No friends or chats yet',
-            subtitle: 'Go to People to find classmates and connect.',
-          );
-        }
-
-        // Stream all user docs to match relevant UIDs with no artificial 10-item limit
-        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance.collection('users').snapshots(),
-          builder: (context, usersSnap) {
-            if (usersSnap.connectionState == ConnectionState.waiting) {
+        return StreamBuilder<List<String>>(
+          stream: widget.followService.followingUidsStream(widget.currentUid),
+          builder: (context, followingSnap) {
+            if (followingSnap.connectionState == ConnectionState.waiting &&
+                recentChatsSnap.connectionState == ConnectionState.waiting &&
+                !_cacheLoaded) {
               return const _FriendsSkeleton();
             }
 
-            var users = (usersSnap.data?.docs ?? [])
-                .where((d) => allRelevantUids.contains(d.id))
-                .map((d) => {'uid': d.id, ...d.data()})
-                .where((u) {
-                  if (query.isEmpty) return true;
-                  final name = (u['displayName'] ?? '').toString().toLowerCase();
-                  final email = (u['email'] ?? '').toString().toLowerCase();
-                  final branch = (u['branch'] ?? '').toString().toLowerCase();
-                  return name.contains(query) || email.contains(query) || branch.contains(query);
-                })
-                .toList();
+            final followingUids = followingSnap.data ?? [];
 
-            // Sort by most recent chat time first, then alphabetical
-            users.sort((a, b) {
-              final uidA = a['uid'].toString();
-              final uidB = b['uid'].toString();
-              final metaA = recentChats[chatService.chatIdFor(currentUid, uidA)];
-              final metaB = recentChats[chatService.chatIdFor(currentUid, uidB)];
-              final timeA = metaA?['lastMessageTime'] as Timestamp?;
-              final timeB = metaB?['lastMessageTime'] as Timestamp?;
-              if (timeA != null && timeB != null) return timeB.compareTo(timeA);
-              if (timeA != null) return -1;
-              if (timeB != null) return 1;
-              final nameA = (a['displayName'] ?? '').toString().toLowerCase();
-              final nameB = (b['displayName'] ?? '').toString().toLowerCase();
-              return nameA.compareTo(nameB);
-            });
+            // Collect other UIDs from recent chats
+            final recentChatOtherUids = <String>{};
+            for (final entry in recentChats.entries) {
+              final participants = (entry.value['participants'] as List<dynamic>? ?? const [])
+                  .map((p) => p.toString())
+                  .toList();
+              for (final p in participants) {
+                if (p != widget.currentUid && p.isNotEmpty) {
+                  recentChatOtherUids.add(p);
+                }
+              }
+            }
 
-            if (users.isEmpty) {
+            final allRelevantUids = {...followingUids, ...recentChatOtherUids};
+
+            if (allRelevantUids.isEmpty && _userDataCache.isEmpty) {
               return const _FriendsEmptyState(
-                icon: Icons.person_search_outlined,
-                title: 'No results',
-                subtitle: 'Try a different search term.',
+                icon: Icons.link_rounded,
+                title: 'No linked friends or chats yet',
+                subtitle: 'Go to People to find classmates and link up.',
               );
             }
 
-            return ListView.separated(
-              padding: EdgeInsets.zero,
-              itemCount: users.length,
-              separatorBuilder: (_, _) => Divider(
-                color: U.border,
-                height: 1,
-                thickness: 0.5,
-                indent: 76,
-              ),
-              itemBuilder: (context, index) {
-                final user = users[index];
-                final uid = user['uid'].toString();
-                final chatMeta = recentChats[chatService.chatIdFor(currentUid, uid)];
+            // Batch-fetch user docs using whereIn (max 30 per query)
+            final uidsList = allRelevantUids.toList();
+            if (uidsList.isEmpty) {
+              return _buildList([], recentChats, effectiveSortKeys);
+            }
 
-                return _FriendRow(
-                  user: user,
-                  chatMeta: chatMeta,
-                  currentUid: currentUid,
-                  followService: followService,
-                  onTap: () {
-                    Navigator.of(context).push(
-                      buildForwardRoute(
-                        ChatScreen(
-                          otherUserId: uid,
-                          displayName: UtopiaApp.sanitizeDisplayName(
-                            (user['displayName'] ?? 'Friend').toString(),
-                          ),
-                          email: (user['email'] ?? '').toString(),
-                          photoUrl: user['photoUrl']?.toString(),
-                        ),
-                      ),
-                    );
-                  },
-                );
+            // Split into batches of 30 (Firestore whereIn limit)
+            final batches = <List<String>>[];
+            for (var i = 0; i < uidsList.length; i += 30) {
+              batches.add(uidsList.sublist(i, i + 30 > uidsList.length ? uidsList.length : i + 30));
+            }
+
+            return StreamBuilder<List<QuerySnapshot<Map<String, dynamic>>>>(
+              stream: _batchUsersStream(batches),
+              builder: (context, usersSnap) {
+                List<Map<String, dynamic>> users;
+
+                if (usersSnap.hasData && usersSnap.data != null) {
+                  // Build from live data
+                  users = [];
+                  for (final qs in usersSnap.data!) {
+                    for (final doc in qs.docs) {
+                      users.add({'uid': doc.id, ...doc.data()});
+                    }
+                  }
+                  // Update user data cache
+                  final newCache = <String, Map<String, dynamic>>{};
+                  for (final u in users) {
+                    newCache[u['uid'].toString()] = u;
+                  }
+                  _saveUserDataCache(newCache);
+                } else if (_userDataCache.isNotEmpty) {
+                  // Use cached data while waiting
+                  users = _userDataCache.values
+                      .where((u) => allRelevantUids.contains(u['uid']))
+                      .toList();
+                } else {
+                  return const _FriendsSkeleton();
+                }
+
+                return _buildList(users, recentChats, effectiveSortKeys);
               },
             );
           },
@@ -394,6 +553,158 @@ class _FollowingList extends StatelessWidget {
       },
     );
   }
+
+  /// Combine multiple batched whereIn queries into a single stream.
+  Stream<List<QuerySnapshot<Map<String, dynamic>>>> _batchUsersStream(
+    List<List<String>> batches,
+  ) {
+    if (batches.isEmpty) {
+      return Stream.value([]);
+    }
+    if (batches.length == 1) {
+      return FirebaseFirestore.instance
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: batches[0])
+          .snapshots()
+          .map((qs) => [qs]);
+    }
+
+    final streams = batches.map((batch) {
+      return FirebaseFirestore.instance
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: batch)
+          .snapshots();
+    }).toList();
+
+    // Combine all streams
+    return streams.first.asyncExpand((firstSnapshot) {
+      if (streams.length == 1) return Stream.value([firstSnapshot]);
+      // For simplicity, combine using CombineLatestStream-style manual approach
+      return _combineSnapshots(streams);
+    });
+  }
+
+  Stream<List<QuerySnapshot<Map<String, dynamic>>>> _combineSnapshots(
+    List<Stream<QuerySnapshot<Map<String, dynamic>>>> streams,
+  ) {
+    final latest = List<QuerySnapshot<Map<String, dynamic>>?>.filled(streams.length, null);
+    final controller = StreamController<List<QuerySnapshot<Map<String, dynamic>>>>.broadcast();
+    final subs = <StreamSubscription>[];
+
+    for (var i = 0; i < streams.length; i++) {
+      final idx = i;
+      subs.add(streams[idx].listen((snap) {
+        latest[idx] = snap;
+        if (latest.every((s) => s != null)) {
+          controller.add(latest.cast<QuerySnapshot<Map<String, dynamic>>>().toList());
+        }
+      }));
+    }
+
+    controller.onCancel = () {
+      for (final sub in subs) {
+        sub.cancel();
+      }
+    };
+
+    return controller.stream;
+  }
+
+  Widget _buildList(
+    List<Map<String, dynamic>> users,
+    Map<String, Map<String, dynamic>> recentChats,
+    Map<String, int> sortKeys,
+  ) {
+    final query = widget.query;
+
+    // Filter by search query
+    var filtered = users.where((u) {
+      if (query.isEmpty) return true;
+      final name = (u['displayName'] ?? '').toString().toLowerCase();
+      final email = (u['email'] ?? '').toString().toLowerCase();
+      final branch = (u['branch'] ?? '').toString().toLowerCase();
+      return name.contains(query) || email.contains(query) || branch.contains(query);
+    }).toList();
+
+    // Sort: most recent chat first, then alphabetical
+    filtered.sort((a, b) {
+      final uidA = a['uid'].toString();
+      final uidB = b['uid'].toString();
+      final timeA = sortKeys[uidA];
+      final timeB = sortKeys[uidB];
+
+      // Both have chat times → most recent first
+      if (timeA != null && timeB != null) {
+        final cmp = timeB.compareTo(timeA);
+        if (cmp != 0) return cmp;
+      }
+      // Only one has a chat time → that one goes first
+      if (timeA != null) return -1;
+      if (timeB != null) return 1;
+      // Neither → alphabetical
+      final nameA = (a['displayName'] ?? '').toString().toLowerCase();
+      final nameB = (b['displayName'] ?? '').toString().toLowerCase();
+      return nameA.compareTo(nameB);
+    });
+
+    if (filtered.isEmpty) {
+      return const _FriendsEmptyState(
+        icon: Icons.person_search_outlined,
+        title: 'No results',
+        subtitle: 'Try a different search term.',
+      );
+    }
+
+    return ListView.separated(
+      padding: EdgeInsets.zero,
+      itemCount: filtered.length,
+      separatorBuilder: (_, __) => Divider(
+        color: U.border,
+        height: 1,
+        thickness: 0.5,
+        indent: 76,
+      ),
+      itemBuilder: (context, index) {
+        final user = filtered[index];
+        final uid = user['uid'].toString();
+        final chatMeta = _getChatMeta(uid, recentChats);
+
+        return _FriendRow(
+          user: user,
+          chatMeta: chatMeta,
+          currentUid: widget.currentUid,
+          followService: widget.followService,
+          onTap: () {
+            Navigator.of(context).push(
+              buildForwardRoute(
+                ChatScreen(
+                  otherUserId: uid,
+                  displayName: UtopiaApp.sanitizeDisplayName(
+                    (user['displayName'] ?? 'Friend').toString(),
+                  ),
+                  email: (user['email'] ?? '').toString(),
+                  photoUrl: user['photoUrl']?.toString(),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+DateTime? _extractChatTimeFromMeta(Map<String, dynamic>? meta) {
+  if (meta == null) return null;
+  final raw = meta['lastMessageTime'] ?? meta['timestamp'] ?? meta['updatedAt'];
+  if (raw == null) return null;
+  if (raw is Timestamp) return raw.toDate();
+  if (raw is DateTime) return raw;
+  if (raw is int) return DateTime.fromMillisecondsSinceEpoch(raw);
+  if (raw is String) return DateTime.tryParse(raw);
+  return null;
 }
 
 // ─── Friend row ───────────────────────────────────────────────────────────────
@@ -413,9 +724,8 @@ class _FriendRow extends StatelessWidget {
   final FollowService followService;
   final VoidCallback onTap;
 
-  String _formatChatTime(Timestamp? timestamp) {
-    if (timestamp == null) return '';
-    final dt = timestamp.toDate();
+  String _formatChatTime(DateTime? dt) {
+    if (dt == null) return '';
     final now = DateTime.now();
     final diff = now.difference(dt);
     if (diff.inDays == 0 && dt.day == now.day) {
@@ -433,24 +743,80 @@ class _FriendRow extends StatelessWidget {
     }
   }
 
+  String _extractText(Map<String, dynamic>? meta) {
+    if (meta == null) return '';
+    final raw = (meta['lastMessageRaw'] ?? '').toString().trim();
+    if (raw.isNotEmpty) return raw;
+    final preview = (meta['lastMessage'] ?? '').toString().trim();
+    if (preview.isNotEmpty) return preview;
+    final alt = (meta['last_message'] ?? meta['message'] ?? meta['text'] ?? '').toString().trim();
+    if (alt.isNotEmpty) return alt;
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final directMsg = _extractText(chatMeta);
+    final directTime = _extractChatTimeFromMeta(chatMeta);
+
+    if (directMsg.isNotEmpty && directTime != null) {
+      return _buildRowContent(context, directMsg, directTime, chatMeta);
+    }
+
+    final otherUid = (user['uid'] ?? '').toString();
+    final chatId = ChatService().chatIdFor(currentUid, otherUid);
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('chats')
+          .doc(chatId)
+          .collection('messages')
+          .orderBy('timestamp', descending: true)
+          .limit(1)
+          .snapshots(),
+      builder: (context, msgSnap) {
+        String msg = directMsg;
+        DateTime? dt = directTime;
+
+        if (msgSnap.hasData && msgSnap.data!.docs.isNotEmpty) {
+          final docData = msgSnap.data!.docs.first.data();
+          final mediaType = docData['mediaType'] as String?;
+          final rawText = (docData['text'] ?? docData['content'] ?? docData['message'] ?? '').toString().trim();
+          final previewText = mediaType != null && mediaType.isNotEmpty
+              ? (mediaType == 'gif' ? '👾 GIF' : (mediaType == 'sticker' ? '🎨 Sticker' : 'Media'))
+              : rawText;
+          final timestamp = docData['timestamp'];
+
+          if (msg.isEmpty) msg = previewText;
+          if (dt == null) {
+            if (timestamp is Timestamp) dt = timestamp.toDate();
+            else if (timestamp is DateTime) dt = timestamp;
+            else if (timestamp is int) dt = DateTime.fromMillisecondsSinceEpoch(timestamp);
+          }
+        }
+
+        return _buildRowContent(
+          context,
+          msg.isNotEmpty ? msg : 'No messages yet',
+          dt,
+          chatMeta,
+        );
+      },
+    );
+  }
+
+  Widget _buildRowContent(
+    BuildContext context,
+    String displayMessage,
+    DateTime? lastMessageTime,
+    Map<String, dynamic>? meta,
+  ) {
     final displayName = UtopiaApp.sanitizeDisplayName((user['displayName'] ?? 'Friend').toString());
     final photoUrl = user['photoUrl']?.toString();
     final lastSeen = user['lastSeen'];
-    final lastMessageRaw = (chatMeta?['lastMessageRaw'] ?? '').toString();
-    final lastMessagePreview = (chatMeta?['lastMessage'] ?? '').toString();
-    final lastMessageTime = chatMeta?['lastMessageTime'] as Timestamp?;
-    final unreadCount = (chatMeta?['unreadCount_$currentUid'] as num?)?.toInt() ?? 0;
-    final bio = (user['bio'] ?? '').toString().trim();
+    final unreadCount = (meta?['unreadCount_$currentUid'] as num?)?.toInt() ?? 0;
     final isOnline = lastSeen is Timestamp &&
         DateTime.now().difference(lastSeen.toDate()) <= const Duration(minutes: 5);
-
-    final displayMessage = lastMessageRaw.isNotEmpty
-        ? lastMessageRaw
-        : lastMessagePreview.isNotEmpty
-            ? lastMessagePreview
-            : bio;
 
     return InkWell(
       onTap: onTap,
@@ -460,7 +826,7 @@ class _FriendRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         child: Row(
           children: [
-            // Larger Avatar with online dot
+            // Avatar
             Stack(
               clipBehavior: Clip.none,
               children: [
@@ -499,7 +865,7 @@ class _FriendRow extends StatelessWidget {
             ),
             const SizedBox(width: 14),
 
-            // Name + last message / bio
+            // Name + last message preview
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -520,7 +886,7 @@ class _FriendRow extends StatelessWidget {
                       ),
                       if (user['role'] == 'superuser') ...[
                         const SizedBox(width: 4),
-                        Icon(Icons.verified_rounded, color: U.red, size: 14),
+                        const SuperUserBadge(size: 14),
                       ],
                     ],
                   ),
@@ -540,7 +906,7 @@ class _FriendRow extends StatelessWidget {
             ),
             const SizedBox(width: 10),
 
-            // Right column: time + unread count badge
+            // Time & unread badge
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               mainAxisSize: MainAxisSize.min,

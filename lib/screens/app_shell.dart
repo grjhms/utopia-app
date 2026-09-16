@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'people_screen.dart';
 import 'focus_screen.dart';
 import 'profile_screen.dart';
+import 'university_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:share_plus/share_plus.dart';
@@ -37,6 +38,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
     const FocusScreen(),
     null,
     null,
+    null,
   ];
 
   Widget _getScreen(int index) {
@@ -46,6 +48,9 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
           _screens[index] = const PeopleScreen();
           break;
         case 2:
+          _screens[index] = const UniversityScreen();
+          break;
+        case 3:
           _screens[index] = const ProfileScreen();
           break;
       }
@@ -204,11 +209,10 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
     if (nextIndex == _index) {
       return;
     }
-    _pageController.animateToPage(
-      nextIndex,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
-    );
+    setState(() => _index = nextIndex);
+    if (_pageController.hasClients) {
+      _pageController.jumpToPage(nextIndex);
+    }
   }
 
   @override
@@ -255,13 +259,16 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                 PageView(
                   controller: _pageController,
                   onPageChanged: (index) {
-                    setState(() => _index = index);
+                    if (_index != index) {
+                      setState(() => _index = index);
+                    }
                   },
                   physics: const ClampingScrollPhysics(),
                   children: [
                     _KeepAliveWrapper(child: _getScreen(0)),
                     _KeepAliveWrapper(child: _getScreen(1)),
                     _KeepAliveWrapper(child: _getScreen(2)),
+                    _KeepAliveWrapper(child: _getScreen(3)),
                   ],
                 ),
                 // Floating Material 3 Expressive Capsule Nav Bar
@@ -321,7 +328,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                                       child: _NavItem(
                                         icon: Icons.groups_outlined,
                                         activeIcon: Icons.groups_rounded,
-                                        label: 'Campus',
+                                        label: 'People',
                                         isActive: _index == 1,
                                         isDark: isDark,
                                         onTap: () => _setIndex(1),
@@ -329,12 +336,22 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                                     ),
                                     Expanded(
                                       child: _NavItem(
-                                        icon: Icons.person_outline_rounded,
-                                        activeIcon: Icons.person_rounded,
-                                        label: 'Profile',
+                                        icon: Icons.school_outlined,
+                                        activeIcon: Icons.school_rounded,
+                                        label: 'Campus',
                                         isActive: _index == 2,
                                         isDark: isDark,
                                         onTap: () => _setIndex(2),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: _NavItem(
+                                        icon: Icons.person_outline_rounded,
+                                        activeIcon: Icons.person_rounded,
+                                        label: 'Profile',
+                                        isActive: _index == 3,
+                                        isDark: isDark,
+                                        onTap: () => _setIndex(3),
                                       ),
                                     ),
                                   ],

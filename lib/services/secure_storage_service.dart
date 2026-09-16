@@ -123,9 +123,44 @@ class SecureStorageService {
     return DateTime.fromMillisecondsSinceEpoch(ms);
   }
 
-  static Future<void> clearGoogleTokens() async {
-    await _storage.delete(key: _googleAccessTokenKey);
-    await _storage.delete(key: _googleRefreshTokenKey);
-    await _storage.delete(key: _googleTokenExpiryKey);
+  static const String _googleDriveAccessTokenKey = 'google_drive_access_token';
+  static const String _googleDriveEmailKey = 'google_drive_email';
+  static const String _googleDriveTokenExpiryKey = 'google_drive_token_expiry';
+  static const String _googleDriveConnectedKey = 'google_drive_connected';
+
+  static Future<void> saveGoogleDriveAuth({
+    required String accessToken,
+    required String email,
+    DateTime? expiry,
+  }) async {
+    await _storage.write(key: _googleDriveAccessTokenKey, value: accessToken);
+    await _storage.write(key: _googleDriveEmailKey, value: email);
+    await _storage.write(key: _googleDriveConnectedKey, value: 'true');
+    if (expiry != null) {
+      await _storage.write(
+        key: _googleDriveTokenExpiryKey,
+        value: expiry.millisecondsSinceEpoch.toString(),
+      );
+    }
+  }
+
+  static Future<String?> getGoogleDriveAccessToken() async {
+    return await _storage.read(key: _googleDriveAccessTokenKey);
+  }
+
+  static Future<String?> getGoogleDriveEmail() async {
+    return await _storage.read(key: _googleDriveEmailKey);
+  }
+
+  static Future<bool> isGoogleDriveConnected() async {
+    final val = await _storage.read(key: _googleDriveConnectedKey);
+    return val == 'true';
+  }
+
+  static Future<void> clearGoogleDriveAuth() async {
+    await _storage.delete(key: _googleDriveAccessTokenKey);
+    await _storage.delete(key: _googleDriveEmailKey);
+    await _storage.delete(key: _googleDriveTokenExpiryKey);
+    await _storage.delete(key: _googleDriveConnectedKey);
   }
 }

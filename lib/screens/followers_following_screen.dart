@@ -7,50 +7,34 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../main.dart';
 import '../services/follow_service.dart';
 import '../widgets/app_motion.dart';
+import '../widgets/superuser_badge.dart';
 import '../widgets/utopia_loader.dart';
 import '../widgets/wave_count_badge.dart';
 import 'user_profile_screen.dart';
 
-class FollowersFollowingScreen extends StatefulWidget {
-  const FollowersFollowingScreen({
+/// Screen displaying all mutually linked users for a given [uid].
+class LinksScreen extends StatefulWidget {
+  const LinksScreen({
     super.key,
     required this.uid,
     required this.displayName,
-    required this.showFollowers,
   });
 
   final String uid;
   final String displayName;
-  final bool showFollowers;
 
   @override
-  State<FollowersFollowingScreen> createState() => _FollowersFollowingScreenState();
+  State<LinksScreen> createState() => _LinksScreenState();
 }
 
-class _FollowersFollowingScreenState extends State<FollowersFollowingScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _LinksScreenState extends State<LinksScreen> {
   final FollowService _followService = FollowService();
   String get _currentUid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(
-      length: 2,
-      vsync: this,
-      initialIndex: widget.showFollowers ? 0 : 1,
-    );
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final isOwnProfile = widget.uid == _currentUid;
+
     return Scaffold(
       backgroundColor: U.bg,
       appBar: AppBar(
@@ -61,44 +45,57 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen>
           icon: Icon(Icons.arrow_back_ios_new_rounded, color: U.text, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
-          widget.displayName,
-          style: GoogleFonts.outfit(
-            color: U.text,
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: U.primary,
-          labelColor: U.primary,
-          unselectedLabelColor: U.dim,
-          labelStyle: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w600),
-          unselectedLabelStyle: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w500),
-          tabs: const [
-            Tab(text: 'Followers'),
-            Tab(text: 'Following'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isOwnProfile ? 'Your Links' : 'Links',
+              style: GoogleFonts.outfit(
+                color: U.text,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (!isOwnProfile)
+              Text(
+                widget.displayName,
+                style: GoogleFonts.outfit(
+                  color: U.sub,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _UserList(
-            uid: widget.uid,
-            isFollowers: true,
-            followService: _followService,
-            currentUid: _currentUid,
-          ),
-          _UserList(
-            uid: widget.uid,
-            isFollowers: false,
-            followService: _followService,
-            currentUid: _currentUid,
-          ),
-        ],
+      body: _UserList(
+        uid: widget.uid,
+        followService: _followService,
+        currentUid: _currentUid,
+        displayName: widget.displayName,
       ),
+    );
+  }
+}
+
+/// Backward compatibility adapter
+class FollowersFollowingScreen extends StatelessWidget {
+  const FollowersFollowingScreen({
+    super.key,
+    required this.uid,
+    required this.displayName,
+    this.showFollowers = true,
+  });
+
+  final String uid;
+  final String displayName;
+  final bool showFollowers;
+
+  @override
+  Widget build(BuildContext context) {
+    return LinksScreen(
+      uid: uid,
+      displayName: displayName,
     );
   }
 }
@@ -106,27 +103,23 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen>
 class _UserList extends StatelessWidget {
   const _UserList({
     required this.uid,
-    required this.isFollowers,
     required this.followService,
     required this.currentUid,
+    required this.displayName,
   });
 
   final String uid;
-  final bool isFollowers;
   final FollowService followService;
   final String currentUid;
+  final String displayName;
 
   @override
   Widget build(BuildContext context) {
-    final stream = isFollowers
-        ? followService.followersUidsStream(uid)
-        : followService.followingUidsStream(uid);
-
     return StreamBuilder<List<String>>(
-      stream: stream,
+      stream: followService.linkedUidsStream(uid),
       builder: (context, snap) {
         if (snap.hasError) {
-          debugPrint("Followers/Following Stream Error: ${snap.error}");
+          debugPrint("Links Stream Error: ${snap.error}");
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
@@ -136,7 +129,7 @@ class _UserList extends StatelessWidget {
                   Icon(Icons.error_outline_rounded, color: U.red, size: 36),
                   const SizedBox(height: 12),
                   Text(
-                    'Error loading list',
+                    'Error loading links',
                     style: GoogleFonts.outfit(color: U.text, fontSize: 15, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 4),
@@ -158,21 +151,30 @@ class _UserList extends StatelessWidget {
         final uids = snap.data ?? [];
 
         if (uids.isEmpty) {
+          final isOwn = uid == currentUid;
           return Center(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 32),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.people_outline, size: 40, color: U.dim),
+                  Icon(Icons.link_off_rounded, size: 44, color: U.dim),
                   const SizedBox(height: 16),
                   Text(
-                    isFollowers ? 'No followers yet' : 'Not following anyone yet',
+                    'No links yet',
                     style: GoogleFonts.outfit(
                       color: U.text,
-                      fontSize: 15,
+                      fontSize: 16,
                       fontWeight: FontWeight.w600,
                     ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    isOwn
+                        ? 'Head to People to discover classmates and link up!'
+                        : '$displayName hasn\'t linked with anyone yet.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.outfit(color: U.sub, fontSize: 13),
                   ),
                 ],
               ),
@@ -183,7 +185,7 @@ class _UserList extends StatelessWidget {
         return ListView.separated(
           padding: const EdgeInsets.symmetric(vertical: 8),
           itemCount: uids.length,
-          separatorBuilder: (_, __) => Divider(
+          separatorBuilder: (_, _) => Divider(
             color: U.border,
             height: 1,
             thickness: 0.5,
@@ -221,11 +223,104 @@ class _UserRow extends StatefulWidget {
 class _UserRowState extends State<_UserRow> {
   bool _loading = false;
 
-  Future<void> _toggleFollow(FollowStatus status) async {
+  Future<void> _handleLinkTap(LinkStatus status, String name) async {
     if (_loading) return;
+
+    if (status == LinkStatus.linked) {
+      final confirm = await showModalBottomSheet<bool>(
+        context: context,
+        backgroundColor: U.card,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: U.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Unlink with $name?',
+                  style: GoogleFonts.outfit(
+                    color: U.text,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Both of you will be unlinked and won\'t be able to direct message each other until linked again.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.outfit(color: U.sub, fontSize: 13),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: U.text,
+                          side: BorderSide(color: U.border),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: Text(
+                          'Cancel',
+                          style: GoogleFonts.outfit(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: U.red,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: Text(
+                          'Unlink',
+                          style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (confirm != true) return;
+    }
+
     setState(() => _loading = true);
     try {
-      await widget.followService.toggleFollow(widget.uid);
+      if (status == LinkStatus.linked) {
+        await widget.followService.unlink(widget.uid);
+      } else if (status == LinkStatus.requested) {
+        await widget.followService.cancelRequest(widget.uid);
+      } else if (status == LinkStatus.hasIncomingRequest) {
+        await widget.followService.acceptIncomingFrom(widget.uid);
+      } else {
+        await widget.followService.sendLinkRequest(widget.uid);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -237,16 +332,7 @@ class _UserRowState extends State<_UserRow> {
       stream: FirebaseFirestore.instance.collection('users').doc(widget.uid).snapshots(),
       builder: (context, snap) {
         if (snap.hasError) {
-          debugPrint("User Row Load Error: ${snap.error}");
-          return SizedBox(
-            height: 68,
-            child: Center(
-              child: Text(
-                'Error loading user: ${snap.error}',
-                style: GoogleFonts.outfit(color: U.red, fontSize: 11),
-              ),
-            ),
-          );
+          return const SizedBox.shrink();
         }
 
         if (!snap.hasData) {
@@ -321,7 +407,7 @@ class _UserRowState extends State<_UserRow> {
                           ),
                           if (isSuper) ...[
                             const SizedBox(width: 4),
-                            Icon(Icons.verified_rounded, color: U.red, size: 14),
+                            const SuperUserBadge(size: 14),
                           ],
                           const SizedBox(width: 6),
                           WaveCountBadge(count: wavesCount, compact: true),
@@ -339,14 +425,14 @@ class _UserRowState extends State<_UserRow> {
                 ),
                 if (widget.uid != widget.currentUid) ...[
                   const SizedBox(width: 10),
-                  StreamBuilder<FollowStatus>(
-                    stream: widget.followService.followStatusStream(widget.currentUid, widget.uid),
+                  StreamBuilder<LinkStatus>(
+                    stream: widget.followService.linkStatusStream(widget.currentUid, widget.uid),
                     builder: (context, statusSnap) {
-                      final status = statusSnap.data ?? FollowStatus.notFollowing;
-                      return _InlineFollowButton(
+                      final status = statusSnap.data ?? LinkStatus.notLinked;
+                      return _InlineLinkButton(
                         status: status,
                         loading: _loading,
-                        onTap: () => _toggleFollow(status),
+                        onTap: () => _handleLinkTap(status, displayName),
                       );
                     },
                   ),
@@ -360,39 +446,50 @@ class _UserRowState extends State<_UserRow> {
   }
 }
 
-class _InlineFollowButton extends StatelessWidget {
-  const _InlineFollowButton({
+class _InlineLinkButton extends StatelessWidget {
+  const _InlineLinkButton({
     required this.status,
     required this.loading,
     required this.onTap,
   });
 
-  final FollowStatus status;
+  final LinkStatus status;
   final bool loading;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     String label;
+    IconData icon;
     Color bg;
     Color fg;
     bool bordered;
 
     switch (status) {
-      case FollowStatus.notFollowing:
-        label = 'Follow';
+      case LinkStatus.notLinked:
+        label = 'Link Up';
+        icon = Icons.link_rounded;
         bg = U.primary;
-        fg = U.bg;
+        fg = U.getContrastColor(U.primary);
         bordered = false;
         break;
-      case FollowStatus.requested:
+      case LinkStatus.requested:
         label = 'Requested';
+        icon = Icons.schedule_rounded;
         bg = Colors.transparent;
         fg = U.sub;
         bordered = true;
         break;
-      case FollowStatus.following:
-        label = 'Following';
+      case LinkStatus.hasIncomingRequest:
+        label = 'Accept';
+        icon = Icons.check_rounded;
+        bg = U.primary;
+        fg = U.getContrastColor(U.primary);
+        bordered = false;
+        break;
+      case LinkStatus.linked:
+        label = 'Linked';
+        icon = Icons.link_rounded;
         bg = Colors.transparent;
         fg = U.text;
         bordered = true;
@@ -403,7 +500,7 @@ class _InlineFollowButton extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(8),
@@ -415,13 +512,20 @@ class _InlineFollowButton extends StatelessWidget {
                 height: 12,
                 child: CircularProgressIndicator(strokeWidth: 1.5),
               )
-            : Text(
-                label,
-                style: GoogleFonts.outfit(
-                  color: fg,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 13, color: fg),
+                  const SizedBox(width: 4),
+                  Text(
+                    label,
+                    style: GoogleFonts.outfit(
+                      color: fg,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
       ),
     );

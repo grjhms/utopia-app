@@ -1,10 +1,10 @@
-import 'dart:ui';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../main.dart';
 import '../theme/m3_expressive_theme.dart';
 import 'app_motion.dart';
+import '../utils/responsive_scale.dart';
 
 class MinimalNewsPill extends StatelessWidget {
   const MinimalNewsPill({super.key});
@@ -20,20 +20,25 @@ class MinimalNewsPill extends StatelessWidget {
     },
   ];
 
-  double _calculatePillWidth(String title) {
+  double _calculatePillWidth(String title, [ResponsiveScale? rs]) {
+    final fontSize = rs != null ? rs.font(11.5, min: 10.0, max: 13.5) : 11.5;
+    final maxW = rs != null ? rs.s(210.0, min: 170.0, max: 280.0) : 210.0;
     final textPainter = TextPainter(
       text: TextSpan(
         text: title,
         style: GoogleFonts.robotoFlex(
-          fontSize: 11.5,
+          fontSize: fontSize,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.1,
         ),
       ),
       maxLines: 1,
       textDirection: TextDirection.ltr,
-    )..layout(maxWidth: 210.0);
-    return (textPainter.width + 46.0).clamp(80.0, 250.0);
+    )..layout(maxWidth: maxW);
+    final extra = rs != null ? rs.s(46.0, min: 38.0, max: 54.0) : 46.0;
+    final minLimit = rs != null ? rs.s(80.0, min: 70.0, max: 100.0) : 80.0;
+    final maxLimit = rs != null ? rs.s(260.0, min: 210.0, max: 320.0) : 250.0;
+    return (textPainter.width + extra).clamp(minLimit, maxLimit);
   }
 
   void _showNewsDetails(BuildContext context, List<Map<String, String>> items, int index) {
@@ -155,7 +160,6 @@ class MinimalNewsPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = appThemeNotifier.value.isDark;
     final pillColor = U.primary;
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -204,7 +208,8 @@ class MinimalNewsPill extends StatelessWidget {
 
         final activeItem = newsItems.first;
         final activeTitle = activeItem['title'] ?? '';
-        final pillWidth = _calculatePillWidth(activeTitle);
+        final rs = ResponsiveScale.of(context);
+        final pillWidth = _calculatePillWidth(activeTitle, rs);
 
         return M3Pressable(
           onTap: () {
@@ -214,7 +219,10 @@ class MinimalNewsPill extends StatelessWidget {
           borderRadius: M3Shapes.fullRadius,
           child: Container(
             width: pillWidth,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            padding: EdgeInsets.symmetric(
+              horizontal: rs.s(16, min: 12, max: 20),
+              vertical: rs.s(10, min: 8, max: 13),
+            ),
             decoration: BoxDecoration(
               color: U.surfaceContainerHigh,
               borderRadius: M3Shapes.fullRadius,
@@ -230,12 +238,12 @@ class MinimalNewsPill extends StatelessWidget {
                   children: [
                     Icon(
                       Icons.newspaper_rounded,
-                      size: 15,
+                      size: rs.s(15, min: 13, max: 18),
                       color: pillColor,
                     ),
                     Container(
-                      width: 5,
-                      height: 5,
+                      width: rs.s(5, min: 4, max: 7),
+                      height: rs.s(5, min: 4, max: 7),
                       decoration: const BoxDecoration(
                         color: Colors.redAccent,
                         shape: BoxShape.circle,
@@ -243,14 +251,14 @@ class MinimalNewsPill extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: rs.s(8, min: 6, max: 10)),
                 Expanded(
                   child: Text(
                     activeTitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.robotoFlex(
-                      fontSize: 12,
+                      fontSize: rs.font(12, min: 10.5, max: 14),
                       fontWeight: FontWeight.w700,
                       color: U.text,
                       letterSpacing: 0.1,

@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import '../main.dart';
 
-/// A theme-reactive red / crimson verification badge for superusers.
-/// Dynamically adapts to the active theme palette via [U.red].
+/// A verification badge for superusers displaying the Utopia icon.
 class SuperUserBadge extends StatelessWidget {
   const SuperUserBadge({
     super.key,
@@ -13,10 +11,20 @@ class SuperUserBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Icon(
-      Icons.verified_rounded,
-      color: U.red,
-      size: size,
+    return Container(
+      width: size,
+      height: size,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+      ),
+      child: ClipOval(
+        child: Image.asset(
+          'assets/icon_cropped.png',
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+        ),
+      ),
     );
   }
 }

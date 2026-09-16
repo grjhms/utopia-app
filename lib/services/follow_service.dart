@@ -2,8 +2,29 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
-enum FollowStatus { notFollowing, requested, following }
+import '../main.dart';
+import 'notification_service.dart';
+
+enum LinkStatus {
+  notLinked,
+  requested, // current user sent link request to target
+  hasIncomingRequest, // target user sent link request to current user
+  linked; // mutually linked (one accepts, both are linked)
+
+  bool get isLinked => this == LinkStatus.linked;
+  bool get isRequested => this == LinkStatus.requested;
+  bool get hasIncoming => this == LinkStatus.hasIncomingRequest;
+  bool get isNotLinked => this == LinkStatus.notLinked;
+
+  // Backward-compatibility aliases for legacy FollowStatus code
+  static const LinkStatus notFollowing = LinkStatus.notLinked;
+  static const LinkStatus following = LinkStatus.linked;
+}
+
+/// Backward compatibility typedef
+typedef FollowStatus = LinkStatus;
 
 class FollowService {
   static final FollowService _instance = FollowService._internal();
@@ -14,18 +35,8 @@ class FollowService {
 
   // ─── Reads ────────────────────────────────────────────────────────────────
 
-  /// Stream of followers count for a user.
-  Stream<int> followersCountStream(String uid) {
-    return _db
-        .collection('follows')
-        .where('followingId', isEqualTo: uid)
-        .where('status', isEqualTo: 'accepted')
-        .snapshots()
-        .map((s) => s.size);
-  }
-
-  /// Stream of following count for a user.
-  Stream<int> followingCountStream(String uid) {
+  /// Stream of total linked users count for [uid].
+  Stream<int> linksCountStream(String uid) {
     return _db
         .collection('follows')
         .where('followerId', isEqualTo: uid)
@@ -34,26 +45,95 @@ class FollowService {
         .map((s) => s.size);
   }
 
-  /// Returns the follow status of [currentUid] → [targetUid].
-  Stream<FollowStatus> followStatusStream(
-      String currentUid, String targetUid) {
-    return _db
+  /// Backward-compatibility aliases
+  Stream<int> followersCountStream(String uid) => linksCountStream(uid);
+  Stream<int> followingCountStream(String uid) => linksCountStream(uid);
+
+  /// Returns the mutual link status between [currentUid] and [targetUid].
+  Stream<LinkStatus> linkStatusStream(String currentUid, String targetUid) {
+    if (currentUid.isEmpty || targetUid.isEmpty || currentUid == targetUid) {
+      return Stream.value(LinkStatus.notLinked);
+    }
+
+    final outgoingStream = _db
         .collection('follows')
         .where('followerId', isEqualTo: currentUid)
         .where('followingId', isEqualTo: targetUid)
-        .limit(1)
-        .snapshots()
-        .map((s) {
-      if (s.docs.isEmpty) return FollowStatus.notFollowing;
-      final status = s.docs.first.data()['status'] as String?;
-      if (status == 'accepted') return FollowStatus.following;
-      if (status == 'pending') return FollowStatus.requested;
-      return FollowStatus.notFollowing;
-    });
+        .snapshots();
+
+    final incomingStream = _db
+        .collection('follows')
+        .where('followerId', isEqualTo: targetUid)
+        .where('followingId', isEqualTo: currentUid)
+        .snapshots();
+
+    late StreamController<LinkStatus> controller;
+    QuerySnapshot<Map<String, dynamic>>? lastOutgoing;
+    QuerySnapshot<Map<String, dynamic>>? lastIncoming;
+    StreamSubscription? subOut;
+    StreamSubscription? subIn;
+
+    void update() {
+      if (controller.isClosed) return;
+
+      final outDocs = lastOutgoing?.docs ?? [];
+      final inDocs = lastIncoming?.docs ?? [];
+
+      final outAccepted = outDocs.any((d) => d.data()['status'] == 'accepted');
+      final inAccepted = inDocs.any((d) => d.data()['status'] == 'accepted');
+
+      if (outAccepted || inAccepted) {
+        controller.add(LinkStatus.linked);
+        return;
+      }
+
+      final outPending = outDocs.any((d) => d.data()['status'] == 'pending');
+      if (outPending) {
+        controller.add(LinkStatus.requested);
+        return;
+      }
+
+      final inPending = inDocs.any((d) => d.data()['status'] == 'pending');
+      if (inPending) {
+        controller.add(LinkStatus.hasIncomingRequest);
+        return;
+      }
+
+      controller.add(LinkStatus.notLinked);
+    }
+
+    controller = StreamController<LinkStatus>(
+      onListen: () {
+        subOut = outgoingStream.listen((snap) {
+          lastOutgoing = snap;
+          update();
+        }, onError: (e) {
+          debugPrint('outgoingStream error: $e');
+        });
+
+        subIn = incomingStream.listen((snap) {
+          lastIncoming = snap;
+          update();
+        }, onError: (e) {
+          debugPrint('incomingStream error: $e');
+        });
+      },
+      onCancel: () {
+        subOut?.cancel();
+        subIn?.cancel();
+      },
+    );
+
+    return controller.stream.distinct();
   }
 
-  /// List of UIDs that [uid] is following (accepted only).
-  Stream<List<String>> followingUidsStream(String uid) {
+  /// Backward compatibility stream
+  Stream<FollowStatus> followStatusStream(String currentUid, String targetUid) {
+    return linkStatusStream(currentUid, targetUid);
+  }
+
+  /// List of UIDs that [uid] is linked with (accepted only).
+  Stream<List<String>> linkedUidsStream(String uid) {
     return _db
         .collection('follows')
         .where('followerId', isEqualTo: uid)
@@ -65,20 +145,11 @@ class FollowService {
             .toList());
   }
 
-  /// List of UIDs that follow [uid] (accepted only).
-  Stream<List<String>> followersUidsStream(String uid) {
-    return _db
-        .collection('follows')
-        .where('followingId', isEqualTo: uid)
-        .where('status', isEqualTo: 'accepted')
-        .snapshots()
-        .map((s) => s.docs
-            .map((d) => (d.data()['followerId'] ?? '') as String)
-            .where((id) => id.isNotEmpty)
-            .toList());
-  }
+  /// Backward compatibility aliases
+  Stream<List<String>> followingUidsStream(String uid) => linkedUidsStream(uid);
+  Stream<List<String>> followersUidsStream(String uid) => linkedUidsStream(uid);
 
-  /// Pending follow requests sent TO [uid] (i.e., other people who want to follow them).
+  /// Pending link requests sent TO [uid] (i.e. classmates who want to link up).
   Stream<List<Map<String, dynamic>>> pendingRequestsStream(String uid) {
     return _db
         .collection('follows')
@@ -107,7 +178,7 @@ class FollowService {
     });
   }
 
-  /// Count of pending requests for [uid].
+  /// Count of pending link requests for [uid].
   Stream<int> pendingRequestsCountStream(String uid) {
     return _db
         .collection('follows')
@@ -117,9 +188,11 @@ class FollowService {
         .map((s) => s.size);
   }
 
-  /// Check if [currentUid] can chat with [otherUid] (at least one follows the other).
+  /// Check if [currentUid] can chat with [otherUid] (must be linked).
   Future<bool> canChat(String currentUid, String otherUid) async {
-    // check current follows other
+    if (currentUid.isEmpty || otherUid.isEmpty || currentUid == otherUid) {
+      return false;
+    }
     final a = await _db
         .collection('follows')
         .where('followerId', isEqualTo: currentUid)
@@ -128,8 +201,7 @@ class FollowService {
         .limit(1)
         .get();
     if (a.docs.isNotEmpty) return true;
-    
-    // check other follows current
+
     final b = await _db
         .collection('follows')
         .where('followerId', isEqualTo: otherUid)
@@ -194,13 +266,29 @@ class FollowService {
 
   // ─── Writes ───────────────────────────────────────────────────────────────
 
-  /// Send or cancel a follow request / unfollow.
-  Future<void> toggleFollow(String targetUid) async {
+  /// Send a link request to [targetUid].
+  /// If [targetUid] already requested to link with currentUid, automatically accepts so both are linked!
+  Future<void> sendLinkRequest(String targetUid) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     final currentUid = user.uid;
     if (currentUid == targetUid) return;
 
+    // 1. If target already requested to link with us, accept immediately
+    final incoming = await _db
+        .collection('follows')
+        .where('followerId', isEqualTo: targetUid)
+        .where('followingId', isEqualTo: currentUid)
+        .where('status', isEqualTo: 'pending')
+        .limit(1)
+        .get();
+
+    if (incoming.docs.isNotEmpty) {
+      await acceptRequest(incoming.docs.first.id);
+      return;
+    }
+
+    // 2. Check if already linked or request already sent
     final existing = await _db
         .collection('follows')
         .where('followerId', isEqualTo: currentUid)
@@ -208,22 +296,34 @@ class FollowService {
         .limit(1)
         .get();
 
-    if (existing.docs.isNotEmpty) {
-      // Already following or requested → remove
-      await existing.docs.first.reference.delete();
-    } else {
-      // Send a follow request (always pending – target must accept)
+    if (existing.docs.isEmpty) {
       await _db.collection('follows').add({
         'followerId': currentUid,
         'followingId': targetUid,
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
       });
+
+      // Dispatch push notification to target user
+      try {
+        final senderName = UtopiaApp.sanitizeDisplayName(
+          user.displayName ?? user.email?.split('@').first ?? 'Classmate',
+        );
+        await NotificationService.dispatchPushNotification(
+          recipientId: targetUid,
+          title: 'New Link Request 🔗',
+          message: '$senderName wants to link up with you on UTOPIA',
+          type: 'link_request',
+        );
+      } catch (e) {
+        debugPrint('Error dispatching link_request notification: $e');
+      }
     }
   }
 
-  /// Accept a follow request (doc identified by [requestDocId]).
-  /// Automatically creates mutual follow so both users follow each other and become friends.
+  /// Accept a link request (doc identified by [requestDocId]).
+  /// "one accepts, both are linked": Updates the request doc to accepted AND
+  /// creates/updates the reverse doc to accepted so both users are mutually linked.
   Future<void> acceptRequest(String requestDocId) async {
     final requestDoc = await _db.collection('follows').doc(requestDocId).get();
     if (!requestDoc.exists) return;
@@ -231,21 +331,21 @@ class FollowService {
     final data = requestDoc.data();
     if (data == null) return;
 
-    final followerId = (data['followerId'] ?? '').toString();
-    final followingId = (data['followingId'] ?? '').toString();
+    final requesterId = (data['followerId'] ?? '').toString();
+    final receiverId = (data['followingId'] ?? '').toString();
 
-    // 1. Accept original follow request
-    await _db
-        .collection('follows')
-        .doc(requestDocId)
-        .update({'status': 'accepted', 'acceptedAt': FieldValue.serverTimestamp()});
+    // 1. Accept original link request
+    await _db.collection('follows').doc(requestDocId).update({
+      'status': 'accepted',
+      'acceptedAt': FieldValue.serverTimestamp(),
+    });
 
-    // 2. Automatically create/update reverse follow so both users follow each other (mutual friends)
-    if (followerId.isNotEmpty && followingId.isNotEmpty) {
+    // 2. Automatically create/update reverse doc so BOTH are linked
+    if (requesterId.isNotEmpty && receiverId.isNotEmpty) {
       final reverseExisting = await _db
           .collection('follows')
-          .where('followerId', isEqualTo: followingId)
-          .where('followingId', isEqualTo: followerId)
+          .where('followerId', isEqualTo: receiverId)
+          .where('followingId', isEqualTo: requesterId)
           .limit(1)
           .get();
 
@@ -256,35 +356,156 @@ class FollowService {
         });
       } else {
         await _db.collection('follows').add({
-          'followerId': followingId,
-          'followingId': followerId,
+          'followerId': receiverId,
+          'followingId': requesterId,
           'status': 'accepted',
           'createdAt': FieldValue.serverTimestamp(),
           'acceptedAt': FieldValue.serverTimestamp(),
         });
       }
+
+      // 3. Dispatch push notification to the original requester
+      try {
+        final currentUser = FirebaseAuth.instance.currentUser;
+        final accepterName = UtopiaApp.sanitizeDisplayName(
+          currentUser?.displayName ?? currentUser?.email?.split('@').first ?? 'Classmate',
+        );
+        await NotificationService.dispatchPushNotification(
+          recipientId: requesterId,
+          title: 'Linked Up! 🔗',
+          message: '$accepterName accepted your link request. You are now linked!',
+          type: 'link_accept',
+        );
+      } catch (e) {
+        debugPrint('Error dispatching link_accept notification: $e');
+      }
     }
   }
 
-  /// Decline / ignore a follow request.
-  Future<void> declineRequest(String requestDocId) async {
-    await _db.collection('follows').doc(requestDocId).delete();
-  }
+  /// Accept an incoming link request from a specific [targetUid].
+  Future<void> acceptIncomingFrom(String targetUid) async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (currentUid.isEmpty || targetUid.isEmpty) return;
 
-  /// Remove a follower (i.e., remove their accepted follow of you).
-  Future<void> removeFollower(String followerUid) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    final existing = await _db
+    final incoming = await _db
         .collection('follows')
-        .where('followerId', isEqualTo: followerUid)
-        .where('followingId', isEqualTo: user.uid)
+        .where('followerId', isEqualTo: targetUid)
+        .where('followingId', isEqualTo: currentUid)
+        .where('status', isEqualTo: 'pending')
         .limit(1)
         .get();
+
+    if (incoming.docs.isNotEmpty) {
+      await acceptRequest(incoming.docs.first.id);
+    }
+  }
+
+  /// Cancel an outgoing pending link request to [targetUid].
+  Future<void> cancelRequest(String targetUid) async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (currentUid.isEmpty || targetUid.isEmpty) return;
+
+    final existing = await _db
+        .collection('follows')
+        .where('followerId', isEqualTo: currentUid)
+        .where('followingId', isEqualTo: targetUid)
+        .where('status', isEqualTo: 'pending')
+        .get();
+
     for (final doc in existing.docs) {
       await doc.reference.delete();
     }
   }
+
+  /// Unlink both users mutually. Deletes documents in BOTH directions.
+  Future<void> unlink(String targetUid) async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (currentUid.isEmpty || targetUid.isEmpty) return;
+
+    // 1. Delete outgoing link doc
+    final outDocs = await _db
+        .collection('follows')
+        .where('followerId', isEqualTo: currentUid)
+        .where('followingId', isEqualTo: targetUid)
+        .get();
+    for (final doc in outDocs.docs) {
+      await doc.reference.delete();
+    }
+
+    // 2. Delete reverse link doc
+    final inDocs = await _db
+        .collection('follows')
+        .where('followerId', isEqualTo: targetUid)
+        .where('followingId', isEqualTo: currentUid)
+        .get();
+    for (final doc in inDocs.docs) {
+      await doc.reference.delete();
+    }
+  }
+
+  /// Decline / ignore a link request.
+  Future<void> declineRequest(String requestDocId) async {
+    await _db.collection('follows').doc(requestDocId).delete();
+  }
+
+  /// Remove link with [uid] (alias to unlink).
+  Future<void> removeFollower(String uid) => unlink(uid);
+
+  /// Toggle link helper:
+  /// - If linked: unlinks both.
+  /// - If requested: cancels request.
+  /// - If has incoming request: accepts request.
+  /// - If not linked: sends link request.
+  Future<void> toggleLink(String targetUid) async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (currentUid.isEmpty || targetUid.isEmpty || currentUid == targetUid) return;
+
+    // 1. Check incoming request
+    final incoming = await _db
+        .collection('follows')
+        .where('followerId', isEqualTo: targetUid)
+        .where('followingId', isEqualTo: currentUid)
+        .limit(1)
+        .get();
+
+    if (incoming.docs.isNotEmpty) {
+      final inStatus = incoming.docs.first.data()['status'] as String?;
+      if (inStatus == 'pending') {
+        await acceptRequest(incoming.docs.first.id);
+        return;
+      }
+    }
+
+    // 2. Check outgoing
+    final outgoing = await _db
+        .collection('follows')
+        .where('followerId', isEqualTo: currentUid)
+        .where('followingId', isEqualTo: targetUid)
+        .limit(1)
+        .get();
+
+    if (outgoing.docs.isNotEmpty) {
+      final outStatus = outgoing.docs.first.data()['status'] as String?;
+      if (outStatus == 'accepted') {
+        await unlink(targetUid);
+      } else {
+        await outgoing.docs.first.reference.delete();
+      }
+      return;
+    }
+
+    if (incoming.docs.isNotEmpty) {
+      // Reverse link was accepted -> unlink both
+      await unlink(targetUid);
+      return;
+    }
+
+    // 3. Not linked -> send link request
+    await sendLinkRequest(targetUid);
+  }
+
+  /// Legacy alias
+  Future<void> toggleFollow(String targetUid) => toggleLink(targetUid);
 
   // ─── Bio helpers ──────────────────────────────────────────────────────────
 
@@ -297,3 +518,6 @@ class FollowService {
     );
   }
 }
+
+/// Backward compatibility class alias
+typedef LinkService = FollowService;

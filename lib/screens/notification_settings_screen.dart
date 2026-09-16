@@ -251,10 +251,10 @@ class _NotificationSettingsScreenState
                   ),
                   _buildDivider(),
                   _buildToggleTile(
-                    icon: Icons.person_add_outlined,
-                    title: 'Follows & Requests',
+                    icon: Icons.link_rounded,
+                    title: 'Link Ups & Requests',
                     subtitle:
-                        'Alerts when someone follows you or accepts your request',
+                        'Alerts when someone sends you a link request or accepts',
                     value: _followsEnabled,
                     onChanged: (val) => _updatePreference('follows', val),
                   ),
