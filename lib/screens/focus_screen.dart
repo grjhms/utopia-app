@@ -518,7 +518,7 @@ class _FocusScreenState extends State<FocusScreen> {
           if (roll != null) {
             final cachedAttendance = await AttendanceCacheService.load(roll);
             if (cachedAttendance != null) {
-              attendancePct = cachedAttendance.data['overallPercentage'] as double?;
+              attendancePct = (cachedAttendance.data['overallPercentage'] as num?)?.toDouble();
               studentName = (cachedAttendance.data['studentName'] as String? ?? '').trim();
               lastFetched = cachedAttendance.cachedAt;
             } else {
