@@ -13,16 +13,18 @@ import 'people_screen.dart'; // ignore: unused_import
 import 'friends_screen.dart'; // ignore: unused_import
 import 'uni_chat_screen.dart'; // ignore: unused_import
 import 'docs_screen.dart';
+import 'drive_notebooks_screen.dart';
 import 'events_screen.dart';
 import 'event_notifications_screen.dart';
 import '../services/cache_service.dart';
 import '../services/event_service.dart';
 import '../services/notification_service.dart';
 import '../models/event_model.dart';
-import 'community_notes_screen.dart'; // ignore: unused_import
+import 'community_notes_screen.dart';
 import 'classes_screen.dart';
 import 'timetable_screen.dart';
 import 'assignments_screen.dart';
+import 'sciwordle_screen.dart';
 import '../theme/m3_expressive_theme.dart';
 import '../widgets/app_motion.dart';
 
@@ -226,6 +228,18 @@ class _UniversityScreenState extends State<UniversityScreen> {
           MaterialPageRoute(builder: (_) => const DocsScreen()),
         ),
       ),
+      _CardItem(
+        title: 'Drive Folders',
+        subtitle: 'Link & sync\nGoogle Drive',
+        icon: Icons.add_to_drive_rounded,
+        color: theme.teal,
+        delay: 180,
+        showBetaBadge: true,
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const DriveNotebooksScreen()),
+        ),
+      ),
       /*
       _CardItem(
         title: 'IAA',
@@ -238,24 +252,23 @@ class _UniversityScreenState extends State<UniversityScreen> {
           IAAScreen.route(),
         ),
       ),
+      */
       _CardItem(
         title: 'Community Notes',
         subtitle: 'Campus notes &\nstudy materials',
         icon: Icons.menu_book_outlined,
         color: theme.blue,
-        delay: 450,
+        delay: 190,
         onTap: () async {
-          if (_universityId.isNotEmpty) {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => CommunityNotesScreen(universityFolderName: _universityId),
-              ),
-            );
-          }
+          final uniId = _universityId.isNotEmpty ? _universityId : 'support';
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CommunityNotesScreen(universityFolderName: uniId),
+            ),
+          );
         },
       ),
-      */
       _CardItem(
         title: 'My Classes',
         subtitle: 'Study groups &\nshared folders',
@@ -287,6 +300,18 @@ class _UniversityScreenState extends State<UniversityScreen> {
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const TimetableScreen()),
+        ),
+      ),
+      _CardItem(
+        title: 'SciWordle',
+        subtitle: 'Daily science\nword puzzle',
+        icon: Icons.psychology_rounded,
+        color: theme.green,
+        delay: 300,
+        showBetaBadge: true,
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const SciwordleScreen()),
         ),
       ),
     ];
@@ -410,6 +435,7 @@ class _UniversityScreenState extends State<UniversityScreen> {
                       isDisabled: card.isDisabled,
                       delay: card.delay,
                       onTap: card.onTap,
+                      showBetaBadge: card.showBetaBadge,
                     );
                   },
                 ),
@@ -429,6 +455,7 @@ class _CardItem {
   final bool isDisabled;
   final int delay;
   final VoidCallback onTap;
+  final bool showBetaBadge;
 
   _CardItem({
     required this.title,
@@ -438,6 +465,7 @@ class _CardItem {
     this.isDisabled = false,
     required this.delay,
     required this.onTap,
+    this.showBetaBadge = false,
   });
 }
 
@@ -528,6 +556,7 @@ class _UniversityCard extends StatelessWidget {
   final bool isDisabled;
   final VoidCallback onTap;
   final int delay;
+  final bool showBetaBadge;
 
   const _UniversityCard({
     required this.title,
@@ -537,6 +566,7 @@ class _UniversityCard extends StatelessWidget {
     this.isDisabled = false,
     required this.onTap,
     required this.delay,
+    this.showBetaBadge = false,
   });
 
   @override
@@ -610,7 +640,7 @@ class _UniversityCard extends StatelessWidget {
       ),
     );
 
-    return M3Pressable(
+    final card = M3Pressable(
       onTap: onTap,
       scaleFactor: 0.95,
       borderRadius: M3Shapes.cardRadius,
@@ -620,7 +650,42 @@ class _UniversityCard extends StatelessWidget {
               child: cardContent,
             )
           : cardContent,
-    ).animate().fadeIn(delay: delay.ms, duration: 400.ms).slideY(
+    );
+
+    final content = showBetaBadge
+        ? Stack(
+            clipBehavior: Clip.none,
+            children: [
+              card,
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                  decoration: BoxDecoration(
+                    color: U.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: U.primary.withValues(alpha: 0.3),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: Text(
+                    'BETA',
+                    style: GoogleFonts.robotoFlex(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: U.primary,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          )
+        : card;
+
+    return content.animate().fadeIn(delay: delay.ms, duration: 400.ms).slideY(
           begin: 0.1,
           end: 0,
           delay: delay.ms,

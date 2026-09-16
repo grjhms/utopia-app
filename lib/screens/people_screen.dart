@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
 import '../services/follow_service.dart';
@@ -22,6 +23,7 @@ import '../widgets/utopia_wave_button.dart';
 import '../widgets/wave_count_badge.dart';
 import 'chat_screen.dart';
 import 'friends_screen.dart';
+import 'link_graph_screen.dart';
 import 'user_profile_screen.dart';
 import '../theme/m3_expressive_theme.dart';
 
@@ -58,7 +60,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
   final PeopleInteractionService _interactionService = PeopleInteractionService();
   final FollowService _followService = FollowService();
 
-  PeopleViewMode _viewMode = PeopleViewMode.grid;
+  PeopleViewMode _viewMode = PeopleViewMode.list;
   String _selectedFilter = 'All'; // 'All', 'My Branch', 'Active', or Branch name
   String _selectedBranch = 'All';
   bool _hasAutoPromptedBranch = false;
@@ -73,6 +75,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
   @override
   void initState() {
     super.initState();
+    _loadViewMode();
     _usersStream = FirebaseFirestore.instance
         .collection('users')
         .orderBy('displayName')
@@ -89,6 +92,18 @@ class _PeopleScreenState extends State<PeopleScreen> {
     _searchController.addListener(() {
       if (mounted) setState(() {});
     });
+  }
+
+  Future<void> _loadViewMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final mode = prefs.getString('people_view_mode');
+      if (mode != null && mounted) {
+        setState(() {
+          _viewMode = mode == 'grid' ? PeopleViewMode.grid : PeopleViewMode.list;
+        });
+      }
+    } catch (_) {}
   }
 
   @override
@@ -287,12 +302,16 @@ class _PeopleScreenState extends State<PeopleScreen> {
               final email = (u['email'] ?? '').toString().toLowerCase();
               final b = branch.toLowerCase();
               final insta = (u['instagramId'] ?? '').toString().toLowerCase();
+              final gh = (u['githubId'] ?? u['githubUsername'] ?? '').toString().toLowerCase();
+              final dc = (u['discordId'] ?? u['discordUsername'] ?? '').toString().toLowerCase();
               final vibeText = activeVibesMap[uid]?.text.toLowerCase() ?? '';
 
               return name.contains(query) ||
                   email.contains(query) ||
                   b.contains(query) ||
                   insta.contains(query) ||
+                  gh.contains(query) ||
+                  dc.contains(query) ||
                   bio.contains(query) ||
                   vibeText.contains(query);
             }).toList()
@@ -436,6 +455,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
                                     ? PeopleViewMode.list
                                     : PeopleViewMode.grid;
                               });
+                              SharedPreferences.getInstance().then((prefs) {
+                                prefs.setString(
+                                  'people_view_mode',
+                                  _viewMode == PeopleViewMode.grid ? 'grid' : 'list',
+                                );
+                              }).catchError((_) {});
                             },
                             borderRadius: BorderRadius.circular(16),
                             child: AnimatedContainer(
@@ -467,6 +492,64 @@ class _PeopleScreenState extends State<PeopleScreen> {
                                 ),
                               ),
                             ),
+                          ),
+                          const SizedBox(width: 8),
+
+                          // Graph View Toggle Button (full-screen Obsidian-style link graph)
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Tooltip(
+                                message: 'Link Graph View',
+                                child: M3Pressable(
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    _searchFocusNode.unfocus();
+                                    Navigator.of(context).push(
+                                      buildGraphCrossfadeRoute(const LinkGraphScreen()),
+                                    );
+                                  },
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      color: U.surfaceContainerHigh,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: U.outlineVariant.withValues(alpha: 0.35),
+                                        width: 0.8,
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      Icons.hub_outlined,
+                                      color: U.text,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                top: -4,
+                                right: -6,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: U.primary,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'BETA',
+                                    style: GoogleFonts.robotoFlex(
+                                      fontSize: 7,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -1547,6 +1630,8 @@ class _PeerGridCardState extends State<_PeerGridCard> {
     final branch = (widget.user['branch'] ?? '').toString().trim();
     final isSuperuser = widget.user['role'] == 'superuser';
     final instagramId = (widget.user['instagramId'] ?? '').toString().trim();
+    final githubId = (widget.user['githubId'] ?? widget.user['githubUsername'] ?? '').toString().trim();
+    final discordId = (widget.user['discordId'] ?? widget.user['discordUsername'] ?? '').toString().trim();
     final isMe = uid == widget.currentUid;
     final hasActiveVibe = widget.vibe != null;
 
@@ -1557,30 +1642,56 @@ class _PeerGridCardState extends State<_PeerGridCard> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOutCubic,
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          color: U.surfaceContainerLow,
+          color: hasActiveVibe
+              ? Color.alphaBlend(U.primary.withValues(alpha: 0.06), U.surfaceContainerLow)
+              : U.surfaceContainerLow,
           borderRadius: M3Shapes.cardRadius,
           border: Border.all(
-            color: hasActiveVibe
-                ? U.primary.withValues(alpha: 0.55)
-                : U.outlineVariant.withValues(alpha: 0.35),
-            width: hasActiveVibe ? 1.6 : 0.8,
+            color: U.outlineVariant.withValues(alpha: 0.35),
+            width: 0.8,
           ),
           boxShadow: hasActiveVibe
               ? [
                   BoxShadow(
-                    color: U.primary.withValues(alpha: 0.08),
-                    blurRadius: 10,
+                    color: U.primary.withValues(alpha: 0.10),
+                    blurRadius: 12,
+                    spreadRadius: -2,
                     offset: const Offset(0, 4),
                   ),
                 ]
               : null,
         ),
-        padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+        padding: EdgeInsets.zero,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            // Modern top accent bar for active status
+            if (hasActiveVibe)
+              Container(
+                height: 3.5,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      U.primary.withValues(alpha: 0.85),
+                      U.primary.withValues(alpha: 0.40),
+                    ],
+                  ),
+                ),
+              )
+            else
+              const SizedBox(height: 3.5),
+            const SizedBox(height: 10.5),
+            // Content with inner padding (after the edge-to-edge accent bar)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
             // Squircle Avatar / Status Container
             Stack(
               clipBehavior: Clip.none,
@@ -1737,6 +1848,14 @@ class _PeerGridCardState extends State<_PeerGridCard> {
                   const SizedBox(width: 3),
                   InstagramBadge(handle: instagramId, iconSize: 11, showHandle: false),
                 ],
+                if (githubId.isNotEmpty) ...[
+                  const SizedBox(width: 3),
+                  GithubBadge(handle: githubId, iconSize: 11, showHandle: false),
+                ],
+                if (discordId.isNotEmpty) ...[
+                  const SizedBox(width: 3),
+                  DiscordBadge(handle: discordId, iconSize: 11, showHandle: false),
+                ],
               ],
             ),
 
@@ -1792,6 +1911,10 @@ class _PeerGridCardState extends State<_PeerGridCard> {
                   ),
                 ),
               ),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -1838,11 +1961,118 @@ class _PeerListTileState extends State<_PeerListTile> {
     });
   }
 
-  Future<void> _handleFollow(FollowStatus status) async {
+  Future<void> _handleFollow(LinkStatus status) async {
     if (_loadingFollow) return;
+    final name = UtopiaApp.sanitizeDisplayName((widget.user['displayName'] ?? 'Student').toString());
+    final targetUid = widget.user['uid'].toString();
+
+    if (status == LinkStatus.linked) {
+      final confirm = await showModalBottomSheet<bool>(
+        context: context,
+        backgroundColor: U.card,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: U.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Unlink with $name?',
+                  style: GoogleFonts.outfit(
+                    color: U.text,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Both of you will be unlinked and won\'t be able to direct message each other until linked again.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.outfit(color: U.sub, fontSize: 13),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: U.text,
+                          side: BorderSide(color: U.border),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: Text(
+                          'Cancel',
+                          style: GoogleFonts.outfit(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: U.red,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: Text(
+                          'Unlink',
+                          style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (confirm != true) return;
+    }
+
     setState(() => _loadingFollow = true);
     try {
-      await widget.followService.toggleFollow(widget.user['uid'].toString());
+      if (status == LinkStatus.linked) {
+        await widget.followService.unlink(targetUid);
+      } else if (status == LinkStatus.requested) {
+        await widget.followService.cancelRequest(targetUid);
+      } else if (status == LinkStatus.hasIncomingRequest) {
+        await widget.followService.acceptIncomingFrom(targetUid);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            backgroundColor: U.card,
+            content: Text('Linked up with $name! 🔗', style: GoogleFonts.outfit(color: U.text)),
+          ));
+        }
+      } else {
+        await widget.followService.sendLinkRequest(targetUid);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            backgroundColor: U.card,
+            content: Text('Link request sent to $name', style: GoogleFonts.outfit(color: U.text)),
+          ));
+        }
+      }
     } finally {
       if (mounted) setState(() => _loadingFollow = false);
     }
@@ -1865,6 +2095,8 @@ class _PeerListTileState extends State<_PeerListTile> {
     final branch = (widget.user['branch'] ?? '').toString().trim();
     final isSuperuser = widget.user['role'] == 'superuser';
     final instagramId = (widget.user['instagramId'] ?? '').toString().trim();
+    final githubId = (widget.user['githubId'] ?? widget.user['githubUsername'] ?? '').toString().trim();
+    final discordId = (widget.user['discordId'] ?? widget.user['discordUsername'] ?? '').toString().trim();
     final isMe = uid == widget.currentUid;
     final hasActiveVibe = widget.vibe != null;
 
@@ -1876,21 +2108,22 @@ class _PeerListTileState extends State<_PeerListTile> {
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOutCubic,
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-        padding: const EdgeInsets.all(14),
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          color: U.surfaceContainerLow,
+          color: hasActiveVibe
+              ? Color.alphaBlend(U.primary.withValues(alpha: 0.05), U.surfaceContainerLow)
+              : U.surfaceContainerLow,
           borderRadius: M3Shapes.cardRadius,
           border: Border.all(
-            color: hasActiveVibe
-                ? U.primary.withValues(alpha: 0.55)
-                : U.outlineVariant.withValues(alpha: 0.35),
-            width: hasActiveVibe ? 1.4 : 0.8,
+            color: U.outlineVariant.withValues(alpha: 0.35),
+            width: 0.8,
           ),
           boxShadow: hasActiveVibe
               ? [
                   BoxShadow(
-                    color: U.primary.withValues(alpha: 0.06),
-                    blurRadius: 8,
+                    color: U.primary.withValues(alpha: 0.08),
+                    blurRadius: 10,
+                    spreadRadius: -2,
                     offset: const Offset(0, 3),
                   ),
                 ]
@@ -1898,6 +2131,31 @@ class _PeerListTileState extends State<_PeerListTile> {
         ),
         child: Row(
           children: [
+            // Modern left accent strip for active status
+            if (hasActiveVibe)
+              Container(
+                width: 3.5,
+                height: 68,
+                decoration: BoxDecoration(
+                  borderRadius: const BorderRadius.only(
+                    topRight: Radius.circular(3),
+                    bottomRight: Radius.circular(3),
+                  ),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      U.primary.withValues(alpha: 0.85),
+                      U.primary.withValues(alpha: 0.35),
+                    ],
+                  ),
+                ),
+              ),
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(hasActiveVibe ? 10.5 : 14, 14, 14, 14),
+                child: Row(
+                  children: [
             // Squircle Avatar + Status Badge
             Stack(
               clipBehavior: Clip.none,
@@ -2053,6 +2311,14 @@ class _PeerListTileState extends State<_PeerListTile> {
                         const SizedBox(width: 4),
                         InstagramBadge(handle: instagramId, iconSize: 12, showHandle: false),
                       ],
+                      if (githubId.isNotEmpty) ...[
+                        const SizedBox(width: 4),
+                        GithubBadge(handle: githubId, iconSize: 12, showHandle: false),
+                      ],
+                      if (discordId.isNotEmpty) ...[
+                        const SizedBox(width: 4),
+                        DiscordBadge(handle: discordId, iconSize: 12, showHandle: false),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 3),
@@ -2122,6 +2388,10 @@ class _PeerListTileState extends State<_PeerListTile> {
                 },
               ),
             ],
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -2151,20 +2421,26 @@ class _InlineFollowButton extends StatelessWidget {
     bool bordered;
 
     switch (status) {
-      case FollowStatus.notFollowing:
-        label = 'Follow';
+      case LinkStatus.notLinked:
+        label = 'Link Up';
         bg = U.primary;
         fg = U.getContrastColor(U.primary);
         bordered = false;
         break;
-      case FollowStatus.requested:
+      case LinkStatus.requested:
         label = 'Requested';
         bg = U.surfaceContainerHigh;
         fg = U.sub;
         bordered = true;
         break;
-      case FollowStatus.following:
-        label = 'Following';
+      case LinkStatus.hasIncomingRequest:
+        label = 'Accept';
+        bg = U.primary;
+        fg = U.getContrastColor(U.primary);
+        bordered = false;
+        break;
+      case LinkStatus.linked:
+        label = 'Linked';
         bg = U.surfaceContainerHigh;
         fg = U.sub;
         bordered = true;
@@ -3092,11 +3368,120 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
     });
   }
 
-  Future<void> _handleFollow(FollowStatus status) async {
+  Future<void> _handleFollow(LinkStatus status) async {
     if (_loadingFollow) return;
+    final name = UtopiaApp.sanitizeDisplayName((widget.user['displayName'] ?? 'Student').toString());
+    final targetUid = widget.user['uid'].toString();
+
+    if (status == LinkStatus.linked) {
+      final confirm = await showModalBottomSheet<bool>(
+        context: context,
+        backgroundColor: U.card,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: U.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Unlink with $name?',
+                  style: GoogleFonts.outfit(
+                    color: U.text,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Both of you will be unlinked and won\'t be able to direct message each other until linked again.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.outfit(color: U.sub, fontSize: 13),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: U.text,
+                          side: BorderSide(color: U.border),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: Text(
+                          'Cancel',
+                          style: GoogleFonts.outfit(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: U.red,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: Text(
+                          'Unlink',
+                          style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (confirm != true) return;
+    }
+
     setState(() => _loadingFollow = true);
     try {
-      await widget.followService.toggleFollow(widget.user['uid'].toString());
+      if (status == LinkStatus.linked) {
+        await widget.followService.unlink(targetUid);
+      } else if (status == LinkStatus.requested) {
+        await widget.followService.cancelRequest(targetUid);
+      } else if (status == LinkStatus.hasIncomingRequest) {
+        await widget.followService.acceptIncomingFrom(targetUid);
+        if (mounted) {
+          showUtopiaSnackBar(
+            context,
+            message: 'Linked up with $name! 🔗',
+            tone: UtopiaSnackBarTone.success,
+          );
+        }
+      } else {
+        await widget.followService.sendLinkRequest(targetUid);
+        if (mounted) {
+          showUtopiaSnackBar(
+            context,
+            message: 'Link request sent to $name',
+            tone: UtopiaSnackBarTone.info,
+          );
+        }
+      }
     } finally {
       if (mounted) setState(() => _loadingFollow = false);
     }
@@ -3115,7 +3500,7 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
     if (!canChat) {
       showUtopiaSnackBar(
         context,
-        message: 'You can message students you follow or who follow you.',
+        message: 'You can message students you are linked with.',
         tone: UtopiaSnackBarTone.info,
       );
       return;
@@ -3146,6 +3531,8 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
     final bio = (widget.user['bio'] ?? '').toString().trim();
     final branch = (widget.user['branch'] ?? '').toString().trim();
     final instagramId = (widget.user['instagramId'] ?? '').toString().trim();
+    final githubId = (widget.user['githubId'] ?? widget.user['githubUsername'] ?? '').toString().trim();
+    final discordId = (widget.user['discordId'] ?? widget.user['discordUsername'] ?? '').toString().trim();
     final isSuperuser = widget.user['role'] == 'superuser';
     final wavesCount = (widget.user['wavesReceivedCount'] as num?)?.toInt() ?? 0;
     final isMe = uid == widget.currentUid;
@@ -3249,6 +3636,16 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                           Padding(
                             padding: const EdgeInsets.only(right: 6),
                             child: InstagramBadge(handle: instagramId, iconSize: 13, compact: true),
+                          ),
+                        if (githubId.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: GithubBadge(handle: githubId, iconSize: 13, compact: true),
+                          ),
+                        if (discordId.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: DiscordBadge(handle: discordId, iconSize: 13, compact: true),
                           ),
                         if (wavesCount > 0)
                           WaveCountBadge(count: wavesCount, compact: true),
@@ -3437,6 +3834,10 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                                   ),
                                 if (instagramId.isNotEmpty)
                                   InstagramBadge(handle: instagramId, iconSize: 13, compact: true),
+                                if (githubId.isNotEmpty)
+                                  GithubBadge(handle: githubId, iconSize: 13, compact: true),
+                                if (discordId.isNotEmpty)
+                                  DiscordBadge(handle: discordId, iconSize: 13, compact: true),
                                 if (wavesCount > 0)
                                   WaveCountBadge(count: wavesCount, compact: true),
                               ],
@@ -3532,30 +3933,41 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: StreamBuilder<FollowStatus>(
-                      stream: widget.followService.followStatusStream(widget.currentUid, uid),
+                    child: StreamBuilder<LinkStatus>(
+                      stream: widget.followService.linkStatusStream(widget.currentUid, uid),
                       builder: (context, statusSnap) {
-                        final status = statusSnap.data ?? FollowStatus.notFollowing;
-                        final isFollowing = status == FollowStatus.following;
+                        final status = statusSnap.data ?? LinkStatus.notLinked;
+                        final isLinked = status == LinkStatus.linked;
+                        final isRequested = status == LinkStatus.requested;
+                        final hasIncoming = status == LinkStatus.hasIncomingRequest;
+
+                        final String label;
+                        if (status == LinkStatus.notLinked) {
+                          label = 'Link Up';
+                        } else if (isRequested) {
+                          label = 'Requested';
+                        } else if (hasIncoming) {
+                          label = 'Accept Link';
+                        } else {
+                          label = 'Linked';
+                        }
+
+                        final isMuted = isLinked || isRequested;
 
                         return FilledButton(
                           style: FilledButton.styleFrom(
-                            backgroundColor: isFollowing ? U.surfaceContainerHigh : U.primary,
-                            foregroundColor: isFollowing ? U.text : U.getContrastColor(U.primary),
+                            backgroundColor: isMuted ? U.surfaceContainerHigh : U.primary,
+                            foregroundColor: isMuted ? U.text : U.getContrastColor(U.primary),
                             padding: const EdgeInsets.symmetric(vertical: 11),
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: M3Shapes.fullRadius,
-                              side: isFollowing ? BorderSide(color: U.outlineVariant.withValues(alpha: 0.4)) : BorderSide.none,
+                              side: isMuted ? BorderSide(color: U.outlineVariant.withValues(alpha: 0.4)) : BorderSide.none,
                             ),
                           ),
                           onPressed: () => _handleFollow(status),
                           child: Text(
-                            status == FollowStatus.notFollowing
-                                ? 'Follow'
-                                : status == FollowStatus.requested
-                                    ? 'Requested'
-                                    : 'Following',
+                            label,
                             style: GoogleFonts.robotoFlex(fontWeight: FontWeight.w800),
                           ),
                         );

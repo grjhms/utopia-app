@@ -14,7 +14,9 @@ import 'attendance_screen.dart';
 import 'university_screen.dart';
 import 'uni_chat_screen.dart';
 import 'community_notes_screen.dart';
+import 'friends_screen.dart';
 import 'event_notifications_screen.dart';
+import 'sciwordle_screen.dart';
 import '../models/event_model.dart';
 import '../services/event_service.dart';
 import '../services/notification_service.dart';
@@ -27,6 +29,7 @@ import '../services/secure_storage_service.dart';
 import '../services/attendance_cache_service.dart';
 import '../services/uni_chat_service.dart';
 import '../widgets/dynamic_attendance_card.dart';
+import '../utils/responsive_scale.dart';
 
 class FocusScreen extends StatefulWidget {
   const FocusScreen({super.key});
@@ -553,6 +556,7 @@ class _FocusScreenState extends State<FocusScreen> {
     required String label,
     required IconData icon,
     required Color color,
+    ResponsiveScale? rs,
     VoidCallback? onTap,
   }) {
     return M3Pressable(
@@ -560,7 +564,10 @@ class _FocusScreenState extends State<FocusScreen> {
       scaleFactor: 0.94,
       borderRadius: M3Shapes.fullRadius,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: EdgeInsets.symmetric(
+          horizontal: rs?.s(16, min: 12, max: 20) ?? 16,
+          vertical: rs?.s(10, min: 8, max: 13) ?? 10,
+        ),
         decoration: BoxDecoration(
           color: U.surfaceContainerHigh,
           borderRadius: M3Shapes.fullRadius,
@@ -574,14 +581,14 @@ class _FocusScreenState extends State<FocusScreen> {
           children: [
             Icon(
               icon,
-              size: 15,
+              size: rs?.s(15, min: 13, max: 18) ?? 15,
               color: color,
             ),
-            const SizedBox(width: 8),
+            SizedBox(width: rs?.s(8, min: 6, max: 10) ?? 8),
             Text(
               label,
               style: GoogleFonts.robotoFlex(
-                fontSize: 12,
+                fontSize: rs?.font(12, min: 10.5, max: 14) ?? 12,
                 fontWeight: FontWeight.w700,
                 color: U.text,
                 letterSpacing: 0.1,
@@ -596,458 +603,336 @@ class _FocusScreenState extends State<FocusScreen> {
   @override
   Widget build(BuildContext context) {
     final isDarkTheme = appThemeNotifier.value.isDark;
+    final rs = ResponsiveScale.of(context);
+    final padH = rs.horizontalPadding;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
         bottom: false,
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 20),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620),
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(height: rs.vs(20, min: 14, max: 26)),
 
-              // ── Header: Utopia brand identity & Notifications ──
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.center,
+                  // ── Header: Utopia brand identity & Notifications ──
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: padH),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'Utopia',
-                              style: TextStyle(
-                                fontFamily: 'OrangeAvenue',
-                                fontSize: 38,
-                                fontWeight: FontWeight.w700,
-                                color: U.text,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Transform.rotate(
-                                angle: 30 * 3.1415926535 / 180,
-                                child: Transform.scale(
-                                  scaleX: -1,
-                                  child: Image.asset(
-                                    'assets/focus screen/leaves.png',
-                                    width: 22,
-                                    height: 22,
-                                    fit: BoxFit.contain,
-                                    color: U.primary,
-                                    colorBlendMode: BlendMode.srcIn,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        M3Pressable(
-                          onTap: () async {
-                            await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const EventNotificationsScreen(),
-                              ),
-                            );
-                            _loadNotificationCount();
-                          },
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              Container(
-                                width: 42,
-                                height: 42,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: isDarkTheme
-                                      ? U.surfaceContainerHighest.withValues(alpha: 0.6)
-                                      : U.surfaceContainerHighest.withValues(alpha: 0.8),
-                                  border: Border.all(
-                                    color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.5),
-                                    width: 0.8,
-                                  ),
-                                ),
-                                child: Icon(
-                                  Icons.notifications_none_rounded,
-                                  color: U.text,
-                                  size: 20,
-                                ),
-                              ),
-                              if (_notificationCount > 0)
-                                Positioned(
-                                  top: -2,
-                                  right: -2,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(4),
-                                    decoration: BoxDecoration(
-                                      color: U.primary,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: U.bg,
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                    constraints: const BoxConstraints(
-                                      minWidth: 16,
-                                      minHeight: 16,
-                                    ),
-                                    child: Center(
-                                      child: Text(
-                                        _notificationCount > 9 ? '9+' : _notificationCount.toString(),
-                                        style: GoogleFonts.robotoFlex(
-                                          color: U.getContrastColor(U.primary),
-                                          fontSize: 8,
-                                          fontWeight: FontWeight.bold,
-                                          height: 1.0,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    // Greeting text
-                    (() {
-                      final commaIndex = _greetingText.indexOf(',');
-                      if (commaIndex != -1) {
-                        final greetingPart = _greetingText.substring(0, commaIndex);
-                        final namePart = _greetingText.substring(commaIndex + 1).trim();
-                        return RichText(
-                          text: TextSpan(
-                            children: [
-                              TextSpan(
-                                text: '$greetingPart, ',
-                                style: GoogleFonts.robotoFlex(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w300,
-                                  color: U.text,
-                                  letterSpacing: -0.3,
-                                ),
-                              ),
-                              TextSpan(
-                                text: namePart,
-                                style: GoogleFonts.robotoFlex(
-                                  fontSize: 23,
-                                  fontWeight: FontWeight.w700,
-                                  color: U.text,
-                                  letterSpacing: -0.4,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      } else {
-                        return Text(
-                          _greetingText,
-                          style: GoogleFonts.robotoFlex(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w400,
-                            color: U.text,
-                            letterSpacing: -0.3,
-                          ),
-                        );
-                      }
-                    })(),
-                    if (_quote.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.only(left: 12),
-                        decoration: BoxDecoration(
-                          border: Border(
-                            left: BorderSide(
-                              color: U.primary.withValues(alpha: 0.4),
-                              width: 2.0,
-                            ),
-                          ),
-                        ),
-                        child: Text(
-                          _quote,
-                          style: GoogleFonts.newsreader(
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w400,
-                            fontStyle: FontStyle.italic,
-                            color: U.sub,
-                            height: 1.45,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ).animate()
-                  .fadeIn(duration: 500.ms, curve: Curves.easeOutCubic)
-                  .slideY(begin: 0.1, end: 0, duration: 500.ms, curve: Curves.easeOutCubic),
-
-              const SizedBox(height: 18),
-
-              // ── Inline Metric Quick Bar ──
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  child: Row(
-                    children: [
-                      const MinimalNewsPill(),
-                      const SizedBox(width: 8),
-                      _buildQuickPill(
-                        label: _weatherTemp != null
-                            ? '${_weatherTemp!.toStringAsFixed(0)}°C $_weatherCity'
-                            : 'Set Location',
-                        icon: _getWeatherIcon(_weatherCode),
-                        color: U.lavender,
-                        onTap: _showWeatherCityPicker,
-                      ),
-                    ],
-                  ),
-                ),
-              ).animate()
-                  .fadeIn(delay: 150.ms, duration: 400.ms)
-                  .slideY(begin: 0.1, end: 0, delay: 150.ms, duration: 400.ms, curve: Curves.easeOutCubic),
-
-              const SizedBox(height: 20),
-
-              // ── Dynamic Motion Attendance Hero Card (Always in Motion) ──
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: DynamicMotionAttendanceCard(
-                  isConnected: _isAttendanceConnected,
-                  attendancePct: _attendancePct,
-                  studentName: _studentName,
-                  lastFetched: _lastAttendanceFetched,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const AttendanceScreen()),
-                  ).then((_) => _loadData()),
-                ),
-              ).animate()
-                  .fadeIn(delay: 250.ms, duration: 500.ms)
-                  .slideY(begin: 0.1, end: 0, delay: 250.ms, duration: 500.ms, curve: Curves.easeOutCubic),
-
-            const SizedBox(height: 16),
-
-            // ── People & Chat to Utopia Square Cards ──
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                children: [
-                  // University Card
-                  Expanded(
-                    child: M3Pressable(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          buildForwardRoute(const UniversityScreen()),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: U.surfaceContainer,
-                          borderRadius: BorderRadius.circular(28),
-                          border: Border.all(
-                            color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.45),
-                            width: 0.8,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Container(
-                                  width: 50,
-                                  height: 50,
-                                  decoration: BoxDecoration(
-                                    color: U.primaryContainer,
-                                    borderRadius: BorderRadius.circular(18),
-                                  ),
-                                  child: Center(
-                                    child: Icon(
-                                      Icons.school_rounded,
-                                      color: U.onPrimaryContainer,
-                                      size: 24,
-                                    ),
+                                Text(
+                                  'Utopia',
+                                  style: TextStyle(
+                                    fontFamily: 'OrangeAvenue',
+                                    fontSize: rs.font(38, min: 32, max: 46),
+                                    fontWeight: FontWeight.w700,
+                                    color: U.text,
+                                    letterSpacing: -0.5,
                                   ),
                                 ),
-                                const SizedBox(width: 4),
-                                Flexible(
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: U.primary.withValues(alpha: 0.12),
-                                      borderRadius: M3Shapes.fullRadius,
-                                    ),
-                                    child: Text(
-                                      'Campus',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.robotoFlex(
+                                SizedBox(width: rs.s(4, min: 3, max: 6)),
+                                Padding(
+                                  padding: EdgeInsets.only(top: rs.s(8, min: 6, max: 10)),
+                                  child: Transform.rotate(
+                                    angle: 30 * 3.1415926535 / 180,
+                                    child: Transform.scale(
+                                      scaleX: -1,
+                                      child: Image.asset(
+                                        'assets/focus screen/leaves.png',
+                                        width: rs.s(22, min: 18, max: 28),
+                                        height: rs.s(22, min: 18, max: 28),
+                                        fit: BoxFit.contain,
                                         color: U.primary,
-                                        fontSize: 10.5,
-                                        fontWeight: FontWeight.w700,
+                                        colorBlendMode: BlendMode.srcIn,
                                       ),
                                     ),
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 18),
-                            Text(
-                              'University',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.robotoFlex(
-                                color: U.text,
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Events, docs & hub',
-                              style: GoogleFonts.robotoFlex(
-                                fontSize: 12.5,
-                                color: U.sub,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  // Chat to Utopia Card
-                  Expanded(
-                    child: Builder(
-                      builder: (context) {
-                        final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-                        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                          stream: currentUid.isNotEmpty
-                              ? FirebaseFirestore.instance.collection('users').doc(currentUid).snapshots()
-                              : const Stream.empty(),
-                          builder: (context, userSnap) {
-                            final liveUniId = userSnap.data?.data()?['selectedUniversityId'] as String?;
-                            final uniId = (liveUniId != null && liveUniId.isNotEmpty)
-                                ? liveUniId
-                                : (U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : 'support');
-                            if (liveUniId != null && liveUniId.isNotEmpty && liveUniId != U.cachedUniversityId) {
-                              U.cachedUniversityId = liveUniId;
-                            }
-
-                            return StreamBuilder<bool>(
-                              stream: UniChatService().unreadStatusStream(uniId),
-                              initialData: false,
-                              builder: (context, snapshot) {
-                                final hasUnread = snapshot.data ?? false;
-                                return M3Pressable(
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (_) => UniChatScreen(universityId: uniId)),
-                                    );
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.all(20),
+                            M3Pressable(
+                              onTap: () async {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const EventNotificationsScreen(),
+                                  ),
+                                );
+                                _loadNotificationCount();
+                              },
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Container(
+                                    width: rs.s(42, min: 36, max: 48),
+                                    height: rs.s(42, min: 36, max: 48),
                                     decoration: BoxDecoration(
-                                      color: U.surfaceContainer,
-                                      borderRadius: BorderRadius.circular(28),
+                                      shape: BoxShape.circle,
+                                      color: isDarkTheme
+                                          ? U.surfaceContainerHighest.withValues(alpha: 0.6)
+                                          : U.surfaceContainerHighest.withValues(alpha: 0.8),
                                       border: Border.all(
-                                        color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.45),
+                                        color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.5),
                                         width: 0.8,
                                       ),
                                     ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Container(
-                                              width: 50,
-                                              height: 50,
-                                              decoration: BoxDecoration(
-                                                color: U.secondaryContainer,
-                                                borderRadius: BorderRadius.circular(18),
-                                              ),
-                                              child: Center(
-                                                child: Stack(
-                                                  alignment: Alignment.topRight,
-                                                  children: [
-                                                    Icon(
-                                                      Icons.forum_rounded,
-                                                      color: U.onSecondaryContainer,
-                                                      size: 24,
-                                                    ),
-                                                    if (hasUnread)
-                                                      Container(
-                                                        width: 7,
-                                                        height: 7,
-                                                        decoration: const BoxDecoration(
-                                                          color: Colors.redAccent,
-                                                          shape: BoxShape.circle,
-                                                        ),
-                                                      ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 4,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: U.teal.withValues(alpha: 0.12),
-                                                borderRadius: M3Shapes.fullRadius,
-                                              ),
-                                              child: Text(
-                                                'Chat',
-                                                style: GoogleFonts.robotoFlex(
-                                                  color: U.teal,
-                                                  fontSize: 10.5,
-                                                  fontWeight: FontWeight.w700,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 18),
-                                        Text(
-                                          'Chat to Utopia',
-                                          style: GoogleFonts.robotoFlex(
-                                            color: U.text,
-                                            fontSize: 17,
-                                            fontWeight: FontWeight.w700,
+                                    child: Icon(
+                                      Icons.notifications_none_rounded,
+                                      color: U.text,
+                                      size: rs.s(20, min: 17, max: 24),
+                                    ),
+                                  ),
+                                  if (_notificationCount > 0)
+                                    Positioned(
+                                      top: -2,
+                                      right: -2,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: U.primary,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: U.bg,
+                                            width: 1.5,
                                           ),
+                                        ),
+                                        constraints: const BoxConstraints(
+                                          minWidth: 16,
+                                          minHeight: 16,
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            _notificationCount > 9 ? '9+' : _notificationCount.toString(),
+                                            style: GoogleFonts.robotoFlex(
+                                              color: U.getContrastColor(U.primary),
+                                              fontSize: 8,
+                                              fontWeight: FontWeight.bold,
+                                              height: 1.0,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: rs.vs(12, min: 8, max: 16)),
+                        // Greeting text
+                        (() {
+                          final commaIndex = _greetingText.indexOf(',');
+                          if (commaIndex != -1) {
+                            final greetingPart = _greetingText.substring(0, commaIndex);
+                            final namePart = _greetingText.substring(commaIndex + 1).trim();
+                            return RichText(
+                              text: TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: '$greetingPart, ',
+                                    style: GoogleFonts.robotoFlex(
+                                      fontSize: rs.font(22, min: 18, max: 26),
+                                      fontWeight: FontWeight.w300,
+                                      color: U.text,
+                                      letterSpacing: -0.3,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: namePart,
+                                    style: GoogleFonts.robotoFlex(
+                                      fontSize: rs.font(23, min: 19, max: 27),
+                                      fontWeight: FontWeight.w700,
+                                      color: U.text,
+                                      letterSpacing: -0.4,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          } else {
+                            return Text(
+                              _greetingText,
+                              style: GoogleFonts.robotoFlex(
+                                fontSize: rs.font(22, min: 18, max: 26),
+                                fontWeight: FontWeight.w400,
+                                color: U.text,
+                                letterSpacing: -0.3,
+                              ),
+                            );
+                          }
+                        })(),
+                        if (_quote.isNotEmpty) ...[
+                          SizedBox(height: rs.vs(12, min: 8, max: 16)),
+                          Container(
+                            padding: EdgeInsets.only(left: rs.s(12, min: 9, max: 16)),
+                            decoration: BoxDecoration(
+                              border: Border(
+                                left: BorderSide(
+                                  color: U.primary.withValues(alpha: 0.4),
+                                  width: 2.0,
+                                ),
+                              ),
+                            ),
+                            child: Text(
+                              _quote,
+                              style: GoogleFonts.newsreader(
+                                fontSize: rs.font(14.5, min: 12.5, max: 17),
+                                fontWeight: FontWeight.w400,
+                                fontStyle: FontStyle.italic,
+                                color: U.sub,
+                                height: 1.45,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ).animate()
+                      .fadeIn(duration: 500.ms, curve: Curves.easeOutCubic)
+                      .slideY(begin: 0.1, end: 0, duration: 500.ms, curve: Curves.easeOutCubic),
+
+                  SizedBox(height: rs.vs(18, min: 12, max: 24)),
+
+                  // ── Inline Metric Quick Bar ──
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: padH),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      child: Row(
+                        children: [
+                          const MinimalNewsPill(),
+                          SizedBox(width: rs.s(8, min: 6, max: 12)),
+                          _buildQuickPill(
+                            label: _weatherTemp != null
+                                ? '${_weatherTemp!.toStringAsFixed(0)}°C $_weatherCity'
+                                : 'Set Location',
+                            icon: _getWeatherIcon(_weatherCode),
+                            color: U.lavender,
+                            rs: rs,
+                            onTap: _showWeatherCityPicker,
+                          ),
+                          SizedBox(width: rs.s(8, min: 6, max: 12)),
+                          _buildQuickPill(
+                            label: 'SciWordle',
+                            icon: Icons.psychology_rounded,
+                            color: const Color(0xFF10B981),
+                            rs: rs,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const SciwordleScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ).animate()
+                      .fadeIn(delay: 150.ms, duration: 400.ms)
+                      .slideY(begin: 0.1, end: 0, delay: 150.ms, duration: 400.ms, curve: Curves.easeOutCubic),
+
+                  SizedBox(height: rs.vs(20, min: 14, max: 26)),
+
+                  // ── Dynamic Motion Attendance Hero Card (Always in Motion) ──
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: padH),
+                    child: DynamicMotionAttendanceCard(
+                      isConnected: _isAttendanceConnected,
+                      attendancePct: _attendancePct,
+                      studentName: _studentName,
+                      lastFetched: _lastAttendanceFetched,
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const AttendanceScreen()),
+                      ).then((_) => _loadData()),
+                    ),
+                  ).animate()
+                      .fadeIn(delay: 250.ms, duration: 500.ms)
+                      .slideY(begin: 0.1, end: 0, delay: 250.ms, duration: 500.ms, curve: Curves.easeOutCubic),
+
+                  SizedBox(height: rs.vs(16, min: 12, max: 22)),
+
+                  // ── People & Chat to Utopia Square Cards ──
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: padH),
+                    child: IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // SciWord Game Card
+                          Expanded(
+                            child: M3Pressable(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  buildForwardRoute(const SciwordleScreen()),
+                                );
+                              },
+                              child: Container(
+                                padding: EdgeInsets.all(rs.s(18, min: 14, max: 22)),
+                                decoration: BoxDecoration(
+                                  color: U.surfaceContainer,
+                                  borderRadius: BorderRadius.circular(rs.s(26, min: 20, max: 30)),
+                                  border: Border.all(
+                                    color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.45),
+                                    width: 0.8,
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Container(
+                                      width: rs.s(48, min: 40, max: 56),
+                                      height: rs.s(48, min: 40, max: 56),
+                                      decoration: BoxDecoration(
+                                        color: U.primaryContainer,
+                                        borderRadius: BorderRadius.circular(rs.s(16, min: 13, max: 19)),
+                                      ),
+                                      child: Center(
+                                        child: Icon(
+                                          Icons.extension_rounded,
+                                          color: U.onPrimaryContainer,
+                                          size: rs.s(24, min: 20, max: 28),
+                                        ),
+                                      ),
+                                    ),
+                                    SizedBox(height: rs.vs(16, min: 10, max: 20)),
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          'SciWord',
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.robotoFlex(
+                                            color: U.text,
+                                            fontSize: rs.font(16.5, min: 14.5, max: 19),
+                                            fontWeight: FontWeight.w700,
+                                          ),
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          'Campus chat',
+                                          'Daily word game',
                                           style: GoogleFonts.robotoFlex(
-                                            fontSize: 12.5,
+                                            fontSize: rs.font(12, min: 10.5, max: 13.5),
                                             color: U.sub,
                                           ),
                                           maxLines: 1,
@@ -1055,264 +940,349 @@ class _FocusScreenState extends State<FocusScreen> {
                                         ),
                                       ],
                                     ),
-                                  ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: rs.s(12, min: 8, max: 16)),
+                          // Chat to Utopia Card
+                          Expanded(
+                            child: Builder(
+                              builder: (context) {
+                                final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+                                return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                                  stream: currentUid.isNotEmpty
+                                      ? FirebaseFirestore.instance.collection('users').doc(currentUid).snapshots()
+                                      : const Stream.empty(),
+                                  builder: (context, userSnap) {
+                                    final liveUniId = userSnap.data?.data()?['selectedUniversityId'] as String?;
+                                    final uniId = (liveUniId != null && liveUniId.isNotEmpty)
+                                        ? liveUniId
+                                        : (U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : 'support');
+                                    if (liveUniId != null && liveUniId.isNotEmpty && liveUniId != U.cachedUniversityId) {
+                                      U.cachedUniversityId = liveUniId;
+                                    }
+
+                                    return StreamBuilder<bool>(
+                                      stream: UniChatService().unreadStatusStream(uniId),
+                                      initialData: false,
+                                      builder: (context, snapshot) {
+                                        final hasUnread = snapshot.data ?? false;
+                                        return M3Pressable(
+                                          onTap: () {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(builder: (_) => UniChatScreen(universityId: uniId)),
+                                            );
+                                          },
+                                          child: Container(
+                                            padding: EdgeInsets.all(rs.s(18, min: 14, max: 22)),
+                                            decoration: BoxDecoration(
+                                              color: U.surfaceContainer,
+                                              borderRadius: BorderRadius.circular(rs.s(26, min: 20, max: 30)),
+                                              border: Border.all(
+                                                color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.45),
+                                                width: 0.8,
+                                              ),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Container(
+                                                  width: rs.s(48, min: 40, max: 56),
+                                                  height: rs.s(48, min: 40, max: 56),
+                                                  decoration: BoxDecoration(
+                                                    color: U.secondaryContainer,
+                                                    borderRadius: BorderRadius.circular(rs.s(16, min: 13, max: 19)),
+                                                  ),
+                                                  child: Center(
+                                                    child: Stack(
+                                                      alignment: Alignment.topRight,
+                                                      children: [
+                                                        Icon(
+                                                          Icons.forum_rounded,
+                                                          color: U.onSecondaryContainer,
+                                                          size: rs.s(24, min: 20, max: 28),
+                                                        ),
+                                                        if (hasUnread)
+                                                          Container(
+                                                            width: rs.s(7, min: 5, max: 9),
+                                                            height: rs.s(7, min: 5, max: 9),
+                                                            decoration: const BoxDecoration(
+                                                              color: Colors.redAccent,
+                                                              shape: BoxShape.circle,
+                                                            ),
+                                                          ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+                                                SizedBox(height: rs.vs(16, min: 10, max: 20)),
+                                                Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Text(
+                                                      'Chat to Utopia',
+                                                      style: GoogleFonts.robotoFlex(
+                                                        color: U.text,
+                                                        fontSize: rs.font(16.5, min: 14.5, max: 19),
+                                                        fontWeight: FontWeight.w700,
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    Text(
+                                                      'Campus chat',
+                                                      style: GoogleFonts.robotoFlex(
+                                                        fontSize: rs.font(12, min: 10.5, max: 13.5),
+                                                        color: U.sub,
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
                                 );
                               },
-                            );
-                          },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ).animate()
+                      .fadeIn(delay: 300.ms, duration: 500.ms)
+                      .slideY(begin: 0.1, end: 0, delay: 300.ms, duration: 500.ms, curve: Curves.easeOutCubic),
+
+                  SizedBox(height: rs.vs(16, min: 12, max: 22)),
+
+                  // ── Friends Card (Rectangle) ──
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: padH),
+                    child: M3Pressable(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          buildForwardRoute(const FriendsScreen()),
                         );
                       },
-                    ),
-                  ),
-                ],
-              ),
-            ).animate()
-                .fadeIn(delay: 300.ms, duration: 500.ms)
-                .slideY(begin: 0.1, end: 0, delay: 300.ms, duration: 500.ms, curve: Curves.easeOutCubic),
-
-            const SizedBox(height: 16),
-
-            // ── Community Notes Card (Rectangle) ──
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: M3Pressable(
-                onTap: () {
-                  final uniId = U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : 'support';
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => CommunityNotesScreen(universityFolderName: uniId)),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(22),
-                  decoration: BoxDecoration(
-                    color: U.surfaceContainer,
-                    borderRadius: BorderRadius.circular(28),
-                    border: Border.all(
-                      color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.45),
-                      width: 0.8,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 52,
-                        height: 52,
+                      child: Container(
+                        padding: EdgeInsets.all(rs.s(20, min: 16, max: 24)),
                         decoration: BoxDecoration(
-                          color: U.primaryContainer,
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: Center(
-                          child: Icon(
-                            Icons.menu_book_rounded,
-                            color: U.onPrimaryContainer,
-                            size: 26,
+                          color: U.surfaceContainer,
+                          borderRadius: BorderRadius.circular(rs.s(26, min: 20, max: 30)),
+                          border: Border.all(
+                            color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.45),
+                            width: 0.8,
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Row(
                           children: [
-                            Row(
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    'Community Notes',
+                            Container(
+                              width: rs.s(50, min: 42, max: 58),
+                              height: rs.s(50, min: 42, max: 58),
+                              decoration: BoxDecoration(
+                                color: U.secondaryContainer,
+                                borderRadius: BorderRadius.circular(rs.s(16, min: 13, max: 19)),
+                              ),
+                              child: Center(
+                                child: Icon(
+                                  Icons.people_rounded,
+                                  color: U.onSecondaryContainer,
+                                  size: rs.s(25, min: 21, max: 29),
+                                ),
+                              ),
+                            ),
+                            SizedBox(width: rs.s(16, min: 12, max: 20)),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Friends',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: GoogleFonts.robotoFlex(
                                       color: U.text,
-                                      fontSize: 17,
+                                      fontSize: rs.font(16.5, min: 14.5, max: 19),
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: U.blue.withValues(alpha: 0.12),
-                                    borderRadius: M3Shapes.fullRadius,
-                                  ),
-                                  child: Text(
-                                    'Academics',
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Chat with friends',
                                     style: GoogleFonts.robotoFlex(
-                                      color: U.blue,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w700,
+                                      fontSize: rs.font(12, min: 10.5, max: 13.5),
+                                      color: U.sub,
                                     ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Campus notes & study materials',
-                              style: GoogleFonts.robotoFlex(
-                                fontSize: 12.5,
-                                color: U.sub,
+                                ],
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            ),
+                            SizedBox(width: rs.s(12, min: 8, max: 16)),
+                            Container(
+                              width: rs.s(36, min: 30, max: 42),
+                              height: rs.s(36, min: 30, max: 42),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: U.surfaceContainerHighest,
+                              ),
+                              child: Center(
+                                child: Icon(
+                                  Icons.arrow_forward_ios_rounded,
+                                  color: U.sub,
+                                  size: rs.s(14, min: 12, max: 16),
+                                ),
+                              ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: U.surfaceContainerHighest,
-                        ),
-                        child: Center(
-                          child: Icon(
-                            Icons.arrow_forward_ios_rounded,
-                            color: U.sub,
-                            size: 14,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ).animate()
-                .fadeIn(delay: 350.ms, duration: 500.ms)
-                .slideY(begin: 0.1, end: 0, delay: 350.ms, duration: 500.ms, curve: Curves.easeOutCubic),
+                    ),
+                  ).animate()
+                      .fadeIn(delay: 350.ms, duration: 500.ms)
+                      .slideY(begin: 0.1, end: 0, delay: 350.ms, duration: 500.ms, curve: Curves.easeOutCubic),
 
-              // ── Dynamic Online News Card ──
-              StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance
-                    .collection('config')
-                    .doc('app_config')
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.hasError || !snapshot.hasData || snapshot.data == null || !snapshot.data!.exists) {
-                    return const SizedBox.shrink();
-                  }
+                  // ── Dynamic Online News Card ──
+                  StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                    stream: FirebaseFirestore.instance
+                        .collection('config')
+                        .doc('app_config')
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError || !snapshot.hasData || snapshot.data == null || !snapshot.data!.exists) {
+                        return const SizedBox.shrink();
+                      }
 
-                  final data = snapshot.data!.data();
-                  if (data == null) return const SizedBox.shrink();
+                      final data = snapshot.data!.data();
+                      if (data == null) return const SizedBox.shrink();
 
-                  final bool isEnabled = data['news_enabled'] as bool? ?? false;
-                  final String title = (data['news_title'] as String? ?? '').trim();
-                  final String description = (data['news_description'] as String? ?? '').trim();
+                      final bool isEnabled = data['news_enabled'] as bool? ?? false;
+                      final String title = (data['news_title'] as String? ?? '').trim();
+                      final String description = (data['news_description'] as String? ?? '').trim();
 
-                  if (!isEnabled || title.isEmpty) {
-                    return const SizedBox.shrink();
-                  }
+                      if (!isEnabled || title.isEmpty) {
+                        return const SizedBox.shrink();
+                      }
 
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 24, left: 24, right: 24),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: U.surfaceContainerLow,
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.45),
-                          width: 0.8,
-                        ),
-                      ),
-                      child: Stack(
-                        children: [
-                          // Accent edge
-                          Positioned(
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            height: 2,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    U.primary.withValues(alpha: 0.0),
-                                    U.primary,
-                                    U.primary.withValues(alpha: 0.0),
-                                  ],
-                                  stops: const [0.0, 0.5, 1.0],
-                                ),
-                              ),
+                      return Padding(
+                        padding: EdgeInsets.only(top: rs.vs(20, min: 14, max: 26), left: padH, right: padH),
+                        child: Container(
+                          width: double.infinity,
+                          padding: EdgeInsets.all(rs.s(20, min: 16, max: 24)),
+                          decoration: BoxDecoration(
+                            color: U.surfaceContainerLow,
+                            borderRadius: BorderRadius.circular(rs.s(24, min: 18, max: 28)),
+                            border: Border.all(
+                              color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.45),
+                              width: 0.8,
                             ),
                           ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          child: Stack(
                             children: [
-                              Row(
-                                children: [
-                                  // Tonal tag
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: U.primary.withValues(alpha: 0.12),
-                                      borderRadius: M3Shapes.smallRadius,
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.newspaper_rounded,
-                                          size: 12,
-                                          color: U.primary,
-                                        ),
-                                        const SizedBox(width: 5),
-                                        Text(
-                                          'NEWS',
-                                          style: GoogleFonts.robotoFlex(
-                                            fontSize: 9.5,
-                                            fontWeight: FontWeight.w800,
-                                            letterSpacing: 1.2,
-                                            color: U.primary,
-                                          ),
-                                        ),
+                              // Accent edge
+                              Positioned(
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                height: 2,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        U.primary.withValues(alpha: 0.0),
+                                        U.primary,
+                                        U.primary.withValues(alpha: 0.0),
                                       ],
+                                      stops: const [0.0, 0.5, 1.0],
                                     ),
                                   ),
+                                ),
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      // Tonal tag
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: U.primary.withValues(alpha: 0.12),
+                                          borderRadius: M3Shapes.smallRadius,
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.newspaper_rounded,
+                                              size: 12,
+                                              color: U.primary,
+                                            ),
+                                            const SizedBox(width: 5),
+                                            Text(
+                                              'NEWS',
+                                              style: GoogleFonts.robotoFlex(
+                                                fontSize: 9.5,
+                                                fontWeight: FontWeight.w800,
+                                                letterSpacing: 1.2,
+                                                color: U.primary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  SizedBox(height: rs.vs(12, min: 8, max: 16)),
+                                  Text(
+                                    title,
+                                    style: GoogleFonts.newsreader(
+                                      fontSize: rs.font(18, min: 15, max: 22),
+                                      fontWeight: FontWeight.bold,
+                                      fontStyle: FontStyle.italic,
+                                      color: U.text,
+                                      letterSpacing: -0.4,
+                                    ),
+                                  ),
+                                  if (description.isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      description,
+                                      style: GoogleFonts.robotoFlex(
+                                        fontSize: rs.font(13, min: 11, max: 15),
+                                        color: U.sub,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
-                              const SizedBox(height: 12),
-                              Text(
-                                title,
-                                style: GoogleFonts.newsreader(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  fontStyle: FontStyle.italic,
-                                  color: U.text,
-                                  letterSpacing: -0.4,
-                                ),
-                              ),
-                              if (description.isNotEmpty) ...[
-                                const SizedBox(height: 6),
-                                Text(
-                                  description,
-                                  style: GoogleFonts.robotoFlex(
-                                    fontSize: 13,
-                                    color: U.sub,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ],
                             ],
                           ),
-                        ],
-                      ),
-                    ).animate()
-                        .fadeIn(delay: 500.ms, duration: 500.ms)
-                        .slideY(begin: 0.1, end: 0, delay: 500.ms, duration: 500.ms, curve: Curves.easeOutCubic),
-                  );
-                },
-              ),
+                        ),
+                      ).animate()
+                          .fadeIn(delay: 500.ms, duration: 500.ms)
+                          .slideY(begin: 0.1, end: 0, delay: 500.ms, duration: 500.ms, curve: Curves.easeOutCubic);
+                    },
+                  ),
 
-              const SizedBox(height: 120),
-            ],
+                  SizedBox(height: rs.vs(120, min: 90, max: 140)),
+                ],
+              ),
+            ),
           ),
         ),
       ),

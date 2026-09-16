@@ -130,23 +130,23 @@ service cloud.firestore {
       }
     }
 
-    // ── Follows ──────────────────────────────────────────────────────────
+    // ── Links / Follows ──────────────────────────────────────────────────
     match /follows/{followId} {
-      // Anyone signed in can read to determine follow status
+      // Anyone signed in can read to determine link status
       allow read: if isSignedIn();
 
-      // Only the follower can create a follow request
+      // Only the sender can create a link request
       allow create: if isSignedIn() &&
         request.auth.uid == request.resource.data.followerId;
 
-      // Only the followingId (the target) can accept (update status to 'accepted')
-      // The follower can update to cancel (delete is preferred but update is allowed)
+      // Only the receiver (the target) can accept (update status to 'accepted')
+      // The sender can update to cancel
       allow update: if isSignedIn() && (
         request.auth.uid == resource.data.followingId ||
         request.auth.uid == resource.data.followerId
       );
 
-      // Both the follower and the target can delete (unfollow / reject)
+      // Both users can delete (unlink / cancel / decline)
       allow delete: if isSignedIn() && (
         request.auth.uid == resource.data.followerId ||
         request.auth.uid == resource.data.followingId

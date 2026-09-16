@@ -18,6 +18,7 @@ import '../screens/event_notifications_screen.dart';
 import '../screens/habit_tracker_screen.dart';
 import '../screens/timetable_screen.dart';
 import '../screens/uni_chat_screen.dart';
+import '../screens/sciwordle_screen.dart';
 import '../widgets/app_motion.dart';
 import '../widgets/utopia_snackbar.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
@@ -97,6 +98,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
     final notifTag = (message.data['messageId'] ??
         message.data['waveId'] ??
+        message.data['linkDocId'] ??
         message.data['followDocId'] ??
         message.data['notificationId'] ??
         (message.data['type'] != null && message.data['chatId'] != null ? '${message.data['type']}_${message.data['chatId']}' : null) ??
@@ -546,6 +548,7 @@ class NotificationService {
 
     final notifTag = (data?['messageId'] ??
         data?['waveId'] ??
+        data?['linkDocId'] ??
         data?['followDocId'] ??
         data?['notificationId'] ??
         (data != null && data['type'] != null && data['chatId'] != null ? '${data['type']}_${data['chatId']}' : null) ??
@@ -721,7 +724,7 @@ class NotificationService {
       }
       return;
     }
-    if (type == 'wave' || type == 'follow_request' || type == 'follow_accept' || type == 'general' || type == 'broadcast') {
+    if (type == 'wave' || type == 'follow_request' || type == 'follow_accept' || type == 'link_request' || type == 'link_accept' || type == 'general' || type == 'broadcast') {
       await navigator.push(
         MaterialPageRoute(builder: (_) => const EventNotificationsScreen()),
       );
@@ -751,6 +754,12 @@ class NotificationService {
       );
       return;
     }
+    if (type == 'sci_wordle' || type == 'sciwordle') {
+      await navigator.push(
+        MaterialPageRoute(builder: (_) => const SciwordleScreen()),
+      );
+      return;
+    }
   }
 
   /// Dispatches push & in-app notification via Firebase Firestore 'notifications' collection.
@@ -759,7 +768,7 @@ class NotificationService {
     required String recipientId,
     required String title,
     required String message,
-    required String type, // 'chat', 'wave', 'follow_request', 'follow_accept', 'broadcast', 'general'
+    required String type, // 'chat', 'wave', 'link_request', 'link_accept', 'follow_request', 'follow_accept', 'broadcast', 'general'
     String? chatId,
     Map<String, dynamic>? extraData,
     bool allowSelf = false,

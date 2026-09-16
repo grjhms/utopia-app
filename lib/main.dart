@@ -1590,7 +1590,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 24),
               Center(
                 child: Text(
-                  'Designed by Inferno',
+                  'Designed by John Moses',
                   style: GoogleFonts.outfit(
                     fontSize: 11,
                     color: U.dim,

@@ -21,9 +21,11 @@ import '../services/people_interaction_service.dart';
 import '../services/platform_support.dart';
 import '../services/role_service.dart';
 import '../widgets/instagram_badge.dart';
+import '../widgets/superuser_badge.dart';
 import '../widgets/wave_count_badge.dart';
 import 'app_shell.dart';
 import 'university_selection_screen.dart';
+import 'user_profile_screen.dart';
 import 'utopia_section_screen.dart';
 import '../theme/m3_expressive_theme.dart';
 import '../widgets/app_motion.dart';
@@ -220,6 +222,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String name,
     required String bio,
     required String instagram,
+    required String github,
+    required String discord,
     required String branch,
     required String rollNumber,
     required String? photoUrl,
@@ -233,6 +237,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         initialName: name,
         initialBio: bio,
         initialInstagram: instagram,
+        initialGithub: github,
+        initialDiscord: discord,
         initialBranch: branch,
         initialRollNumber: rollNumber,
         initialPhotoUrl: photoUrl,
@@ -275,7 +281,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             final bio = (userData['bio'] ?? '').toString().trim();
             final branch = (userData['branch'] ?? '').toString().trim();
             final instagramId = (userData['instagramId'] ?? '').toString().trim();
+            final githubId = (userData['githubId'] ?? userData['githubUsername'] ?? '').toString().trim();
+            final discordId = (userData['discordId'] ?? userData['discordUsername'] ?? '').toString().trim();
             final rollNumber = (userData['rollNumber'] ?? '').toString().trim();
+            final showRollNumber = (userData['showRollNumberOnProfile'] as bool?) ?? true;
             final wavesCount = (userData['wavesReceivedCount'] as num?)?.toInt() ?? 0;
             final rawPhotoUrl = (userData['photoUrl'] as String?)?.trim();
             final displayPhotoUrl = (rawPhotoUrl != null && rawPhotoUrl.isNotEmpty)
@@ -349,19 +358,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const SizedBox(height: 20),
 
                 // ── Material 3 Expressive Profile Hero Card ──
-                Container(
-                  decoration: BoxDecoration(
-                    color: U.surfaceContainer,
-                    borderRadius: BorderRadius.circular(28),
-                    border: Border.all(
-                      color: U.outlineVariant.withValues(alpha: isDark ? 0.35 : 0.5),
-                      width: 0.8,
-                    ),
-                  ),
-                  padding: const EdgeInsets.all(22),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: U.surfaceContainer,
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(
+                          color: U.outlineVariant.withValues(alpha: isDark ? 0.35 : 0.5),
+                          width: 0.8,
+                        ),
+                      ),
+                      padding: const EdgeInsets.all(22),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
                       // Avatar
                       Container(
                         padding: const EdgeInsets.all(3.5),
@@ -411,7 +424,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           if (_isSuperUser) ...[
                             const SizedBox(width: 6),
-                            Icon(Icons.verified_rounded, color: U.red, size: 18),
+                            const SuperUserBadge(size: 18),
                           ],
                         ],
                       ),
@@ -496,8 +509,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ],
 
-                      // Badges Wrap (Branch, Instagram, Waves, Roll)
-                      if (branch.isNotEmpty || instagramId.isNotEmpty || wavesCount > 0 || rollNumber.isNotEmpty) ...[
+                      // Badges Wrap (Branch, Instagram, GitHub, Discord, Waves, Roll)
+                      if (branch.isNotEmpty ||
+                          instagramId.isNotEmpty ||
+                          githubId.isNotEmpty ||
+                          discordId.isNotEmpty ||
+                          wavesCount > 0 ||
+                          rollNumber.isNotEmpty) ...[
                         const SizedBox(height: 14),
                         Wrap(
                           alignment: WrapAlignment.center,
@@ -532,7 +550,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   ],
                                 ),
                               ),
-                            if (rollNumber.isNotEmpty)
+                            if (rollNumber.isNotEmpty && showRollNumber)
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                                 decoration: BoxDecoration(
@@ -561,6 +579,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                             if (instagramId.isNotEmpty)
                               InstagramBadge(handle: instagramId),
+                            if (githubId.isNotEmpty)
+                              GithubBadge(handle: githubId),
+                            if (discordId.isNotEmpty)
+                              DiscordBadge(handle: discordId),
                             WaveCountBadge(count: wavesCount),
                           ],
                         ),
@@ -576,6 +598,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             name: displayName,
                             bio: bio,
                             instagram: instagramId,
+                            github: githubId,
+                            discord: discordId,
                             branch: branch,
                             rollNumber: rollNumber,
                             photoUrl: displayPhotoUrl,
@@ -600,7 +624,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ],
                   ),
-                ).animate().fadeIn(delay: 80.ms, duration: 350.ms),
+                ),
+                Positioned(
+                    top: 14,
+                    right: 14,
+                    child: Material(
+                      color: U.surfaceContainerLowest.withValues(alpha: 0.8),
+                      shape: const CircleBorder(),
+                      child: Tooltip(
+                        message: 'View live profile',
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: () {
+                            if (user != null) {
+                              Navigator.of(context).push(
+                                buildForwardRoute(
+                                  UserProfileScreen(
+                                    uid: user.uid,
+                                    displayName: displayName,
+                                    email: email,
+                                    photoUrl: displayPhotoUrl,
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Icon(
+                              Icons.arrow_outward_rounded,
+                              size: 18,
+                              color: theme.primary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ).animate().fadeIn(delay: 80.ms, duration: 350.ms),
                 const SizedBox(height: 20),
 
                 // ── Grouped Settings Menu (Simple, Single Section) ──
@@ -691,7 +753,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const SizedBox(height: 14),
                 Center(
                   child: Text(
-                    'Designed by Inferno',
+                    'Designed by John Moses',
                     style: GoogleFonts.robotoFlex(
                       color: U.dim,
                       fontSize: 11,
@@ -784,6 +846,8 @@ class _EditProfileSheet extends StatefulWidget {
     required this.initialName,
     required this.initialBio,
     required this.initialInstagram,
+    required this.initialGithub,
+    required this.initialDiscord,
     required this.initialBranch,
     required this.initialRollNumber,
     required this.initialPhotoUrl,
@@ -792,6 +856,8 @@ class _EditProfileSheet extends StatefulWidget {
   final String initialName;
   final String initialBio;
   final String initialInstagram;
+  final String initialGithub;
+  final String initialDiscord;
   final String initialBranch;
   final String initialRollNumber;
   final String? initialPhotoUrl;
@@ -804,12 +870,15 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   late final TextEditingController _nameController;
   late final TextEditingController _bioController;
   late final TextEditingController _instagramController;
+  late final TextEditingController _githubController;
+  late final TextEditingController _discordController;
   late final TextEditingController _rollController;
   String? _selectedBranch;
   String? _photoUrl;
   bool _uploadingPhoto = false;
   bool _saving = false;
   bool _showThemeOnProfile = true;
+  bool _showRollNumberOnProfile = true;
 
   @override
   void initState() {
@@ -817,21 +886,29 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _nameController = TextEditingController(text: widget.initialName);
     _bioController = TextEditingController(text: widget.initialBio);
     _instagramController = TextEditingController(text: widget.initialInstagram);
+    _githubController = TextEditingController(text: widget.initialGithub);
+    _discordController = TextEditingController(text: widget.initialDiscord);
     _rollController = TextEditingController(text: widget.initialRollNumber);
     _photoUrl = widget.initialPhotoUrl;
     _selectedBranch = widget.initialBranch.isNotEmpty && kBTechBranches.contains(widget.initialBranch)
         ? widget.initialBranch
         : null;
-    _loadShowThemePref();
+    _loadProfileSettings();
   }
 
-  Future<void> _loadShowThemePref() async {
+  Future<void> _loadProfileSettings() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     try {
       final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final val = doc.data()?['showThemeOnProfile'] as bool?;
-      if (mounted) setState(() => _showThemeOnProfile = val ?? true);
+      final rollVal = doc.data()?['showRollNumberOnProfile'] as bool?;
+      if (mounted) {
+        setState(() {
+          _showThemeOnProfile = val ?? true;
+          _showRollNumberOnProfile = rollVal ?? true;
+        });
+      }
     } catch (_) {}
   }
 
@@ -840,6 +917,8 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _nameController.dispose();
     _bioController.dispose();
     _instagramController.dispose();
+    _githubController.dispose();
+    _discordController.dispose();
     _rollController.dispose();
     super.dispose();
   }
@@ -926,6 +1005,8 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     final nextName = _nameController.text.trim();
     final nextBio = _bioController.text.trim();
     final nextInstagram = _instagramController.text.trim().replaceAll('@', '');
+    final nextGithub = GithubBadge.sanitizeHandle(_githubController.text);
+    final nextDiscord = DiscordBadge.sanitizeHandle(_discordController.text);
     final nextRollNumber = _rollController.text.trim().toUpperCase();
 
     if (nextName.isEmpty) {
@@ -948,8 +1029,11 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             'displayName': nextName,
             'bio': nextBio,
             'instagramId': nextInstagram,
+            'githubId': nextGithub,
+            'discordId': nextDiscord,
             'branch': _selectedBranch ?? '',
             'showThemeOnProfile': _showThemeOnProfile,
+            'showRollNumberOnProfile': _showRollNumberOnProfile,
             'rollNumber': nextRollNumber,
             'email': user.email ?? '',
             'lastSeen': FieldValue.serverTimestamp(),
@@ -1217,6 +1301,48 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                         ),
                         const SizedBox(height: 16),
 
+                        // GitHub
+                        _fieldLabel('GITHUB USERNAME'),
+                        const SizedBox(height: 6),
+                        TextFormField(
+                          controller: _githubController,
+                          maxLength: 39,
+                          textInputAction: TextInputAction.next,
+                          scrollPadding: const EdgeInsets.only(bottom: 80, top: 20),
+                          style: GoogleFonts.robotoFlex(color: U.text, fontSize: 14.5),
+                          cursorColor: theme.primary,
+                          decoration: _inputDec(
+                            hint: 'username',
+                            prefixText: '@ ',
+                            icon: const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: RealGithubIcon(size: 18),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Discord
+                        _fieldLabel('DISCORD USERNAME OR TAG'),
+                        const SizedBox(height: 6),
+                        TextFormField(
+                          controller: _discordController,
+                          maxLength: 37,
+                          textInputAction: TextInputAction.next,
+                          scrollPadding: const EdgeInsets.only(bottom: 80, top: 20),
+                          style: GoogleFonts.robotoFlex(color: U.text, fontSize: 14.5),
+                          cursorColor: theme.primary,
+                          decoration: _inputDec(
+                            hint: 'username or username#0000',
+                            prefixText: '@ ',
+                            icon: const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: RealDiscordIcon(size: 18),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
                         // Branch Dropdown
                         _fieldLabel('BRANCH / SPECIALIZATION'),
                         const SizedBox(height: 6),
@@ -1304,8 +1430,58 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                               ),
                               Switch(
                                 value: _showThemeOnProfile,
-                                activeColor: theme.primary,
+                                activeThumbColor: theme.primary,
                                 onChanged: (val) => setState(() => _showThemeOnProfile = val),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+
+                        // Show Roll Number on Profile toggle
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? U.surfaceContainerLowest.withValues(alpha: 0.6)
+                                : U.surfaceContainerHighest.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: U.outlineVariant.withValues(alpha: 0.4),
+                              width: 0.8,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.badge_outlined, size: 20, color: theme.primary),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Show Roll Number on Profile',
+                                      style: GoogleFonts.robotoFlex(
+                                        color: U.text,
+                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 1),
+                                    Text(
+                                      'Make your student roll ID visible to other students',
+                                      style: GoogleFonts.robotoFlex(
+                                        color: U.sub,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Switch(
+                                value: _showRollNumberOnProfile,
+                                activeThumbColor: theme.primary,
+                                onChanged: (val) => setState(() => _showRollNumberOnProfile = val),
                               ),
                             ],
                           ),

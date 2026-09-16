@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../main.dart';
 import '../services/follow_service.dart';
 import '../widgets/app_motion.dart';
+import '../widgets/superuser_badge.dart';
 import 'user_profile_screen.dart';
 
 class FollowRequestsScreen extends StatelessWidget {
@@ -26,7 +27,7 @@ class FollowRequestsScreen extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          'Follow Requests',
+          'Link Requests',
           style: GoogleFonts.outfit(
             color: U.text,
             fontSize: 18,
@@ -50,10 +51,10 @@ class FollowRequestsScreen extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.people_outline, size: 40, color: U.dim),
+                    Icon(Icons.link_off_rounded, size: 40, color: U.dim),
                     const SizedBox(height: 16),
                     Text(
-                      'No requests',
+                      'No link requests',
                       style: GoogleFonts.outfit(
                         color: U.text,
                         fontSize: 16,
@@ -62,7 +63,7 @@ class FollowRequestsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'When someone requests to follow you, it will appear here.',
+                      'When someone sends you a link request, it will appear here.',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(color: U.sub, fontSize: 13),
                     ),
@@ -74,7 +75,7 @@ class FollowRequestsScreen extends StatelessWidget {
 
           return ListView.separated(
             itemCount: requests.length,
-            separatorBuilder: (_, __) =>
+            separatorBuilder: (_, _) =>
                 Divider(color: U.border, height: 1, thickness: 0.5, indent: 72),
             itemBuilder: (context, index) {
               final req = requests[index];
@@ -168,7 +169,7 @@ class _RequestRowState extends State<_RequestRow> {
                       ),
                       if ((widget.request['role'] ?? '') == 'superuser') ...[
                         const SizedBox(width: 4),
-                        Icon(Icons.verified_rounded, color: U.red, size: 14),
+                        const SuperUserBadge(size: 14),
                       ],
                     ],
                   ),
@@ -184,9 +185,9 @@ class _RequestRowState extends State<_RequestRow> {
             ),
             const SizedBox(width: 10),
 
-            // Accept
+            // Accept / Link Up
             _ActionButton(
-              label: 'Confirm',
+              label: 'Link Up',
               color: U.primary,
               fg: U.bg,
               loading: _accepting,
@@ -195,6 +196,12 @@ class _RequestRowState extends State<_RequestRow> {
                 setState(() => _accepting = true);
                 try {
                   await widget.followService.acceptRequest(requestDocId);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      backgroundColor: U.card,
+                      content: Text('Linked up with $displayName! 🔗', style: GoogleFonts.outfit(color: U.text)),
+                    ));
+                  }
                 } finally {
                   if (mounted) setState(() => _accepting = false);
                 }
@@ -204,7 +211,7 @@ class _RequestRowState extends State<_RequestRow> {
 
             // Decline
             _ActionButton(
-              label: 'Delete',
+              label: 'Decline',
               color: U.card,
               fg: U.text,
               bordered: true,
@@ -281,9 +288,9 @@ class _RequestsSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView.separated(
       itemCount: 6,
-      separatorBuilder: (_, __) =>
+      separatorBuilder: (_, _) =>
           Divider(color: U.border, height: 1, thickness: 0.5, indent: 72),
-      itemBuilder: (_, __) => Padding(
+      itemBuilder: (_, _) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         child: Row(
           children: const [
@@ -309,3 +316,6 @@ class _RequestsSkeleton extends StatelessWidget {
     );
   }
 }
+
+/// LinkRequestsScreen alias
+typedef LinkRequestsScreen = FollowRequestsScreen;

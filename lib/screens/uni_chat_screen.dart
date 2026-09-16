@@ -6,11 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../main.dart';
 import '../services/cache_service.dart';
 import '../services/notification_service.dart';
 import '../services/uni_chat_service.dart';
-import '../services/luna_ai_service.dart';
 import '../services/role_service.dart';
 import '../widgets/chat_media_picker.dart';
 import '../widgets/unread_indicator_dot.dart';
@@ -29,6 +29,8 @@ class _UniChatScreenState extends State<UniChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
+  final TextEditingController _searchController = TextEditingController();
+
   bool _sending = false;
   DateTime? _lastSent;
   String? _editingMessageId;
@@ -41,9 +43,17 @@ class _UniChatScreenState extends State<UniChatScreen> {
   final Set<String> _locallyViewedDocIds = {};
   bool _isSuperUser = false;
 
+  // Search & reaction states
+  bool _searchActive = false;
+  String _searchQuery = '';
+  String? _activeReactionMessageId;
+
   String get _currentUid => FirebaseAuth.instance.currentUser?.uid ?? '';
   String get _currentName => FirebaseAuth.instance.currentUser?.displayName ?? 'Student';
   String get _currentEmail => FirebaseAuth.instance.currentUser?.email ?? '';
+
+  static const List<String> _quickReactions = ['❤️', '🔥', '😂', '⚡', '💀', '🎓'];
+
 
   int _getViewCount(Map<String, dynamic> data) {
     final views = data['views'];
@@ -251,6 +261,15 @@ class _UniChatScreenState extends State<UniChatScreen> {
     return emojiRegex.allMatches(text.trim()).length;
   }
 
+  String? _extractFirstUrl(String text) {
+    final urlRegex = RegExp(
+      r'(https?:\/\/[^\s]+)',
+      caseSensitive: false,
+    );
+    final match = urlRegex.firstMatch(text);
+    return match?.group(0);
+  }
+
   Future<void> _send() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _sending) return;
@@ -277,7 +296,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Failed to edit message', style: GoogleFonts.outfit(color: U.bg)),
+              content: Text('Failed to edit message', style: GoogleFonts.plusJakartaSans(color: U.bg)),
               backgroundColor: U.red,
             ),
           );
@@ -288,11 +307,12 @@ class _UniChatScreenState extends State<UniChatScreen> {
       return;
     }
 
-    if (_lastSent != null && DateTime.now().difference(_lastSent!).inSeconds < 3) {
+    if (_lastSent != null && DateTime.now().difference(_lastSent!).inSeconds < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Please wait 3 seconds between messages', style: GoogleFonts.outfit(color: U.bg)),
+          content: Text('Slow down a moment!', style: GoogleFonts.plusJakartaSans(color: U.bg)),
           backgroundColor: U.red,
+          duration: const Duration(seconds: 1),
         ),
       );
       return;
@@ -321,9 +341,6 @@ class _UniChatScreenState extends State<UniChatScreen> {
         };
       }
 
-      final sentText = text;
-      final repliedMsg = _replyingToMessage;
-
       await FirebaseFirestore.instance
           .collection('uni_chats')
           .doc(_effectiveUniversityId)
@@ -340,30 +357,11 @@ class _UniChatScreenState extends State<UniChatScreen> {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
       }
-
-      // ── Trigger Luna Roast AI if mentioned or replied to ──
-      final isReplyingToLuna =
-          repliedMsg?['senderId'] == LunaAiService.lunaSenderId ||
-          repliedMsg?['isLuna'] == true;
-      final mentionsLuna = LunaAiService.mentionsLuna(sentText);
-      debugPrint('[LUNA] Sent message: "$sentText", mentionsLuna: $mentionsLuna, isReplyingToLuna: $isReplyingToLuna');
-      if (mentionsLuna || isReplyingToLuna) {
-        debugPrint('[LUNA] Triggering Luna for university: $_effectiveUniversityId');
-        unawaited(LunaAiService().respondToChat(
-          universityId: _effectiveUniversityId,
-          userPrompt: sentText,
-          userName: _currentName,
-          userId: _currentUid,
-          replyToMessage: repliedMsg,
-        ));
-      } else {
-        LunaAiService.setResponding(false);
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to send message', style: GoogleFonts.outfit(color: U.bg)),
+            content: Text('Failed to send message', style: GoogleFonts.plusJakartaSans(color: U.bg)),
             backgroundColor: U.red,
           ),
         );
@@ -422,13 +420,44 @@ class _UniChatScreenState extends State<UniChatScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to send $mediaType', style: GoogleFonts.outfit(color: U.bg)),
+            content: Text('Failed to send $mediaType', style: GoogleFonts.plusJakartaSans(color: U.bg)),
             backgroundColor: U.red,
           ),
         );
       }
     } finally {
       if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _toggleReaction(String messageId, String emoji, dynamic rawReactions) async {
+    HapticFeedback.lightImpact();
+    final reactions = rawReactions is Map
+        ? Map<String, dynamic>.from(rawReactions)
+        : <String, dynamic>{};
+
+    final userList = List<dynamic>.from(reactions[emoji] ?? []);
+    if (userList.contains(_currentUid)) {
+      userList.remove(_currentUid);
+      if (userList.isEmpty) {
+        reactions.remove(emoji);
+      } else {
+        reactions[emoji] = userList;
+      }
+    } else {
+      userList.add(_currentUid);
+      reactions[emoji] = userList;
+    }
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('uni_chats')
+          .doc(_effectiveUniversityId)
+          .collection('messages')
+          .doc(messageId)
+          .update({'reactions': reactions});
+    } catch (e) {
+      debugPrint('Error toggling reaction: $e');
     }
   }
 
@@ -447,7 +476,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
   void _openMediaPreview(String url) {
     showDialog(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.85),
+      barrierColor: Colors.black.withValues(alpha: 0.88),
       builder: (ctx) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
@@ -464,7 +493,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
               ],
             ),
             ClipRRect(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(24),
               child: CachedNetworkImage(
                 imageUrl: url,
                 fit: BoxFit.contain,
@@ -505,6 +534,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
     HapticFeedback.lightImpact();
     setState(() {
       _editingMessageId = null;
+      _activeReactionMessageId = null;
       _replyingToMessage = {
         'id': messageId,
         'text': data['text'] ?? '',
@@ -541,7 +571,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Message unsent', style: GoogleFonts.outfit(color: U.bg)),
+            content: Text('Message unsent', style: GoogleFonts.plusJakartaSans(color: U.bg)),
             duration: const Duration(milliseconds: 900),
           ),
         );
@@ -550,7 +580,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to unsend message', style: GoogleFonts.outfit(color: U.bg)),
+            content: Text('Failed to unsend message', style: GoogleFonts.plusJakartaSans(color: U.bg)),
             backgroundColor: U.red,
           ),
         );
@@ -562,15 +592,12 @@ class _UniChatScreenState extends State<UniChatScreen> {
     final text = (data['text'] ?? '').toString();
     final mediaUrl = data['mediaUrl'] as String?;
     final isMedia = mediaUrl != null && mediaUrl.isNotEmpty;
-    final isAiMessage = data['isLuna'] == true ||
-        data['isAi'] == true ||
-        data['senderId'] == LunaAiService.lunaSenderId;
-    final canUnsend = isMe || (_isSuperUser && isAiMessage);
+    final canUnsend = isMe || _isSuperUser;
 
     showModalBottomSheet(
       context: context,
       backgroundColor: U.card,
-      elevation: 2,
+      elevation: 3,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -583,15 +610,43 @@ class _UniChatScreenState extends State<UniChatScreen> {
               children: [
                 Center(
                   child: Container(
-                    width: 36,
-                    height: 4,
+                    width: 40,
+                    height: 4.5,
                     decoration: BoxDecoration(
                       color: U.border.withValues(alpha: 0.8),
                       borderRadius: BorderRadius.circular(99),
                     ),
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 16),
+
+                // Quick Reaction Bar inside bottom sheet
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.white.withValues(alpha: 0.06)
+                        : Colors.black.withValues(alpha: 0.04),
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: _quickReactions.map((emoji) {
+                      return GestureDetector(
+                        onTap: () {
+                          Navigator.pop(context);
+                          _toggleReaction(messageId, emoji, data['reactions']);
+                        },
+                        child: Text(
+                          emoji,
+                          style: const TextStyle(fontSize: 26),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
                 ListTile(
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   leading: Container(
@@ -603,31 +658,10 @@ class _UniChatScreenState extends State<UniChatScreen> {
                     ),
                     child: Icon(Icons.reply_rounded, color: U.primary, size: 20),
                   ),
-                  title: Text('Reply', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600, fontSize: 15)),
+                  title: Text('Reply', style: GoogleFonts.plusJakartaSans(color: U.text, fontWeight: FontWeight.w600, fontSize: 15)),
                   onTap: () {
                     Navigator.pop(context);
                     _startReply(data, messageId);
-                  },
-                ),
-                ListTile(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  leading: Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: U.primary.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(Icons.auto_awesome_rounded, color: U.primary, size: 20),
-                  ),
-                  title: Text('Ask Luna', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600, fontSize: 15)),
-                  subtitle: Text('Ask Luna to reply to this', style: GoogleFonts.outfit(color: U.sub, fontSize: 11)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _startReply(data, messageId);
-                    _controller.text = '@luna ';
-                    _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
-                    _focusNode.requestFocus();
                   },
                 ),
                 if (isMedia)
@@ -642,7 +676,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       ),
                       child: Icon(Icons.fullscreen_rounded, color: U.teal, size: 20),
                     ),
-                    title: Text('View Full Size', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600, fontSize: 15)),
+                    title: Text('View Full Size', style: GoogleFonts.plusJakartaSans(color: U.text, fontWeight: FontWeight.w600, fontSize: 15)),
                     onTap: () {
                       Navigator.pop(context);
                       _openMediaPreview(mediaUrl);
@@ -660,7 +694,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       ),
                       child: Icon(Icons.edit_rounded, color: U.blue, size: 20),
                     ),
-                    title: Text('Edit message', style: GoogleFonts.outfit(color: U.text, fontWeight: FontWeight.w600, fontSize: 15)),
+                    title: Text('Edit message', style: GoogleFonts.plusJakartaSans(color: U.text, fontWeight: FontWeight.w600, fontSize: 15)),
                     onTap: () {
                       Navigator.pop(context);
                       _startEditing(messageId, text);
@@ -678,13 +712,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       ),
                       child: Icon(Icons.delete_outline_rounded, color: U.red, size: 20),
                     ),
-                    title: Text(
-                      isAiMessage && !isMe ? 'Remove AI message' : 'Unsend message',
-                      style: GoogleFonts.outfit(color: U.red, fontWeight: FontWeight.w600, fontSize: 15),
-                    ),
-                    subtitle: isAiMessage && !isMe
-                        ? Text('Superuser action', style: GoogleFonts.outfit(color: U.sub, fontSize: 11))
-                        : null,
+                    title: Text('Unsend message', style: GoogleFonts.plusJakartaSans(color: U.red, fontWeight: FontWeight.w600, fontSize: 15)),
                     onTap: () {
                       Navigator.pop(context);
                       _unsendMessage(messageId);
@@ -702,13 +730,13 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       ),
                       child: Icon(Icons.copy_rounded, color: U.sub, size: 20),
                     ),
-                    title: Text('Copy text', style: GoogleFonts.outfit(color: U.text, fontSize: 15)),
+                    title: Text('Copy text', style: GoogleFonts.plusJakartaSans(color: U.text, fontSize: 15)),
                     onTap: () {
                       Navigator.pop(context);
                       Clipboard.setData(ClipboardData(text: text));
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text('Copied to clipboard', style: GoogleFonts.outfit(color: U.bg)),
+                          content: Text('Copied to clipboard', style: GoogleFonts.plusJakartaSans(color: U.bg)),
                           duration: const Duration(seconds: 1),
                         ),
                       );
@@ -729,6 +757,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
     _scrollController.dispose();
     _focusNode.dispose();
     _controller.dispose();
+    _searchController.dispose();
     UniChatService().markAsSeen(_effectiveUniversityId);
     super.dispose();
   }
@@ -741,7 +770,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
       context: context,
       backgroundColor: U.card,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
         return StatefulBuilder(
@@ -759,17 +788,17 @@ class _UniChatScreenState extends State<UniChatScreen> {
                   setSheetState(() {});
                   Navigator.pop(ctx);
                 },
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(20),
                 child: Container(
                   margin: const EdgeInsets.symmetric(vertical: 4),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: isSelected
                         ? (isDark
-                            ? U.teal.withValues(alpha: 0.12)
+                            ? U.teal.withValues(alpha: 0.14)
                             : U.teal.withValues(alpha: 0.08))
                         : Colors.transparent,
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: isSelected
                           ? U.teal.withValues(alpha: 0.4)
@@ -787,7 +816,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
                               : (isDark
                                   ? Colors.white.withValues(alpha: 0.05)
                                   : Colors.black.withValues(alpha: 0.04)),
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(14),
                         ),
                         child: Icon(
                           icon,
@@ -802,7 +831,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
                           children: [
                             Text(
                               title,
-                              style: GoogleFonts.outfit(
+                              style: GoogleFonts.plusJakartaSans(
                                 fontSize: 15,
                                 fontWeight: isSelected
                                     ? FontWeight.w700
@@ -813,7 +842,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
                             const SizedBox(height: 2),
                             Text(
                               subtitle,
-                              style: GoogleFonts.outfit(
+                              style: GoogleFonts.plusJakartaSans(
                                 fontSize: 12,
                                 color: U.sub,
                               ),
@@ -860,10 +889,10 @@ class _UniChatScreenState extends State<UniChatScreen> {
                         ),
                         const SizedBox(width: 10),
                         Text(
-                          'Utopia Chat Notifications',
-                          style: GoogleFonts.outfit(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
+                          'Campus Chat Alerts',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
                             color: U.text,
                           ),
                         ),
@@ -871,8 +900,8 @@ class _UniChatScreenState extends State<UniChatScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Choose when to receive notifications for this community chat.',
-                      style: GoogleFonts.outfit(
+                      'Choose how you want to be alerted for your university chat.',
+                      style: GoogleFonts.plusJakartaSans(
                         fontSize: 13,
                         color: U.sub,
                       ),
@@ -880,22 +909,19 @@ class _UniChatScreenState extends State<UniChatScreen> {
                     const SizedBox(height: 16),
                     buildOptionTile(
                       title: 'All Messages',
-                      subtitle:
-                          'Get notified for every message posted in this chat',
+                      subtitle: 'Get notified for every message posted in campus chat',
                       icon: Icons.notifications_active_rounded,
                       mode: 'all',
                     ),
                     buildOptionTile(
                       title: 'Replies to You',
-                      subtitle:
-                          'Only get notified when someone replies to your message',
+                      subtitle: 'Only get notified when someone replies directly',
                       icon: Icons.reply_rounded,
                       mode: 'replies',
                     ),
                     buildOptionTile(
                       title: 'Muted / Off',
-                      subtitle:
-                          'Never receive push notifications from this chat',
+                      subtitle: 'Silent mode: No notifications from this chat',
                       icon: Icons.notifications_off_rounded,
                       mode: 'off',
                     ),
@@ -926,18 +952,8 @@ class _UniChatScreenState extends State<UniChatScreen> {
     if (diff == 0) return 'Today';
     if (diff == 1) return 'Yesterday';
     const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec'
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
     ];
     if (date.year == now.year) {
       return '${months[date.month - 1]} ${date.day}';
@@ -965,50 +981,145 @@ class _UniChatScreenState extends State<UniChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDarkTheme = appThemeNotifier.value.isDark;
+    final isDarkTheme = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       backgroundColor: U.bg,
       appBar: AppBar(
         backgroundColor: U.bg,
         elevation: 0,
-        centerTitle: false,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Chat to Utopia',
-              style: GoogleFonts.outfit(
-                color: U.text,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            Row(
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  margin: const EdgeInsets.only(right: 5),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF2DD4BF),
+        scrolledUnderElevation: 0,
+        titleSpacing: 0,
+        leading: _searchActive
+            ? IconButton(
+                icon: Icon(Icons.arrow_back_rounded, color: U.text),
+                onPressed: () {
+                  setState(() {
+                    _searchActive = false;
+                    _searchQuery = '';
+                    _searchController.clear();
+                  });
+                },
+              )
+            : IconButton(
+                icon: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: isDarkTheme ? Colors.white10 : Colors.black.withValues(alpha: 0.04),
                     shape: BoxShape.circle,
                   ),
+                  child: Icon(Icons.arrow_back_ios_new_rounded, size: 16, color: U.text),
                 ),
-                Text(
-                  'Campus Community • Live',
-                  style: GoogleFonts.outfit(
-                    color: U.dim,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
+                onPressed: () => Navigator.pop(context),
+              ),
+        title: _searchActive
+            ? Container(
+                height: 40,
+                decoration: BoxDecoration(
+                  color: isDarkTheme ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  style: GoogleFonts.plusJakartaSans(color: U.text, fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'Search campus messages...',
+                    hintStyle: GoogleFonts.plusJakartaSans(color: U.dim, fontSize: 13),
+                    prefixIcon: Icon(Icons.search_rounded, size: 18, color: U.dim),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? GestureDetector(
+                            onTap: () {
+                              _searchController.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                            child: Icon(Icons.clear_rounded, size: 16, color: U.dim),
+                          )
+                        : null,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                   ),
+                  onChanged: (val) {
+                    setState(() => _searchQuery = val.trim());
+                  },
                 ),
-              ],
-            ),
-          ],
-        ),
-        foregroundColor: U.text,
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          'Chat to Utopia',
+                          style: GoogleFonts.plusJakartaSans(
+                            color: U.text,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.3,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2DD4BF).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          'CAMPUS',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: const Color(0xFF2DD4BF),
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        margin: const EdgeInsets.only(right: 5),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF2DD4BF),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      Flexible(
+                        child: Text(
+                          'Live Student Stream',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: U.dim,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
         actions: [
+          if (!_searchActive)
+            IconButton(
+              icon: Icon(Icons.search_rounded, color: U.text, size: 22),
+              tooltip: 'Search Messages',
+              onPressed: () => setState(() => _searchActive = true),
+            ),
           IconButton(
             icon: Icon(
               _utopiaChatNotifMode == 'all'
@@ -1017,89 +1128,78 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       ? Icons.notifications_rounded
                       : Icons.notifications_off_outlined),
               color: _utopiaChatNotifMode == 'off' ? U.dim : U.teal,
-              size: 22,
+              size: 21,
             ),
             tooltip: 'Notification Settings',
             onPressed: _showNotificationSettingsSheet,
           ),
-          IconButton(
-            icon: Icon(Icons.auto_awesome_rounded, color: U.teal, size: 22),
-            tooltip: 'GIFs & Stickers',
-            onPressed: _openMediaPicker,
-          ),
+          const SizedBox(width: 4),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Stack(
-              children: [
-                StreamBuilder<QuerySnapshot>(
-                  stream: _messagesStream,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-                      return const Center(child: UtopiaLoader(scale: 0.7));
-                    }
-                    final docs = snapshot.data?.docs ?? [];
-                    if (docs.isEmpty) {
-                      return Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 64,
-                              height: 64,
-                              decoration: BoxDecoration(
-                                color: U.primary.withValues(alpha: 0.1),
-                                shape: BoxShape.circle,
+      body: GestureDetector(
+        onTap: () {
+          if (_activeReactionMessageId != null) {
+            setState(() => _activeReactionMessageId = null);
+          }
+        },
+        child: Column(
+          children: [
+            // Chat message stream
+            Expanded(
+              child: Stack(
+                children: [
+                  StreamBuilder<QuerySnapshot>(
+                    stream: _messagesStream,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                        return const Center(child: UtopiaLoader(scale: 0.7));
+                      }
+                      final allDocs = snapshot.data?.docs ?? [];
+                      if (allDocs.isEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 72,
+                                height: 72,
+                                decoration: BoxDecoration(
+                                  color: U.primary.withValues(alpha: 0.1),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Center(
+                                  child: Icon(Icons.bubble_chart_rounded, color: U.primary, size: 34),
+                                ),
                               ),
-                              child: Center(
-                                child: Icon(Icons.forum_outlined, color: U.primary, size: 30),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Say hello to your campus!',
+                                style: GoogleFonts.plusJakartaSans(
+                                  color: U.text,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Be the first to say hi!',
-                              style: GoogleFonts.outfit(
-                                color: U.text,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
+                              const SizedBox(height: 6),
+                              Text(
+                                'Send a message, sticker, or drop a quick vibe.',
+                                style: GoogleFonts.plusJakartaSans(color: U.dim, fontSize: 13),
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Send a message, sticker, or GIF to your campus.',
-                              style: GoogleFonts.outfit(color: U.dim, fontSize: 13),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
+                            ],
+                          ),
+                        );
+                      }
 
-                    // Real-time unread synchronization & scroll badge trigger
-                    if (docs.isNotEmpty) {
-                      _trackVisibleViews(docs);
-                      final topDoc = docs.first.data() as Map<String, dynamic>;
+                      // Real-time unread synchronization & scroll badge trigger
+                      _trackVisibleViews(allDocs);
+                      final topDoc = allDocs.first.data() as Map<String, dynamic>;
                       final topSenderId = topDoc['senderId'] as String?;
                       final topTs = topDoc['timestamp'] as Timestamp?;
-                      final isLunaTop = topDoc['isLuna'] == true ||
-                          topDoc['senderId'] == LunaAiService.lunaSenderId;
-                      // Dynamic Luna Responding Activity synchronization:
-                      // If any of the newest 4 messages is from Luna, turn typing indicator OFF!
-                      final hasRecentLuna = docs.take(4).any((d) {
-                        final m = d.data() as Map<String, dynamic>;
-                        return m['isLuna'] == true ||
-                            m['senderId'] == LunaAiService.lunaSenderId;
-                      });
-                      if (hasRecentLuna && LunaAiService.isRespondingNotifier.value) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          LunaAiService.setResponding(false);
-                        });
-                      }
-                      if (_lastSeenTopDocId != docs.first.id &&
-                          (topSenderId != _currentUid || isLunaTop) &&
+
+                      if (_lastSeenTopDocId != allDocs.first.id &&
+                          topSenderId != _currentUid &&
                           topTs != null) {
-                        _lastSeenTopDocId = docs.first.id;
+                        _lastSeenTopDocId = allDocs.first.id;
                         if (_showScrollDown) {
                           if (!_hasNewMessagesWhileScrolled) {
                             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1110,438 +1210,469 @@ class _UniChatScreenState extends State<UniChatScreen> {
                           UniChatService().markAsSeen(_effectiveUniversityId);
                         }
                       }
-                    }
 
-                    return ListView.builder(
-                      reverse: true,
-                      controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      itemCount: docs.length,
-                      itemBuilder: (context, index) {
-                        final data = docs[index].data() as Map<String, dynamic>;
-                        final messageId = docs[index].id;
-                        final isMe =
-                            data['senderId'] == _currentUid && data['isLuna'] != true;
-                        final ts = data['timestamp'] as Timestamp?;
-                        final showDateSep = _shouldShowDateSeparator(docs, index);
+                      // Search filtering
+                      final docs = _searchQuery.isEmpty
+                          ? allDocs
+                          : allDocs.where((d) {
+                              final map = d.data() as Map<String, dynamic>;
+                              final t = (map['text'] ?? '').toString().toLowerCase();
+                              final s = (map['senderName'] ?? '').toString().toLowerCase();
+                              return t.contains(_searchQuery.toLowerCase()) ||
+                                  s.contains(_searchQuery.toLowerCase());
+                            }).toList();
 
-                        return Column(
-                          children: [
-                            // Date separator
-                            if (showDateSep && ts != null)
-                              Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                child: Row(
-                                  children: [
-                                    Expanded(child: Divider(color: U.border.withValues(alpha: 0.5), thickness: 0.5)),
-                                    Container(
-                                      margin: const EdgeInsets.symmetric(horizontal: 12),
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                                      decoration: BoxDecoration(
-                                        color: isDarkTheme
-                                            ? Colors.white.withValues(alpha: 0.05)
-                                            : Colors.black.withValues(alpha: 0.04),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Text(
-                                        _formatDateLabel(ts.toDate()),
-                                        style: GoogleFonts.outfit(
-                                          color: U.dim,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
+                      if (docs.isEmpty && _searchQuery.isNotEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.search_off_rounded, size: 44, color: U.dim),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No messages found for "$_searchQuery"',
+                                style: GoogleFonts.plusJakartaSans(
+                                  color: U.dim,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return ListView.builder(
+                        reverse: true,
+                        controller: _scrollController,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        itemCount: docs.length,
+                        itemBuilder: (context, index) {
+                          final data = docs[index].data() as Map<String, dynamic>;
+                          final messageId = docs[index].id;
+                          final isMe = data['senderId'] == _currentUid;
+                          final ts = data['timestamp'] as Timestamp?;
+                          final showDateSep = _shouldShowDateSeparator(docs, index);
+
+                          return Column(
+                            children: [
+                              // Date separator (sleek capsule pill)
+                              if (showDateSep && ts != null)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  child: Row(
+                                    children: [
+                                      Expanded(child: Divider(color: U.border.withValues(alpha: 0.4), thickness: 0.5)),
+                                      Container(
+                                        margin: const EdgeInsets.symmetric(horizontal: 14),
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: isDarkTheme
+                                              ? Colors.white.withValues(alpha: 0.06)
+                                              : Colors.black.withValues(alpha: 0.04),
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: Text(
+                                          _formatDateLabel(ts.toDate()),
+                                          style: GoogleFonts.spaceGrotesk(
+                                            color: U.dim,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                    Expanded(child: Divider(color: U.border.withValues(alpha: 0.5), thickness: 0.5)),
-                                  ],
-                                ),
-                              ),
-                            Align(
-                              alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                              child: _SwipeToReplyBubble(
-                                onReply: () => _startReply(data, messageId),
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    setState(() {
-                                      if (_touchedMessageIds.contains(messageId)) {
-                                        _touchedMessageIds.remove(messageId);
-                                      } else {
-                                        _touchedMessageIds.add(messageId);
-                                      }
-                                    });
-                                  },
-                                  onLongPress: () => _showMessageOptions(messageId, data, isMe),
-                                  onDoubleTap: () => _startReply(data, messageId),
-                                  child: _buildMessageBubble(data, messageId, isMe, ts, isDarkTheme),
-                                ),
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    );
-                  },
-                ),
-
-                // ── Floating Scroll-to-Bottom Button ──
-                Positioned(
-                  bottom: 12,
-                  right: 16,
-                  child: AnimatedSlide(
-                    duration: const Duration(milliseconds: 260),
-                    curve: Curves.easeOutCubic,
-                    offset: _showScrollDown ? Offset.zero : const Offset(0, 1.5),
-                    child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 200),
-                      opacity: _showScrollDown ? 1.0 : 0.0,
-                      child: IgnorePointer(
-                        ignoring: !_showScrollDown,
-                        child: GestureDetector(
-                          onTap: _scrollToBottom,
-                          child: Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: isDarkTheme
-                                  ? U.card.withValues(alpha: 0.95)
-                                  : Colors.white.withValues(alpha: 0.95),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: isDarkTheme
-                                    ? Colors.white.withValues(alpha: 0.12)
-                                    : U.border,
-                                width: 1.0,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(
-                                    alpha: isDarkTheme ? 0.45 : 0.15,
+                                      Expanded(child: Divider(color: U.border.withValues(alpha: 0.4), thickness: 0.5)),
+                                    ],
                                   ),
-                                  blurRadius: 14,
-                                  offset: const Offset(0, 4),
-                                  spreadRadius: 1,
                                 ),
-                              ],
-                            ),
-                            child: Stack(
-                              alignment: Alignment.center,
-                              clipBehavior: Clip.none,
-                              children: [
-                                Icon(
-                                  Icons.keyboard_arrow_down_rounded,
-                                  color: U.primary,
-                                  size: 26,
-                                ),
-                                if (_hasNewMessagesWhileScrolled)
-                                  const Positioned(
-                                    top: 1,
-                                    right: 1,
-                                    child: UnreadIndicatorDot(
-                                      size: 10,
-                                      color: Color(0xFF2DD4BF),
+
+                              Align(
+                                alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                                child: _SwipeToReplyBubble(
+                                  onReply: () => _startReply(data, messageId),
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () {
+                                      HapticFeedback.selectionClick();
+                                      setState(() {
+                                        if (_touchedMessageIds.contains(messageId)) {
+                                          _touchedMessageIds.remove(messageId);
+                                        } else {
+                                          _touchedMessageIds.add(messageId);
+                                        }
+                                        if (_activeReactionMessageId == messageId) {
+                                          _activeReactionMessageId = null;
+                                        }
+                                      });
+                                    },
+                                    onDoubleTap: () {
+                                      HapticFeedback.mediumImpact();
+                                      setState(() {
+                                        _activeReactionMessageId =
+                                            _activeReactionMessageId == messageId ? null : messageId;
+                                      });
+                                    },
+                                    onLongPress: () => _showMessageOptions(messageId, data, isMe),
+                                    child: Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        _buildMessageBubble(data, messageId, isMe, ts, isDarkTheme),
+
+                                        // Floating Quick Reaction Dock
+                                        if (_activeReactionMessageId == messageId)
+                                          Positioned(
+                                            top: -46,
+                                            right: isMe ? 0 : null,
+                                            left: isMe ? null : 0,
+                                            child: _buildFloatingReactionDock(messageId, data['reactions']),
+                                          ),
+                                      ],
                                     ),
                                   ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // ── Luna Responding Activity (Typing Indicator) ──
-          ValueListenableBuilder<bool>(
-            valueListenable: LunaAiService.isRespondingNotifier,
-            builder: (context, isResponding, _) {
-              if (!isResponding) return const SizedBox.shrink();
-              return Align(
-                alignment: Alignment.centerLeft,
-                child: _buildLunaRespondingActivity(isDarkTheme),
-              );
-            },
-          ),
-
-          // ── Replying Preview Bar ──
-          if (_replyingToMessage != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: U.card,
-                border: Border(top: BorderSide(color: U.border.withValues(alpha: 0.5))),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 3.5,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: U.primary,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Replying to ${_replyingToMessage!['senderName']}',
-                          style: GoogleFonts.outfit(
-                            color: U.primary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 1),
-                        Text(
-                          _replyingToMessage!['mediaUrl'] != null
-                              ? (_replyingToMessage!['mediaType'] == 'sticker' ? '🎨 Sticker' : '👾 GIF')
-                              : (_replyingToMessage!['text'] ?? ''),
-                          style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (_replyingToMessage!['mediaUrl'] != null) ...[
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: SizedBox(
-                        width: 32,
-                        height: 32,
-                        child: CachedNetworkImage(
-                          imageUrl: _replyingToMessage!['mediaUrl'],
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  GestureDetector(
-                    onTap: _cancelReply,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: U.dim.withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.close_rounded, size: 16, color: U.sub),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          // ── Editing Preview Bar ──
-          if (_editingMessageId != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: U.card,
-              child: Row(
-                children: [
-                  Icon(Icons.edit_rounded, size: 16, color: U.primary),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Editing message',
-                      style: GoogleFonts.outfit(color: U.primary, fontSize: 12, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: _cancelEditing,
-                    child: Icon(Icons.close_rounded, size: 18, color: U.sub),
-                  ),
-                ],
-              ),
-            ),
-
-          // ── Modern Composer Bar ──
-          Container(
-            color: U.bg,
-            padding: EdgeInsets.fromLTRB(
-              12,
-              6,
-              12,
-              MediaQuery.paddingOf(context).bottom + 12,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Quick Summon Luna Chip
-                Padding(
-                  padding: const EdgeInsets.only(left: 2, bottom: 6),
-                  child: GestureDetector(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      final current = _controller.text;
-                      if (!current.toLowerCase().contains('@luna')) {
-                        _controller.text = '${('@luna $current').trim()} ';
-                        _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
-                      }
-                      _focusNode.requestFocus();
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      );
                     },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: U.primary.withValues(alpha: isDarkTheme ? 0.12 : 0.07),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: U.primary.withValues(alpha: 0.2),
-                          width: 0.8,
+                  ),
+
+                  // Floating Scroll-to-Bottom Button
+                  Positioned(
+                    bottom: 12,
+                    right: 16,
+                    child: AnimatedSlide(
+                      duration: const Duration(milliseconds: 260),
+                      curve: Curves.easeOutCubic,
+                      offset: _showScrollDown ? Offset.zero : const Offset(0, 1.5),
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 200),
+                        opacity: _showScrollDown ? 1.0 : 0.0,
+                        child: IgnorePointer(
+                          ignoring: !_showScrollDown,
+                          child: GestureDetector(
+                            onTap: _scrollToBottom,
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: isDarkTheme
+                                    ? U.card.withValues(alpha: 0.95)
+                                    : Colors.white.withValues(alpha: 0.95),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: isDarkTheme
+                                      ? Colors.white.withValues(alpha: 0.12)
+                                      : U.border,
+                                  width: 1.0,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(
+                                      alpha: isDarkTheme ? 0.45 : 0.15,
+                                    ),
+                                    blurRadius: 14,
+                                    offset: const Offset(0, 4),
+                                    spreadRadius: 1,
+                                  ),
+                                ],
+                              ),
+                              child: Stack(
+                                alignment: Alignment.center,
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    color: U.primary,
+                                    size: 26,
+                                  ),
+                                  if (_hasNewMessagesWhileScrolled)
+                                    const Positioned(
+                                      top: 1,
+                                      right: 1,
+                                      child: UnreadIndicatorDot(
+                                        size: 10,
+                                        color: Color(0xFF2DD4BF),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Replying Preview Bar
+            if (_replyingToMessage != null)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: U.card,
+                  border: Border(top: BorderSide(color: U.border.withValues(alpha: 0.5))),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: U.primary,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.auto_awesome_rounded,
-                            size: 11,
-                            color: U.primary,
-                          ),
-                          const SizedBox(width: 4),
                           Text(
-                            '@Luna',
-                            style: GoogleFonts.outfit(
-                              color: U.text,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
+                            'Replying to ${_replyingToMessage!['senderName']}',
+                            style: GoogleFonts.plusJakartaSans(
+                              color: U.primary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
                             ),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(
+                            _replyingToMessage!['mediaUrl'] != null
+                                ? (_replyingToMessage!['mediaType'] == 'sticker' ? '🎨 Sticker' : '👾 GIF')
+                                : (_replyingToMessage!['text'] ?? ''),
+                            style: GoogleFonts.plusJakartaSans(color: U.sub, fontSize: 12),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
                     ),
-                  ),
-                ),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                // Media Picker Button (GIFs, Stickers, Emojis)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 2, right: 8),
-                  child: GestureDetector(
-                    onTap: _openMediaPicker,
-                    child: Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: isDarkTheme
-                            ? Colors.white.withValues(alpha: 0.06)
-                            : Colors.black.withValues(alpha: 0.04),
-                        borderRadius: BorderRadius.circular(21),
-                        border: Border.all(
-                          color: U.border.withValues(alpha: 0.5),
+                    if (_replyingToMessage!['mediaUrl'] != null) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: SizedBox(
+                          width: 32,
+                          height: 32,
+                          child: CachedNetworkImage(
+                            imageUrl: _replyingToMessage!['mediaUrl'],
+                            fit: BoxFit.cover,
+                          ),
                         ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    GestureDetector(
+                      onTap: _cancelReply,
+                      child: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: U.dim.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.close_rounded, size: 16, color: U.sub),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // Editing Preview Bar
+            if (_editingMessageId != null)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                color: U.card,
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_rounded, size: 16, color: U.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Editing message',
+                        style: GoogleFonts.plusJakartaSans(color: U.primary, fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: _cancelEditing,
+                      child: Icon(Icons.close_rounded, size: 18, color: U.sub),
+                    ),
+                  ],
+                ),
+              ),
+
+
+            // Composer Bar
+            Container(
+              color: U.bg,
+              padding: EdgeInsets.fromLTRB(
+                12,
+                4,
+                12,
+                MediaQuery.paddingOf(context).bottom + 10,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  // Media Picker Button
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2, right: 8),
+                    child: GestureDetector(
+                      onTap: _openMediaPicker,
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: isDarkTheme
+                              ? Colors.white.withValues(alpha: 0.06)
+                              : Colors.black.withValues(alpha: 0.04),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: U.border.withValues(alpha: 0.5),
+                          ),
+                        ),
+                        child: Center(
+                          child: Icon(
+                            Icons.add_reaction_outlined,
+                            color: U.teal,
+                            size: 22,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Text Field Input Stadium Pill
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: U.card,
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(
+                          color: U.border.withValues(alpha: 0.7),
+                        ),
+                      ),
+                      child: TextField(
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        minLines: 1,
+                        maxLines: 5,
+                        style: GoogleFonts.plusJakartaSans(color: U.text, fontSize: 15),
+                        decoration: InputDecoration(
+                          hintText: _editingMessageId != null ? 'Edit message...' : 'Chat with everyone...',
+                          hintStyle: GoogleFonts.plusJakartaSans(color: U.dim, fontSize: 14),
+                          filled: true,
+                          fillColor: Colors.transparent,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 12,
+                          ),
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          disabledBorder: InputBorder.none,
+                        ),
+                        onSubmitted: (_) => _send(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // Send Button
+                  GestureDetector(
+                    onTap: _send,
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            U.primary,
+                            U.primary.withValues(alpha: 0.85),
+                          ],
+                        ),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: U.primary.withValues(alpha: 0.28),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
                       ),
                       child: Center(
-                        child: Icon(
-                          Icons.add_reaction_outlined,
-                          color: U.teal,
-                          size: 21,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Text Field Input Container
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: U.card,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(
-                        color: U.border.withValues(alpha: 0.6),
-                      ),
-                    ),
-                    child: TextField(
-                      controller: _controller,
-                      focusNode: _focusNode,
-                      minLines: 1,
-                      maxLines: 5,
-                      style: GoogleFonts.outfit(color: U.text, fontSize: 15),
-                      decoration: InputDecoration(
-                        hintText: _editingMessageId != null ? 'Edit message...' : 'Message everyone...',
-                        hintStyle: GoogleFonts.outfit(color: U.dim, fontSize: 14),
-                        filled: true,
-                        fillColor: Colors.transparent,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 11,
-                        ),
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        disabledBorder: InputBorder.none,
-                      ),
-                      onSubmitted: (_) => _send(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-
-                // Send Button
-                GestureDetector(
-                  onTap: _send,
-                  child: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          U.primary,
-                          U.primary.withValues(alpha: 0.85),
-                        ],
-                      ),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: U.primary.withValues(alpha: 0.25),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: _sending
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
+                        child: _sending
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Icon(
+                                _editingMessageId != null ? Icons.check_rounded : Icons.send_rounded,
                                 color: Colors.white,
-                                strokeWidth: 2,
+                                size: 20,
                               ),
-                            )
-                          : Icon(
-                              _editingMessageId != null ? Icons.check_rounded : Icons.send_rounded,
-                              color: Colors.white,
-                              size: 19,
-                            ),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
       ),
-    ],
+    );
+  }
+
+  Widget _buildFloatingReactionDock(String messageId, dynamic existingReactions) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E242B) : Colors.white,
+        borderRadius: BorderRadius.circular(30),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(
+          color: U.border.withValues(alpha: 0.8),
+          width: 0.8,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: _quickReactions.map((emoji) {
+          return GestureDetector(
+            onTap: () {
+              setState(() => _activeReactionMessageId = null);
+              _toggleReaction(messageId, emoji, existingReactions);
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 5),
+              child: Text(
+                emoji,
+                style: const TextStyle(fontSize: 22),
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
 
   /// Builds the message bubble:
   /// - Frameless jumbo emoji if message is only emojis
-  /// - Frameless sticker if mediaType == 'sticker'
-  /// - Media card if mediaType == 'gif'
-  /// - Modern gradient / elevated card bubble for text
+  /// - Frameless sticker if mediaType == 'sticker' (PLAIN, NO BGS)
+  /// - Frameless media if mediaType == 'gif' (PLAIN, NO BGS)
+  /// - Adaptive organic elliptical / stadium capsule for text
   Widget _buildMessageBubble(
     Map<String, dynamic> data,
     String messageId,
@@ -1549,12 +1680,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
     Timestamp? ts,
     bool isDarkTheme,
   ) {
-    final isLuna = data['isLuna'] == true ||
-        data['senderId'] == LunaAiService.lunaSenderId;
-    final initialText = (data['text'] ?? '').toString();
-    final rawText = (isLuna || initialText.contains('<think>'))
-        ? LunaAiService.cleanResponse(initialText)
-        : initialText;
+    final rawText = (data['text'] ?? '').toString();
     final mediaUrl = data['mediaUrl'] as String?;
     final mediaType = data['mediaType'] as String?;
     final isSticker = mediaType == 'sticker';
@@ -1562,6 +1688,21 @@ class _UniChatScreenState extends State<UniChatScreen> {
     final isOnlyEmojiMsg = mediaUrl == null && _isOnlyEmoji(rawText);
     final isTouched = _touchedMessageIds.contains(messageId);
     final viewCount = _getViewCount(data);
+    final reactions = data['reactions'] as Map<String, dynamic>?;
+
+    // M3-correct sent bubble palette: dark mode uses subdued primaryContainer,
+    // light mode keeps the vivid primary accent.
+    final sentBubbleColor = isDarkTheme ? U.primaryContainer : U.primary;
+    final sentBubbleColorEnd = isDarkTheme
+        ? Color.lerp(U.primaryContainer, Colors.black, 0.08)!
+        : U.primary.withValues(alpha: 0.88);
+    final sentTextColor = isDarkTheme ? U.onPrimaryContainer : Colors.white;
+    final sentSubColor = isDarkTheme
+        ? U.onPrimaryContainer.withValues(alpha: 0.75)
+        : Colors.white.withValues(alpha: 0.75);
+    final sentDimColor = isDarkTheme
+        ? U.onPrimaryContainer.withValues(alpha: 0.55)
+        : Colors.white70;
 
     Widget buildViewCountWidget({bool compact = false}) {
       return AnimatedSize(
@@ -1580,15 +1721,15 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       Icons.visibility_outlined,
                       size: 12,
                       color: isMe
-                          ? Colors.white.withValues(alpha: 0.9)
+                          ? sentSubColor
                           : (isDarkTheme ? const Color(0xFF2DD4BF) : U.primary),
                     ),
                     const SizedBox(width: 4),
                     Text(
                       '$viewCount ${viewCount == 1 ? 'view' : 'views'}',
-                      style: GoogleFonts.outfit(
+                      style: GoogleFonts.spaceGrotesk(
                         color: isMe
-                            ? Colors.white.withValues(alpha: 0.95)
+                            ? sentTextColor
                             : (isDarkTheme ? Colors.white70 : U.text),
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -1605,15 +1746,14 @@ class _UniChatScreenState extends State<UniChatScreen> {
     // ── 1. Pure Emoji Message (Jumbo Emojis with No Background / Border) ──
     if (isOnlyEmojiMsg) {
       final count = _countEmojiCharacters(rawText);
-      final fontSize = count == 1 ? 48.0 : (count == 2 ? 38.0 : 32.0);
+      final fontSize = count == 1 ? 52.0 : (count == 2 ? 40.0 : 34.0);
 
       return Container(
         margin: const EdgeInsets.only(bottom: 6),
         child: Column(
           crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
-            if (!isMe)
-              _buildSenderNameTag(data),
+            if (!isMe) _buildSenderHeader(data, messageId, isDarkTheme),
             if (data['replyTo'] != null)
               _buildReplyPreviewSnippet(data['replyTo'], isMe, isDarkTheme),
             Padding(
@@ -1626,12 +1766,13 @@ class _UniChatScreenState extends State<UniChatScreen> {
                 ),
               ),
             ),
+            _buildReactionsRow(messageId, reactions, isMe, isDarkTheme),
             buildViewCountWidget(compact: true),
             Padding(
               padding: const EdgeInsets.only(right: 4, top: 1),
               child: Text(
                 '${_formatTime(ts)}${data['isEdited'] == true ? ' • edited' : ''}',
-                style: GoogleFonts.outfit(
+                style: GoogleFonts.spaceGrotesk(
                   color: U.dim,
                   fontSize: 10,
                 ),
@@ -1642,15 +1783,14 @@ class _UniChatScreenState extends State<UniChatScreen> {
       );
     }
 
-    // ── 2. Sticker Message (Frameless transparent sticker) ──
+    // ── 2. Plain Sticker (Frameless, Transparent, No Background) ──
     if (isSticker && mediaUrl != null) {
       return Container(
         margin: const EdgeInsets.only(bottom: 8),
         child: Column(
           crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
-            if (!isMe)
-              _buildSenderNameTag(data),
+            if (!isMe) _buildSenderHeader(data, messageId, isDarkTheme),
             if (data['replyTo'] != null)
               _buildReplyPreviewSnippet(data['replyTo'], isMe, isDarkTheme),
             GestureDetector(
@@ -1672,12 +1812,13 @@ class _UniChatScreenState extends State<UniChatScreen> {
                 ),
               ),
             ),
+            _buildReactionsRow(messageId, reactions, isMe, isDarkTheme),
             buildViewCountWidget(compact: true),
             Padding(
               padding: const EdgeInsets.only(right: 4, top: 2),
               child: Text(
                 _formatTime(ts),
-                style: GoogleFonts.outfit(color: U.dim, fontSize: 10),
+                style: GoogleFonts.spaceGrotesk(color: U.dim, fontSize: 10),
               ),
             ),
           ],
@@ -1685,36 +1826,28 @@ class _UniChatScreenState extends State<UniChatScreen> {
       );
     }
 
-    // ── 3. GIF Message (Rounded media card) ──
+    // ── 3. Plain GIF / Meme (No Container BG, Clean Rounded Floating Media) ──
     if (isGif && mediaUrl != null) {
       return Container(
         margin: const EdgeInsets.only(bottom: 8),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-        decoration: BoxDecoration(
-          color: isMe ? U.primary.withValues(alpha: 0.15) : U.card,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: isMe ? U.primary.withValues(alpha: 0.3) : U.border.withValues(alpha: 0.6),
-          ),
-        ),
-        padding: const EdgeInsets.all(6),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.74),
         child: Column(
           crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
-            if (!isMe)
-              _buildSenderNameTag(data, messageId),
+            if (!isMe) _buildSenderHeader(data, messageId, isDarkTheme),
             if (data['replyTo'] != null)
               _buildReplyPreviewSnippet(data['replyTo'], isMe, isDarkTheme),
             GestureDetector(
               onTap: () => _openMediaPreview(mediaUrl),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(22),
                 child: CachedNetworkImage(
                   imageUrl: mediaUrl,
                   fit: BoxFit.cover,
                   placeholder: (context, _) => Container(
                     height: 140,
-                    color: U.surface,
+                    width: 200,
+                    color: isDarkTheme ? Colors.white10 : Colors.black12,
                     child: const Center(
                       child: SizedBox(
                         width: 24,
@@ -1727,13 +1860,14 @@ class _UniChatScreenState extends State<UniChatScreen> {
                 ),
               ),
             ),
+            _buildReactionsRow(messageId, reactions, isMe, isDarkTheme),
             buildViewCountWidget(compact: true),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Text(
                 _formatTime(ts),
-                style: GoogleFonts.outfit(
+                style: GoogleFonts.spaceGrotesk(
                   color: U.dim,
                   fontSize: 10,
                 ),
@@ -1744,127 +1878,218 @@ class _UniChatScreenState extends State<UniChatScreen> {
       );
     }
 
-    // ── 4. Standard Text Bubble (Precision Engineered Material 3 Shapes & Palette) ──
+    // ── 4. Standard Text Bubble (Organic Ellipses, Circles & Stadium Shapes) ──
+    final style = _getBubbleStyle(rawText, isMe);
+    final linkWidget = _buildLinkPreview(rawText, isMe, isDarkTheme);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
-      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        gradient: isMe
-            ? LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  U.primary,
-                  U.primary.withValues(alpha: 0.88),
-                ],
-              )
-            : null,
-        color: isMe
-            ? null
-            : (isLuna
-                ? (isDarkTheme ? U.card.withValues(alpha: 0.85) : Colors.white)
-                : U.card),
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(20),
-          topRight: const Radius.circular(20),
-          bottomLeft: Radius.circular(isMe ? 20 : 5),
-          bottomRight: Radius.circular(isMe ? 5 : 20),
-        ),
-        border: isMe
-            ? null
-            : Border.all(
-                color: isLuna
-                    ? U.primary.withValues(alpha: isDarkTheme ? 0.35 : 0.22)
-                    : (isDarkTheme
-                        ? Colors.white.withValues(alpha: 0.08)
-                        : U.border.withValues(alpha: 0.6)),
-                width: 0.8,
-              ),
-        boxShadow: [
-          BoxShadow(
-            color: isMe
-                ? U.primary.withValues(alpha: isDarkTheme ? 0.25 : 0.18)
-                : Colors.black.withValues(alpha: isDarkTheme ? 0.25 : 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.80),
       child: Column(
         crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
           if (!isMe)
             Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: _buildSenderNameTag(data, messageId),
+              padding: const EdgeInsets.only(bottom: 3),
+              child: _buildSenderHeader(data, messageId, isDarkTheme),
             ),
-          if (data['replyTo'] != null)
-            _buildReplyPreviewSnippet(data['replyTo'], isMe, isDarkTheme),
-          _buildMessageTextWithMentions(rawText, isMe, data, messageId),
-          buildViewCountWidget(),
-          const SizedBox(height: 4),
-          Text(
-            '${_formatTime(ts)}${data['isEdited'] == true ? ' • edited' : ''}',
-            style: GoogleFonts.outfit(
-              color: isMe ? Colors.white.withValues(alpha: 0.72) : U.dim,
-              fontSize: 10.5,
-              fontWeight: FontWeight.w500,
+          Container(
+            padding: style.padding,
+            decoration: BoxDecoration(
+              gradient: isMe
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        sentBubbleColor,
+                        sentBubbleColorEnd,
+                      ],
+                    )
+                  : null,
+              color: isMe
+                  ? null
+                  : (isDarkTheme ? const Color(0xFF1E242B) : const Color(0xFFF1F5F9)),
+              borderRadius: style.borderRadius,
+              border: isMe
+                  ? null
+                  : Border.all(
+                      color: isDarkTheme
+                          ? Colors.white.withValues(alpha: 0.08)
+                          : Colors.black.withValues(alpha: 0.06),
+                      width: 1.0,
+                    ),
+              boxShadow: [
+                BoxShadow(
+                  color: isMe
+                      ? sentBubbleColor.withValues(alpha: isDarkTheme ? 0.35 : 0.20)
+                      : Colors.black.withValues(alpha: isDarkTheme ? 0.20 : 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                if (data['replyTo'] != null)
+                  _buildReplyPreviewSnippet(data['replyTo'], isMe, isDarkTheme),
+                Text(
+                  rawText,
+                  style: GoogleFonts.plusJakartaSans(
+                    color: isMe
+                        ? sentTextColor
+                        : (isDarkTheme ? const Color(0xFFF8FAFC) : const Color(0xFF0F172A)),
+                    fontSize: style.fontSize,
+                    fontWeight: style.fontWeight,
+                    letterSpacing: style.letterSpacing,
+                    height: style.lineHeight,
+                  ),
+                ),
+                ?linkWidget,
+                buildViewCountWidget(),
+                const SizedBox(height: 3),
+                Text(
+                  '${_formatTime(ts)}${data['isEdited'] == true ? ' • edited' : ''}',
+                  style: GoogleFonts.spaceGrotesk(
+                    color: isMe ? sentSubColor : U.dim,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ),
+          _buildReactionsRow(messageId, reactions, isMe, isDarkTheme),
         ],
       ),
     );
   }
 
-  Widget _buildSenderNameTag(Map<String, dynamic> data, [String? messageId]) {
-    final isLuna = data['isLuna'] == true || data['senderId'] == LunaAiService.lunaSenderId;
-    if (isLuna) {
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          if (messageId != null) {
-            _onLunaMentionTapped(data, messageId);
+  Widget? _buildLinkPreview(String text, bool isMe, bool isDarkTheme) {
+    final url = _extractFirstUrl(text);
+    if (url == null) return null;
+    final uri = Uri.tryParse(url);
+    final host = uri?.host ?? 'Link';
+    final sentTextColor = isDarkTheme ? U.onPrimaryContainer : Colors.white;
+    final sentDimColor = isDarkTheme
+        ? U.onPrimaryContainer.withValues(alpha: 0.55)
+        : Colors.white70;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: InkWell(
+        onTap: () async {
+          HapticFeedback.lightImpact();
+          if (uri != null && await canLaunchUrl(uri)) {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
           }
         },
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 3),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: isMe
+                ? (isDarkTheme ? Colors.white.withValues(alpha: 0.12) : Colors.white.withValues(alpha: 0.2))
+                : (isDarkTheme ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06)),
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                'Luna',
-                style: GoogleFonts.outfit(
-                  color: U.primary,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                ),
+              Icon(
+                Icons.link_rounded,
+                size: 14,
+                color: isMe ? sentTextColor : U.primary,
               ),
               const SizedBox(width: 5),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                decoration: BoxDecoration(
-                  color: U.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(4),
-                ),
+              Flexible(
                 child: Text(
-                  'AI',
-                  style: GoogleFonts.outfit(
-                    color: U.primary,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5,
+                  host,
+                  style: GoogleFonts.spaceGrotesk(
+                    color: isMe ? sentTextColor : U.primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.underline,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.open_in_new_rounded,
+                size: 11,
+                color: isMe ? sentDimColor : U.dim,
               ),
             ],
           ),
         ),
-      );
-    }
+      ),
+    );
+  }
 
+  Widget _buildReactionsRow(
+    String messageId,
+    Map<String, dynamic>? reactions,
+    bool isMe,
+    bool isDarkTheme,
+  ) {
+    if (reactions == null || reactions.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 3),
+      child: Wrap(
+        alignment: isMe ? WrapAlignment.end : WrapAlignment.start,
+        spacing: 4,
+        runSpacing: 3,
+        children: reactions.entries.map((entry) {
+          final emoji = entry.key;
+          final userList = entry.value is List ? entry.value as List : [];
+          if (userList.isEmpty) return const SizedBox.shrink();
+          final userReacted = userList.contains(_currentUid);
+
+          return GestureDetector(
+            onTap: () => _toggleReaction(messageId, emoji, reactions),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+              decoration: BoxDecoration(
+                color: userReacted
+                    ? (isDarkTheme ? U.teal.withValues(alpha: 0.22) : U.teal.withValues(alpha: 0.15))
+                    : (isDarkTheme ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05)),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: userReacted
+                      ? U.teal.withValues(alpha: 0.5)
+                      : Colors.transparent,
+                  width: 0.9,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(emoji, style: const TextStyle(fontSize: 12)),
+                  const SizedBox(width: 3),
+                  Text(
+                    '${userList.length}',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      color: userReacted ? U.teal : U.dim,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildSenderHeader(Map<String, dynamic> data, String messageId, bool isDarkTheme) {
     final senderName = (data['senderName'] ?? 'Student').toString();
     final senderColor = _getSenderColor(senderName);
+    final initial = senderName.isNotEmpty ? senderName[0].toUpperCase() : 'S';
 
     return GestureDetector(
       onTap: () {
@@ -1881,186 +2106,41 @@ class _UniChatScreenState extends State<UniChatScreen> {
           );
         }
       },
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 2),
-        child: Text(
-          senderName,
-          style: GoogleFonts.outfit(
-            color: senderColor,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _onLunaMentionTapped(Map<String, dynamic> data, String messageId) {
-    HapticFeedback.lightImpact();
-    _startReply(data, messageId);
-    final current = _controller.text;
-    if (!current.toLowerCase().contains('@luna')) {
-      final trimmed = current.trim();
-      _controller.text = trimmed.isNotEmpty ? '@luna $trimmed ' : '@luna ';
-      _controller.selection =
-          TextSelection.collapsed(offset: _controller.text.length);
-    }
-    _focusNode.requestFocus();
-  }
-
-  Widget _buildMessageTextWithMentions(
-    String rawText,
-    bool isMe,
-    Map<String, dynamic> data,
-    String messageId,
-  ) {
-    final lower = rawText.toLowerCase();
-    if (!lower.contains('@luna')) {
-      return Text(
-        rawText,
-        style: GoogleFonts.outfit(
-          color: isMe ? Colors.white : U.text,
-          fontSize: 15,
-          height: 1.35,
-          letterSpacing: -0.1,
-        ),
-      );
-    }
-
-    final spans = <InlineSpan>[];
-    final regex = RegExp(r'(@luna\b)', caseSensitive: false);
-    int lastMatchEnd = 0;
-
-    for (final match in regex.allMatches(rawText)) {
-      if (match.start > lastMatchEnd) {
-        spans.add(
-          TextSpan(
-            text: rawText.substring(lastMatchEnd, match.start),
-            style: GoogleFonts.outfit(
-              color: isMe ? Colors.white : U.text,
-              fontSize: 15,
-              height: 1.35,
-              letterSpacing: -0.1,
-            ),
-          ),
-        );
-      }
-
-      final mentionText = match.group(0)!;
-      spans.add(
-        WidgetSpan(
-          alignment: PlaceholderAlignment.middle,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _onLunaMentionTapped(data, messageId),
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 2),
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-              decoration: BoxDecoration(
-                color: isMe
-                    ? Colors.white.withValues(alpha: 0.22)
-                    : U.primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: isMe
-                      ? Colors.white.withValues(alpha: 0.4)
-                      : U.primary.withValues(alpha: 0.28),
-                  width: 0.8,
-                ),
-              ),
-              child: Text(
-                mentionText,
-                style: GoogleFonts.outfit(
-                  color: isMe ? Colors.white : U.primary,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13.5,
-                  letterSpacing: -0.1,
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-
-      lastMatchEnd = match.end;
-    }
-
-    if (lastMatchEnd < rawText.length) {
-      spans.add(
-        TextSpan(
-          text: rawText.substring(lastMatchEnd),
-          style: GoogleFonts.outfit(
-            color: isMe ? Colors.white : U.text,
-            fontSize: 15,
-            height: 1.35,
-            letterSpacing: -0.1,
-          ),
-        ),
-      );
-    }
-
-    return RichText(
-      text: TextSpan(children: spans),
-    );
-  }
-
-  Widget _buildLunaRespondingActivity(bool isDarkTheme) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: BoxDecoration(
-        color: isDarkTheme ? U.card.withValues(alpha: 0.9) : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: U.primary.withValues(alpha: 0.25),
-          width: 0.8,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: U.primary.withValues(alpha: isDarkTheme ? 0.12 : 0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            'Luna',
-            style: GoogleFonts.outfit(
-              color: U.primary,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(width: 4),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            width: 19,
+            height: 19,
             decoration: BoxDecoration(
-              color: U.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(3),
+              color: senderColor.withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+              border: Border.all(color: senderColor.withValues(alpha: 0.4), width: 1.0),
             ),
-            child: Text(
-              'AI',
-              style: GoogleFonts.outfit(
-                color: U.primary,
-                fontSize: 8.5,
-                fontWeight: FontWeight.w700,
+            child: Center(
+              child: Text(
+                initial,
+                style: GoogleFonts.spaceGrotesk(
+                  color: senderColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          Text(
-            'is typing',
-            style: GoogleFonts.outfit(
-              color: U.sub,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              senderName,
+              style: GoogleFonts.plusJakartaSans(
+                color: senderColor,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          const SizedBox(width: 6),
-          const _LunaTypingDots(),
         ],
       ),
     );
@@ -2074,11 +2154,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
     if (replyData is! Map) return const SizedBox.shrink();
 
     final sender = (replyData['senderName'] ?? 'Student').toString();
-    final rawSnippetText = (replyData['text'] ?? '').toString();
-    final isLunaReply = replyData['senderId'] == LunaAiService.lunaSenderId;
-    final text = (isLunaReply || rawSnippetText.contains('<think>'))
-        ? LunaAiService.cleanResponse(rawSnippetText)
-        : rawSnippetText;
+    final text = (replyData['text'] ?? '').toString();
     final mediaUrl = replyData['mediaUrl'] as String?;
 
     return Container(
@@ -2086,12 +2162,12 @@ class _UniChatScreenState extends State<UniChatScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: isMe
-            ? Colors.black.withValues(alpha: 0.2)
+            ? (isDarkTheme ? Colors.black.withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.2))
             : (isDarkTheme ? Colors.white.withValues(alpha: 0.05) : U.surface),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(14),
         border: Border(
           left: BorderSide(
-            color: isMe ? Colors.white : U.primary,
+            color: isMe ? (isDarkTheme ? U.onPrimaryContainer : Colors.white) : U.primary,
             width: 3,
           ),
         ),
@@ -2105,8 +2181,8 @@ class _UniChatScreenState extends State<UniChatScreen> {
               children: [
                 Text(
                   sender,
-                  style: GoogleFonts.outfit(
-                    color: isMe ? Colors.white.withValues(alpha: 0.95) : U.primary,
+                  style: GoogleFonts.plusJakartaSans(
+                    color: isMe ? (isDarkTheme ? U.onPrimaryContainer : Colors.white.withValues(alpha: 0.95)) : U.primary,
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                   ),
@@ -2114,8 +2190,8 @@ class _UniChatScreenState extends State<UniChatScreen> {
                 const SizedBox(height: 1),
                 Text(
                   text,
-                  style: GoogleFonts.outfit(
-                    color: isMe ? Colors.white.withValues(alpha: 0.8) : U.sub,
+                  style: GoogleFonts.plusJakartaSans(
+                    color: isMe ? (isDarkTheme ? U.onPrimaryContainer.withValues(alpha: 0.7) : Colors.white.withValues(alpha: 0.8)) : U.sub,
                     fontSize: 12,
                   ),
                   maxLines: 2,
@@ -2127,7 +2203,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
           if (mediaUrl != null && mediaUrl.isNotEmpty) ...[
             const SizedBox(width: 6),
             ClipRRect(
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(6),
               child: SizedBox(
                 width: 28,
                 height: 28,
@@ -2142,6 +2218,92 @@ class _UniChatScreenState extends State<UniChatScreen> {
       ),
     );
   }
+
+  _MessageStyleConfig _getBubbleStyle(String text, bool isMe) {
+    final trimmed = text.trim();
+    final words = trimmed.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final wordCount = words.length;
+    final charCount = trimmed.length;
+
+    if (wordCount <= 3 && charCount <= 14) {
+      // Ultra-short punchy words ("yo", "bet", "real", "lmao", "ok!", "w")
+      // Compact stadium oval pill with bold display typography!
+      return _MessageStyleConfig(
+        fontSize: 21,
+        fontWeight: FontWeight.w800,
+        letterSpacing: -0.4,
+        lineHeight: 1.2,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        borderRadius: BorderRadius.circular(32),
+        isStadium: true,
+      );
+    } else if (wordCount <= 8 && charCount <= 40) {
+      // Short phrase ("where you at?", "heading to library")
+      return _MessageStyleConfig(
+        fontSize: 17.5,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -0.3,
+        lineHeight: 1.3,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(28),
+          topRight: const Radius.circular(28),
+          bottomLeft: Radius.circular(isMe ? 28 : 10),
+          bottomRight: Radius.circular(isMe ? 10 : 28),
+        ),
+      );
+    } else if (wordCount <= 18 && charCount <= 100) {
+      // Medium message
+      return _MessageStyleConfig(
+        fontSize: 15.5,
+        fontWeight: FontWeight.w500,
+        letterSpacing: -0.2,
+        lineHeight: 1.38,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(24),
+          topRight: const Radius.circular(24),
+          bottomLeft: Radius.circular(isMe ? 24 : 8),
+          bottomRight: Radius.circular(isMe ? 8 : 24),
+        ),
+      );
+    } else {
+      // Longer paragraphs
+      return _MessageStyleConfig(
+        fontSize: 14.5,
+        fontWeight: FontWeight.w400,
+        letterSpacing: -0.1,
+        lineHeight: 1.45,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(24),
+          topRight: const Radius.circular(24),
+          bottomLeft: Radius.circular(isMe ? 24 : 8),
+          bottomRight: Radius.circular(isMe ? 8 : 24),
+        ),
+      );
+    }
+  }
+}
+
+class _MessageStyleConfig {
+  final double fontSize;
+  final FontWeight fontWeight;
+  final double letterSpacing;
+  final double lineHeight;
+  final EdgeInsetsGeometry padding;
+  final BorderRadius borderRadius;
+  final bool isStadium;
+
+  _MessageStyleConfig({
+    required this.fontSize,
+    required this.fontWeight,
+    required this.letterSpacing,
+    required this.lineHeight,
+    required this.padding,
+    required this.borderRadius,
+    this.isStadium = false,
+  });
 }
 
 class _SwipeToReplyBubble extends StatefulWidget {
@@ -2226,61 +2388,6 @@ class _SwipeToReplyBubbleState extends State<_SwipeToReplyBubble> {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _LunaTypingDots extends StatefulWidget {
-  const _LunaTypingDots();
-
-  @override
-  State<_LunaTypingDots> createState() => _LunaTypingDotsState();
-}
-
-class _LunaTypingDotsState extends State<_LunaTypingDots>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _anim;
-
-  @override
-  void initState() {
-    super.initState();
-    _anim = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _anim.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _anim,
-      builder: (context, _) {
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(3, (index) {
-            final delay = index * 0.25;
-            final progress = (_anim.value - delay) % 1.0;
-            final opacity =
-                (progress < 0.5 ? progress * 2 : (1.0 - progress) * 2)
-                    .clamp(0.25, 1.0);
-            return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 1.5),
-              width: 4.5,
-              height: 4.5,
-              decoration: BoxDecoration(
-                color: U.primary.withValues(alpha: opacity),
-                shape: BoxShape.circle,
-              ),
-            );
-          }),
-        );
-      },
     );
   }
 }
