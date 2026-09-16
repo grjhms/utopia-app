@@ -273,7 +273,10 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
         widget.attendancePct! > 0;
     final accentColor = _getThemeColor(widget.attendancePct);
     final pct = isAvailable ? (widget.attendancePct! / 100).clamp(0.0, 1.0) : 0.20;
-    final pctString = isAvailable ? widget.attendancePct!.toStringAsFixed(0) : '—';
+    final pctString = isAvailable ? widget.attendancePct!.toStringAsFixed(1) : '—';
+    final parts = pctString.split('.');
+    final intPart = parts[0];
+    final decPart = parts.length > 1 ? '.${parts[1]}' : '';
 
     return M3Pressable(
       onTap: () {
@@ -476,7 +479,7 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
 
                           const SizedBox(width: 8),
 
-                          // Right: Giant M3 Expressive Number Display or Unavailable Dash
+                          // Right: M3 Expressive Number Display or Unavailable Dash
                           if (widget.isConnected && isAvailable)
                             Flexible(
                               child: FittedBox(
@@ -486,22 +489,40 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text(
-                                      pctString,
-                                      style: GoogleFonts.robotoFlex(
-                                        fontSize: rs.font(52, min: 40, max: 64),
-                                        fontWeight: FontWeight.w900,
-                                        height: 0.9,
-                                        letterSpacing: -2,
-                                        color: U.text,
-                                      ),
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                                      textBaseline: TextBaseline.alphabetic,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          intPart,
+                                          style: GoogleFonts.robotoFlex(
+                                            fontSize: rs.font(38, min: 28, max: 46),
+                                            fontWeight: FontWeight.w900,
+                                            height: 0.95,
+                                            letterSpacing: -1.2,
+                                            color: U.text,
+                                          ),
+                                        ),
+                                        if (decPart.isNotEmpty)
+                                          Text(
+                                            decPart,
+                                            style: GoogleFonts.robotoFlex(
+                                              fontSize: rs.font(22, min: 16, max: 26),
+                                              fontWeight: FontWeight.w800,
+                                              height: 0.95,
+                                              letterSpacing: -0.5,
+                                              color: U.text,
+                                            ),
+                                          ),
+                                      ],
                                     ),
                                     Padding(
-                                      padding: const EdgeInsets.only(top: 4, left: 2),
+                                      padding: const EdgeInsets.only(top: 2, left: 2),
                                       child: Text(
                                         '%',
                                         style: GoogleFonts.robotoFlex(
-                                          fontSize: rs.font(22, min: 18, max: 26),
+                                          fontSize: rs.font(18, min: 14, max: 22),
                                           fontWeight: FontWeight.w800,
                                           color: accentColor,
                                         ),
