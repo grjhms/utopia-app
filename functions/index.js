@@ -1,5 +1,6 @@
 const {setGlobalOptions} = require("firebase-functions");
 const {onDocumentCreated, onDocumentUpdated} = require("firebase-functions/v2/firestore");
+const {onSchedule} = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 
@@ -461,4 +462,88 @@ exports.onUniChatMessageCreated = onDocumentCreated(
     }
   },
 );
+
+/**
+ * Scheduled Cloud Function to reset SciWordle weekly scores and streaks
+ * every Monday at 00:00 IST (Asia/Kolkata).
+ */
+exports.resetSciwordleWeeklyScores = onSchedule(
+  {
+    schedule: "0 0 * * 1", // Every Monday at 00:00
+    timeZone: "Asia/Kolkata",
+    retryCount: 3,
+  },
+  async (event) => {
+    logger.info("Starting weekly SciWordle score reset for all users...");
+    const db = admin.firestore();
+
+    // Compute current weekKey for Asia/Kolkata: YYYY-W-MM-DD
+    const now = new Date();
+    const istOffsetMs = 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(now.getTime() + istOffsetMs);
+    const dayOfWeek = istDate.getUTCDay(); // 0 is Sunday, 1 is Monday
+    const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const monday = new Date(istDate.getTime() - diffToMonday * 24 * 60 * 60 * 1000);
+    const mY = String(monday.getUTCFullYear()).padStart(4, "0");
+    const mM = String(monday.getUTCMonth() + 1).padStart(2, "0");
+    const mD = String(monday.getUTCDate()).padStart(2, "0");
+    const currentWeekKey = `${mY}-W-${mM}-${mD}`;
+
+    try {
+      const scoresSnap = await db.collection("sciwordle_scores").get();
+      if (scoresSnap.empty) {
+        logger.info("No sciwordle_scores documents found to reset.");
+        return;
+      }
+
+      let batch = db.batch();
+      let batchCount = 0;
+      let totalReset = 0;
+
+      for (const doc of scoresSnap.docs) {
+        const data = doc.data() || {};
+        if (data.weekKey !== currentWeekKey) {
+          batch.update(doc.ref, {
+            totalScore: 0,
+            streak: 0,
+            weekKey: currentWeekKey,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          batchCount++;
+
+          // Also clean up users doc badge & weekly fields
+          const userRef = db.collection("users").doc(doc.id);
+          batch.set(
+            userRef,
+            {
+              sciwordleScore: 0,
+              sciwordleStreak: 0,
+              sciwordleWeekKey: currentWeekKey,
+              sciwordleTitle: admin.firestore.FieldValue.delete(),
+            },
+            { merge: true }
+          );
+          batchCount++;
+          totalReset++;
+
+          // Commit in chunks under the 500 operations Firestore limit
+          if (batchCount >= 400) {
+            await batch.commit();
+            batch = db.batch();
+            batchCount = 0;
+          }
+        }
+      }
+
+      if (batchCount > 0) {
+        await batch.commit();
+      }
+
+      logger.info(`Successfully reset ${totalReset} SciWordle player scores for week ${currentWeekKey}.`);
+    } catch (error) {
+      logger.error("Error during weekly SciWordle score reset:", error);
+    }
+  }
+);
+
 

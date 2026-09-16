@@ -24,6 +24,8 @@ import 'screens/app_shell.dart';
 import 'screens/join_class_screen.dart';
 import 'screens/university_selection_screen.dart';
 import 'services/focus_supabase_service.dart';
+import 'services/university_service.dart';
+import 'models/university_model.dart';
 
 import 'screens/event_details_screen.dart';
 import 'services/event_service.dart';
@@ -1069,6 +1071,10 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
                     .doc(snapshot.data!.uid)
                     .snapshots(),
                 builder: (context, userSnapshot) {
+                  if (userSnapshot.connectionState == ConnectionState.waiting && !userSnapshot.hasData) {
+                    return const SplashScreen();
+                  }
+
                   final themeAccent =
                       userSnapshot.data?.data()?['themeAccent'] as String?;
                   if (themeAccent != null) {
@@ -1083,22 +1089,46 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
                   final selectedUniversityId = 
                       userSnapshot.data?.data()?['selectedUniversityId'] as String?;
 
+                  // If no university is selected yet, prompt selection
                   if (userSnapshot.connectionState == ConnectionState.active && 
-                      selectedUniversityId == null) {
+                      (selectedUniversityId == null || selectedUniversityId.trim().isEmpty)) {
                     return const UniversitySelectionScreen();
                   }
 
-                  if (selectedUniversityId != null && selectedUniversityId.isNotEmpty) {
-                    U.cachedUniversityId = selectedUniversityId;
-                    unawaited(
-                      CacheService().saveAppSetting(
-                        'cached_university_id',
-                        selectedUniversityId,
-                      ),
-                    );
-                  }
+                  return StreamBuilder<List<UniversityModel>>(
+                    stream: UniversityService().streamUniversities(),
+                    builder: (context, uniSnapshot) {
+                      if (selectedUniversityId != null && selectedUniversityId.trim().isNotEmpty) {
+                        if (uniSnapshot.hasData) {
+                          final validUnis = uniSnapshot.data ?? [];
+                          final targetId = selectedUniversityId.trim().toLowerCase();
 
-                  return const AppShell();
+                          UniversityModel? matchingUni;
+                          for (final u in validUnis) {
+                            final uId = u.id.trim().toLowerCase();
+                            final uShort = u.shortName.trim().toLowerCase();
+                            if (uId == targetId || (uShort.isNotEmpty && uShort == targetId)) {
+                              matchingUni = u;
+                              break;
+                            }
+                          }
+
+                          if (matchingUni != null) {
+                            U.cachedUniversityId = matchingUni.id;
+                            U.cachedUniversityName = matchingUni.name;
+                            unawaited(CacheService().saveAppSetting('cached_university_id', matchingUni.id));
+                            unawaited(CacheService().saveAppSetting('cached_university_name', matchingUni.name));
+                          } else if (validUnis.isNotEmpty) {
+                            // Only clear if validUnis is non-empty and the user's selected university is definitely not present
+                            unawaited(UniversityService().clearUserSelectedUniversity(snapshot.data!.uid));
+                            return const UniversitySelectionScreen();
+                          }
+                        }
+                      }
+
+                      return const AppShell();
+                    },
+                  );
                 },
               );
             }

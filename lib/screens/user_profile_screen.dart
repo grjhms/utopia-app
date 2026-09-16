@@ -15,6 +15,8 @@ import '../widgets/app_motion.dart';
 import '../widgets/social_badge.dart';
 import '../widgets/superuser_badge.dart';
 import '../widgets/thought_cloud_badge.dart';
+import '../widgets/sciwordle_badge.dart';
+import '../widgets/sciwordle_profile_card.dart';
 import 'chat_screen.dart';
 import 'followers_following_screen.dart';
 
@@ -439,6 +441,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           }
 
           final hasSocialLinks = instagramId.isNotEmpty || githubId.isNotEmpty || discordId.isNotEmpty;
+          final sciwordleTitle = (userData['sciwordleTitle'] ?? '').toString().trim();
+          final showSciwordleBadge = userData['showSciwordleBadge'] != false;
+          final sciwordleScore = (userData['sciwordleScore'] as num?)?.toInt() ?? 0;
+          final sciwordleStreak = (userData['sciwordleStreak'] as num?)?.toInt() ?? 0;
+          final sciwordleBestStreak = (userData['sciwordleBestStreak'] as num?)?.toInt() ?? 0;
 
           return CustomScrollView(
             physics: const BouncingScrollPhysics(),
@@ -538,6 +545,15 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                 child: ThoughtCloudBadge(
                                   vibe: vibe,
                                   avatarRadius: 54,
+                                ),
+                              ),
+
+                            // SciWordle Title Badge on top of Hero Avatar
+                            if (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                              Positioned(
+                                top: -8,
+                                child: SciwordleBadge(
+                                  title: sciwordleTitle,
                                 ),
                               ),
                           ],
@@ -885,6 +901,17 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             }(),
                           ],
                         ),
+                      ),
+
+                      const SizedBox(height: 18),
+
+                      // ── 7.5. SciWordle League Performance Card (Always shown) ──
+                      SciwordleProfileCard(
+                        uid: widget.uid,
+                        initialScore: sciwordleScore,
+                        initialStreak: sciwordleStreak,
+                        initialBestStreak: sciwordleBestStreak,
+                        initialTitle: sciwordleTitle,
                       ),
 
                       // ── 8. Active Campus Vibe Card (if active) ───────

@@ -23,6 +23,8 @@ import '../services/role_service.dart';
 import '../widgets/instagram_badge.dart';
 import '../widgets/superuser_badge.dart';
 import '../widgets/wave_count_badge.dart';
+import '../widgets/sciwordle_badge.dart';
+import '../widgets/sciwordle_profile_card.dart';
 import 'app_shell.dart';
 import 'university_selection_screen.dart';
 import 'user_profile_screen.dart';
@@ -292,6 +294,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ? rawPhotoUrl
                 : user?.photoURL;
             final email = user?.email ?? '';
+            final sciwordleTitle = (userData['sciwordleTitle'] ?? '').toString().trim();
+            final showSciwordleBadge = userData['showSciwordleBadge'] != false;
+            final sciwordleScore = (userData['sciwordleScore'] as num?)?.toInt() ?? 0;
+            final sciwordleStreak = (userData['sciwordleStreak'] as num?)?.toInt() ?? 0;
+            final sciwordleBestStreak = (userData['sciwordleBestStreak'] as num?)?.toInt() ?? 0;
 
             return ListView(
               physics: const BouncingScrollPhysics(),
@@ -377,32 +384,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                       // Avatar
-                      Container(
-                        padding: const EdgeInsets.all(3.5),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: theme.primary.withValues(alpha: 0.45),
-                            width: 2,
+                      Stack(
+                        clipBehavior: Clip.none,
+                        alignment: Alignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(3.5),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: theme.primary.withValues(alpha: 0.45),
+                                width: 2,
+                              ),
+                            ),
+                            child: CircleAvatar(
+                              radius: 44,
+                              backgroundColor: theme.primary.withValues(alpha: 0.12),
+                              backgroundImage: displayPhotoUrl != null && displayPhotoUrl.isNotEmpty
+                                  ? CachedNetworkImageProvider(displayPhotoUrl)
+                                  : null,
+                              child: (displayPhotoUrl == null || displayPhotoUrl.isEmpty)
+                                  ? Text(
+                                      (displayName.isNotEmpty ? displayName[0] : 'U').toUpperCase(),
+                                      style: GoogleFonts.robotoFlex(
+                                        color: theme.primary,
+                                        fontSize: 32,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    )
+                                  : null,
+                            ),
                           ),
-                        ),
-                        child: CircleAvatar(
-                          radius: 44,
-                          backgroundColor: theme.primary.withValues(alpha: 0.12),
-                          backgroundImage: displayPhotoUrl != null && displayPhotoUrl.isNotEmpty
-                              ? CachedNetworkImageProvider(displayPhotoUrl)
-                              : null,
-                          child: (displayPhotoUrl == null || displayPhotoUrl.isEmpty)
-                              ? Text(
-                                  (displayName.isNotEmpty ? displayName[0] : 'U').toUpperCase(),
-                                  style: GoogleFonts.robotoFlex(
-                                    color: theme.primary,
-                                    fontSize: 32,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                )
-                              : null,
-                        ),
+                          if (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                            Positioned(
+                              top: -8,
+                              child: SciwordleBadge(
+                                title: sciwordleTitle,
+                              ),
+                            ),
+                        ],
                       ),
                       const SizedBox(height: 14),
 
@@ -664,6 +684,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ],
               ).animate().fadeIn(delay: 80.ms, duration: 350.ms),
+                const SizedBox(height: 20),
+
+                // ── SciWordle League Performance Card (Always shown) ──
+                if (user != null)
+                  SciwordleProfileCard(
+                    uid: user.uid,
+                    initialScore: sciwordleScore,
+                    initialStreak: sciwordleStreak,
+                    initialBestStreak: sciwordleBestStreak,
+                    initialTitle: sciwordleTitle,
+                  ),
+
                 const SizedBox(height: 20),
 
                 // ── Grouped Settings Menu (Simple, Single Section) ──

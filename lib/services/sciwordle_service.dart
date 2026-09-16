@@ -3,8 +3,11 @@
 // Handles all Firestore reads and writes for SciWordle.
 // Isolated backend service ensuring screens never directly touch Firestore raw queries.
 
+import 'dart:async';
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/sciwordle_model.dart';
 
 class SciwordleService {
@@ -37,6 +40,17 @@ class SciwordleService {
     return '$y-$m-$d';
   }
 
+  /// Current week key anchored on Monday 00:00 IST (e.g. "2026-W-09-14")
+  static String getCurrentWeekKeyIST() {
+    final now = DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+    final daysFromMonday = (now.weekday - 1) % 7;
+    final monday = now.subtract(Duration(days: daysFromMonday));
+    final y = monday.year.toString().padLeft(4, '0');
+    final m = monday.month.toString().padLeft(2, '0');
+    final d = monday.day.toString().padLeft(2, '0');
+    return '$y-W-$m-$d';
+  }
+
   /// Today's Firestore document key, e.g. "2026-04-01-m"
   String get todayKey {
     final now = DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
@@ -55,6 +69,14 @@ class SciwordleService {
     if (hour < 11) return '$date-m'; // 1:00 AM to 10:59 AM
     if (hour < 16) return '$date-a'; // 11:00 AM to 3:59 PM
     return '$date-e'; // 4:00 PM to 11:59 PM
+  }
+
+  /// Returns slot letter ('m', 'a', or 'e') for a dateKey
+  static String slotForDateKey(String dateKey) {
+    if (dateKey.endsWith('-m')) return 'm';
+    if (dateKey.endsWith('-a')) return 'a';
+    if (dateKey.endsWith('-e')) return 'e';
+    return 'm';
   }
 
   /// Calculates the duration remaining until the next puzzle slot opens.
@@ -112,11 +134,12 @@ class SciwordleService {
   // ─── Fetch today's question ───────────────────────────────────────────────
 
   /// Returns today's [SciwordleQuestion], or null if not yet generated.
-  Future<SciwordleQuestion?> fetchTodaysQuestion() async {
+  Future<SciwordleQuestion?> fetchTodaysQuestion([String? specificKey]) async {
+    final key = specificKey ?? todayKey;
     try {
-      final doc = await _db.collection(_dailyCol).doc(todayKey).get();
+      final doc = await _db.collection(_dailyCol).doc(key).get();
       if (!doc.exists || doc.data() == null) return null;
-      return SciwordleQuestion.fromFirestore(doc.data()!, todayKey);
+      return SciwordleQuestion.fromFirestore(doc.data()!, key);
     } on FirebaseException catch (e) {
       throw Exception("Couldn't load today's question: ${e.message}");
     } catch (_) {
@@ -126,18 +149,90 @@ class SciwordleService {
 
   // ─── Fetch current player's score ─────────────────────────────────────────
 
-  /// Returns the player's score doc, or a clean slate if first time.
+  /// Returns the player's score doc, checking weekly reset automatically.
   Future<SciwordlePlayerScore> fetchPlayerScore() async {
     try {
-      final doc = await _db.collection(_scoresCol).doc(_uid).get();
+      final uid = _uid;
+      final currentWeek = getCurrentWeekKeyIST();
+      final doc = await _db.collection(_scoresCol).doc(uid).get();
+
       if (!doc.exists || doc.data() == null) {
-        return SciwordlePlayerScore.empty(_uid);
+        final initial = SciwordlePlayerScore.empty(uid, currentWeek);
+        return initial;
       }
-      return SciwordlePlayerScore.fromFirestore(doc.data()!, _uid);
+
+      final score = SciwordlePlayerScore.fromFirestore(doc.data()!, uid);
+
+      // Check if a new week has started: reset streak and scores for the week
+      if (score.weekKey != currentWeek) {
+        final resetScore = SciwordlePlayerScore(
+          uid: uid,
+          name: score.name.isNotEmpty ? score.name : _displayName,
+          totalScore: 0,
+          streak: 0,
+          bestStreak: score.bestStreak,
+          lastScore: 0,
+          lastPlayedDate: score.lastPlayedDate,
+          gamesPlayed: score.gamesPlayed,
+          guessDistribution: const {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0},
+          weekKey: currentWeek,
+          scoreTimestamp: null,
+          streakTimestamp: null,
+        );
+
+        // Persist the weekly reset to Firestore
+        await _db.collection(_scoresCol).doc(uid).set({
+          'totalScore': 0,
+          'streak': 0,
+          'lastScore': 0,
+          'weekKey': currentWeek,
+          'guessDistribution': resetScore.guessDistribution,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        // Update user document
+        await _updateUserSciwordleFields(
+          uid: uid,
+          totalScore: 0,
+          streak: 0,
+          bestStreak: score.bestStreak,
+        );
+
+        return resetScore;
+      }
+
+      return score;
     } on FirebaseException catch (e) {
       throw Exception("Couldn't load your score: ${e.message}");
     } catch (_) {
       throw Exception("Something went wrong loading your score. Try again.");
+    }
+  }
+
+  // ─── Fetch score for any user ─────────────────────────────────────────────
+  Future<SciwordlePlayerScore?> fetchUserScore(String uid) async {
+    try {
+      final doc = await _db.collection(_scoresCol).doc(uid).get();
+      if (!doc.exists || doc.data() == null) return null;
+      final currentWeek = getCurrentWeekKeyIST();
+      final score = SciwordlePlayerScore.fromFirestore(doc.data()!, uid);
+      if (score.weekKey != currentWeek) {
+        return SciwordlePlayerScore(
+          uid: uid,
+          name: score.name,
+          totalScore: 0,
+          streak: 0,
+          bestStreak: score.bestStreak,
+          lastScore: 0,
+          lastPlayedDate: score.lastPlayedDate,
+          gamesPlayed: score.gamesPlayed,
+          guessDistribution: const {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0},
+          weekKey: currentWeek,
+        );
+      }
+      return score;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -146,16 +241,39 @@ class SciwordleService {
   /// Called exactly once when a game ends.
   /// [attemptNumber] = 1–6 if they won, null if they lost all 6.
   /// Returns the points earned this round (word score + streak bonus).
-  Future<int> saveGameResult({required int? attemptNumber}) async {
+  Future<int> saveGameResult({
+    required int? attemptNumber,
+    required List<String> guesses,
+    required String answer,
+    String? question,
+    String? category,
+  }) async {
     try {
       final uid = _uid;
       final today = todayKey;
+      final currentWeek = getCurrentWeekKeyIST();
 
       // Load existing score
       final doc = await _db.collection(_scoresCol).doc(uid).get();
-      final existing = (doc.exists && doc.data() != null)
+      var existing = (doc.exists && doc.data() != null)
           ? SciwordlePlayerScore.fromFirestore(doc.data()!, uid)
-          : SciwordlePlayerScore.empty(uid);
+          : SciwordlePlayerScore.empty(uid, currentWeek);
+
+      // Handle weekly reset if weekKey differs
+      if (existing.weekKey != currentWeek) {
+        existing = SciwordlePlayerScore(
+          uid: uid,
+          name: existing.name,
+          totalScore: 0,
+          streak: 0,
+          bestStreak: existing.bestStreak,
+          lastScore: 0,
+          lastPlayedDate: existing.lastPlayedDate,
+          gamesPlayed: existing.gamesPlayed,
+          guessDistribution: const {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0},
+          weekKey: currentWeek,
+        );
+      }
 
       // Guard: don't save twice for the same game slot
       if (existing.lastPlayedDate == today) return 0;
@@ -184,6 +302,7 @@ class SciwordleService {
         'lastPlayedDate': today,
         'gamesPlayed': existing.gamesPlayed + 1,
         'guessDistribution': updatedDist,
+        'weekKey': currentWeek,
         'scoreTimestamp': newTotal > existing.totalScore
             ? DateTime.now().millisecondsSinceEpoch
             : existing.scoreTimestamp,
@@ -193,6 +312,27 @@ class SciwordleService {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
+      // Save completed guesses to history
+      await saveCompletedGameGuesses(
+        dateKey: today,
+        guesses: guesses,
+        answer: answer,
+        won: attemptNumber != null,
+        question: question,
+        category: category,
+      );
+
+      // Sync user profile fields
+      await _updateUserSciwordleFields(
+        uid: uid,
+        totalScore: newTotal,
+        streak: newStreak,
+        bestStreak: newBestStreak,
+      );
+
+      // Refresh leaderboards & update user's title
+      unawaited(_refreshUserTitleAfterGame(uid, newTotal, newStreak));
+
       return roundPoints;
     } on FirebaseException catch (e) {
       throw Exception("Couldn't save your score: ${e.message}");
@@ -201,18 +341,150 @@ class SciwordleService {
     }
   }
 
+  // ─── Update User Profile Fields ──────────────────────────────────────────
+  Future<void> _updateUserSciwordleFields({
+    required String uid,
+    required int totalScore,
+    required int streak,
+    required int bestStreak,
+    String? title,
+  }) async {
+    try {
+      final updates = <String, dynamic>{
+        'sciwordleScore': totalScore,
+        'sciwordleStreak': streak,
+        'sciwordleBestStreak': bestStreak,
+        'sciwordleWeekKey': getCurrentWeekKeyIST(),
+      };
+      if (title != null) {
+        updates['sciwordleTitle'] = title;
+      }
+      await _db.collection('users').doc(uid).set(updates, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
+  // ─── Refresh User Title After Game ──────────────────────────────────────
+  Future<void> _refreshUserTitleAfterGame(String uid, int totalScore, int streak) async {
+    try {
+      final leaderboard = await fetchLeaderboard();
+      int rank = -1;
+      int maxStreak = 0;
+      for (int i = 0; i < leaderboard.length; i++) {
+        if (leaderboard[i].streak > maxStreak) {
+          maxStreak = leaderboard[i].streak;
+        }
+        if (leaderboard[i].uid == uid) {
+          rank = i + 1;
+        }
+      }
+      final title = computeTitle(
+        rank: rank,
+        streak: streak,
+        maxStreak: maxStreak,
+        totalScore: totalScore,
+      );
+      await _db.collection('users').doc(uid).set({
+        'sciwordleTitle': title ?? '',
+      }, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
+  /// Deterministic title calculation based on rank, streak, and score
+  static String? computeTitle({
+    required int rank,
+    required int streak,
+    required int maxStreak,
+    required int totalScore,
+  }) {
+    if (totalScore <= 0 || rank <= 0) return null;
+    final isMaxStreak = streak > 0 && streak >= maxStreak;
+    if (rank == 1 && isMaxStreak) return 'ALPHA';
+    if (rank == 1) return 'PRIME';
+    if (isMaxStreak) return 'FIRE';
+    if (rank == 2) return 'TOP 2';
+    if (rank == 3) return 'TOP 3';
+    if (rank <= 10) return 'TOP 10';
+    return null;
+  }
+
   // ─── Check if already played today ───────────────────────────────────────
 
   /// Returns true if the current player has already played today's active slot.
-  Future<bool> hasPlayedToday() async {
+  Future<bool> hasPlayedToday([String? specificKey]) async {
+    final key = specificKey ?? todayKey;
     try {
       final doc = await _db.collection(_scoresCol).doc(_uid).get();
       if (!doc.exists || doc.data() == null) return false;
       final lastPlayed = doc.data()!['lastPlayedDate'] as String? ?? '';
-      return lastPlayed == todayKey;
+      return lastPlayed == key;
     } catch (_) {
       return false;
     }
+  }
+
+  // ─── Completed session history persistence ────────────────────────────────
+
+  /// Saves finished puzzle guesses so the user never sees empty boxes upon completion.
+  Future<void> saveCompletedGameGuesses({
+    required String dateKey,
+    required List<String> guesses,
+    required String answer,
+    required bool won,
+    String? question,
+    String? category,
+  }) async {
+    try {
+      final uid = _uid;
+      final historyItem = SciwordleSessionHistory(
+        dateKey: dateKey,
+        guesses: guesses,
+        answer: answer,
+        won: won,
+        question: question,
+        category: category,
+      );
+
+      // 1. Save in Firestore under sciwordle_scores doc history map
+      await _db.collection(_scoresCol).doc(uid).set({
+        'completedHistory': {
+          dateKey: historyItem.toMap(),
+        },
+      }, SetOptions(merge: true));
+
+      // 2. Also cache in SharedPreferences for instant retrieval
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('sciwordle_history_$dateKey', jsonEncode(historyItem.toMap()));
+    } catch (_) {}
+  }
+
+  /// Fetches saved completed game history for a specific dateKey.
+  Future<SciwordleSessionHistory?> fetchCompletedGameHistory(String dateKey) async {
+    // Check SharedPreferences first
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final local = prefs.getString('sciwordle_history_$dateKey');
+      if (local != null && local.isNotEmpty) {
+        final decoded = jsonDecode(local);
+        if (decoded is Map<String, dynamic>) {
+          return SciwordleSessionHistory.fromMap(decoded);
+        }
+      }
+    } catch (_) {}
+
+    // Fallback to Firestore
+    try {
+      final uid = _uid;
+      final doc = await _db.collection(_scoresCol).doc(uid).get();
+      if (doc.exists && doc.data() != null) {
+        final historyMap = doc.data()!['completedHistory'] as Map<String, dynamic>?;
+        if (historyMap != null && historyMap.containsKey(dateKey)) {
+          final data = historyMap[dateKey] as Map<String, dynamic>;
+          return SciwordleSessionHistory.fromMap(data);
+        }
+      }
+    } catch (_) {}
+
+    return null;
   }
 
   // ─── In-progress guess persistence ────────────────────────────────────────
@@ -262,14 +534,18 @@ class SciwordleService {
 
   // ─── Leaderboard ──────────────────────────────────────────────────────────
 
-  /// Fetches top player scores sorted by totalScore descending.
+  /// Fetches top player scores sorted by totalScore descending for the current week.
   Future<List<SciwordleLeaderboardEntry>> fetchLeaderboard() async {
     try {
+      final currentWeek = getCurrentWeekKeyIST();
       final snapshot = await _db.collection(_scoresCol).limit(100).get();
       final docs = snapshot.docs.toList()
         ..sort((a, b) {
-          final scoreA = (a.data()['totalScore'] as num?)?.toInt() ?? 0;
-          final scoreB = (b.data()['totalScore'] as num?)?.toInt() ?? 0;
+          final isWeekA = (a.data()['weekKey'] as String?) == currentWeek;
+          final isWeekB = (b.data()['weekKey'] as String?) == currentWeek;
+
+          final scoreA = isWeekA ? ((a.data()['totalScore'] as num?)?.toInt() ?? 0) : 0;
+          final scoreB = isWeekB ? ((b.data()['totalScore'] as num?)?.toInt() ?? 0) : 0;
           if (scoreA != scoreB) {
             return scoreB.compareTo(scoreA);
           }
@@ -295,13 +571,22 @@ class SciwordleService {
         });
 
       return docs
-          .map((doc) => SciwordleLeaderboardEntry.fromFirestore(
-                doc.data(),
-                doc.id,
-                isStreakActive: isStreakActive(
-                  doc.data()['lastPlayedDate'] as String?,
-                ),
-              ))
+          .map((doc) {
+            final data = doc.data();
+            final isCurrentWeek = (data['weekKey'] as String?) == currentWeek;
+            final weeklyData = Map<String, dynamic>.from(data);
+            if (!isCurrentWeek) {
+              weeklyData['totalScore'] = 0;
+              weeklyData['streak'] = 0;
+            }
+            return SciwordleLeaderboardEntry.fromFirestore(
+              weeklyData,
+              doc.id,
+              isStreakActive: isCurrentWeek && isStreakActive(
+                data['lastPlayedDate'] as String?,
+              ),
+            );
+          })
           .take(50)
           .toList();
     } on FirebaseException catch (e) {

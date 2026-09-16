@@ -1127,6 +1127,125 @@ class NotificationService {
     }
   }
 
+  // ─── SciWordle Daily Notifications ───────────────────────────────────────
+  static const int sciwordleMorningNotifId = 201;
+  static const int sciwordleAfternoonNotifId = 202;
+  static const int sciwordleEveningNotifId = 203;
+
+  /// Schedule 3 daily zoned repeating notifications for SciWordle puzzle sessions.
+  static Future<bool> scheduleSciwordleDailyNotifications({
+    bool morning = true,
+    bool afternoon = true,
+    bool evening = true,
+  }) async {
+    if (!PlatformSupport.supportsNotifications) return false;
+    try {
+      await initialize();
+      await _ensureTimezone();
+      final localLocation = tz.local;
+      final now = tz.TZDateTime.now(localLocation);
+
+      // Morning Notification: 8:00 AM (08:00)
+      if (morning) {
+        var morningDate = tz.TZDateTime(localLocation, now.year, now.month, now.day, 8, 0);
+        if (morningDate.isBefore(now)) {
+          morningDate = morningDate.add(const Duration(days: 1));
+        }
+        await _safeZonedSchedule(
+          id: sciwordleMorningNotifId,
+          title: 'SciWordle • Morning Edition is Live! 🌅',
+          body: 'Crack today\'s morning science mystery and build your streak!',
+          scheduledDate: morningDate,
+          channelId: 'utopia_high_importance_v3',
+          channelName: 'UTOPIA Notifications',
+          channelDescription: 'SciWordle daily puzzle alerts',
+          matchDateTimeComponents: DateTimeComponents.time,
+          payload: jsonEncode({
+            'title': 'SciWordle • Morning Edition is Live! 🌅',
+            'body': 'Crack today\'s morning science mystery and build your streak!',
+            'data': {'type': 'sciwordle'}
+          }),
+        );
+      } else {
+        await _localNotifications.cancel(sciwordleMorningNotifId);
+      }
+
+      // Afternoon Notification: 11:00 AM (11:00)
+      if (afternoon) {
+        var afternoonDate = tz.TZDateTime(localLocation, now.year, now.month, now.day, 11, 0);
+        if (afternoonDate.isBefore(now)) {
+          afternoonDate = afternoonDate.add(const Duration(days: 1));
+        }
+        await _safeZonedSchedule(
+          id: sciwordleAfternoonNotifId,
+          title: 'SciWordle • Afternoon Edition Unlocked! ☀️',
+          body: 'A brand new science puzzle is waiting for your deduction.',
+          scheduledDate: afternoonDate,
+          channelId: 'utopia_high_importance_v3',
+          channelName: 'UTOPIA Notifications',
+          channelDescription: 'SciWordle daily puzzle alerts',
+          matchDateTimeComponents: DateTimeComponents.time,
+          payload: jsonEncode({
+            'title': 'SciWordle • Afternoon Edition Unlocked! ☀️',
+            'body': 'A brand new science puzzle is waiting for your deduction.',
+            'data': {'type': 'sciwordle'}
+          }),
+        );
+      } else {
+        await _localNotifications.cancel(sciwordleAfternoonNotifId);
+      }
+
+      // Evening Notification: 4:00 PM (16:00)
+      if (evening) {
+        var eveningDate = tz.TZDateTime(localLocation, now.year, now.month, now.day, 16, 0);
+        if (eveningDate.isBefore(now)) {
+          eveningDate = eveningDate.add(const Duration(days: 1));
+        }
+        await _safeZonedSchedule(
+          id: sciwordleEveningNotifId,
+          title: 'SciWordle • Evening Edition is Ready! 🌙',
+          body: 'Solve the evening puzzle to climb this week\'s leaderboard!',
+          scheduledDate: eveningDate,
+          channelId: 'utopia_high_importance_v3',
+          channelName: 'UTOPIA Notifications',
+          channelDescription: 'SciWordle daily puzzle alerts',
+          matchDateTimeComponents: DateTimeComponents.time,
+          payload: jsonEncode({
+            'title': 'SciWordle • Evening Edition is Ready! 🌙',
+            'body': 'Solve the evening puzzle to climb this week\'s leaderboard!',
+            'data': {'type': 'sciwordle'}
+          }),
+        );
+      } else {
+        await _localNotifications.cancel(sciwordleEveningNotifId);
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('sciwordle_notif_enabled', morning || afternoon || evening);
+      await prefs.setBool('sciwordle_notif_morning', morning);
+      await prefs.setBool('sciwordle_notif_afternoon', afternoon);
+      await prefs.setBool('sciwordle_notif_evening', evening);
+
+      return true;
+    } catch (e) {
+      debugPrint("NOTIF: Error scheduling SciWordle notifications: $e");
+      return false;
+    }
+  }
+
+  /// Cancels all SciWordle scheduled notifications.
+  static Future<void> cancelSciwordleNotifications() async {
+    if (!PlatformSupport.supportsNotifications) return;
+    try {
+      await _localNotifications.cancel(sciwordleMorningNotifId);
+      await _localNotifications.cancel(sciwordleAfternoonNotifId);
+      await _localNotifications.cancel(sciwordleEveningNotifId);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('sciwordle_notif_enabled', false);
+      debugPrint("NOTIF: SciWordle notifications cancelled.");
+    } catch (_) {}
+  }
+
   /// Check if exact alarms are permitted (Android 12+)
   static Future<bool> canScheduleExactNotifications() async {
     if (!PlatformSupport.isAndroid) return true;

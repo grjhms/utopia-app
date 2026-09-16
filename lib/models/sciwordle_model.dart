@@ -37,7 +37,7 @@ class SciwordleQuestion {
   }
 }
 
-/// Represents a player's all-time score data stored in sciwordle_scores/{uid}.
+/// Represents a player's score data stored in sciwordle_scores/{uid}.
 class SciwordlePlayerScore {
   const SciwordlePlayerScore({
     required this.uid,
@@ -49,6 +49,7 @@ class SciwordlePlayerScore {
     required this.lastPlayedDate,
     required this.gamesPlayed,
     required this.guessDistribution,
+    this.weekKey,
     this.scoreTimestamp,
     this.streakTimestamp,
   });
@@ -62,6 +63,7 @@ class SciwordlePlayerScore {
   final String lastPlayedDate;
   final int gamesPlayed;
   final Map<String, int> guessDistribution;
+  final String? weekKey;
 
   /// Timestamp when the current totalScore was achieved (for tiebreaker)
   final int? scoreTimestamp;
@@ -70,7 +72,7 @@ class SciwordlePlayerScore {
   final int? streakTimestamp;
 
   /// Returns a zeroed-out score for a brand-new player.
-  factory SciwordlePlayerScore.empty(String uid) {
+  factory SciwordlePlayerScore.empty(String uid, [String? weekKey]) {
     return SciwordlePlayerScore(
       uid: uid,
       name: '',
@@ -81,6 +83,7 @@ class SciwordlePlayerScore {
       lastPlayedDate: '',
       gamesPlayed: 0,
       guessDistribution: const {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0},
+      weekKey: weekKey,
       scoreTimestamp: null,
       streakTimestamp: null,
     );
@@ -100,6 +103,7 @@ class SciwordlePlayerScore {
       lastPlayedDate: (data['lastPlayedDate'] as String? ?? '').trim(),
       gamesPlayed: (data['gamesPlayed'] as num?)?.toInt() ?? 0,
       guessDistribution: _parseGuessDistribution(data['guessDistribution']),
+      weekKey: data['weekKey'] as String?,
       scoreTimestamp: (data['scoreTimestamp'] as num?)?.toInt(),
       streakTimestamp: (data['streakTimestamp'] as num?)?.toInt(),
     );
@@ -127,6 +131,7 @@ class SciwordleLeaderboardEntry {
     required this.streak,
     required this.bestStreak,
     required this.gamesPlayed,
+    this.weekKey,
   });
 
   final String uid;
@@ -135,6 +140,7 @@ class SciwordleLeaderboardEntry {
   final int streak;
   final int bestStreak;
   final int gamesPlayed;
+  final String? weekKey;
 
   factory SciwordleLeaderboardEntry.fromFirestore(
     Map<String, dynamic> data,
@@ -149,6 +155,46 @@ class SciwordleLeaderboardEntry {
       streak: isStreakActive ? rawStreak : 0,
       bestStreak: (data['bestStreak'] as num?)?.toInt() ?? 0,
       gamesPlayed: (data['gamesPlayed'] as num?)?.toInt() ?? 0,
+      weekKey: data['weekKey'] as String?,
+    );
+  }
+}
+
+/// Represents a completed session's words and guesses for today's history.
+class SciwordleSessionHistory {
+  const SciwordleSessionHistory({
+    required this.dateKey,
+    required this.guesses,
+    required this.answer,
+    required this.won,
+    this.question,
+    this.category,
+  });
+
+  final String dateKey;
+  final List<String> guesses;
+  final String answer;
+  final bool won;
+  final String? question;
+  final String? category;
+
+  Map<String, dynamic> toMap() => {
+    'dateKey': dateKey,
+    'guesses': guesses,
+    'answer': answer,
+    'won': won,
+    if (question != null) 'question': question,
+    if (category != null) 'category': category,
+  };
+
+  factory SciwordleSessionHistory.fromMap(Map<String, dynamic> map) {
+    return SciwordleSessionHistory(
+      dateKey: map['dateKey'] as String? ?? '',
+      guesses: (map['guesses'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
+      answer: map['answer'] as String? ?? '',
+      won: map['won'] as bool? ?? false,
+      question: map['question'] as String?,
+      category: map['category'] as String?,
     );
   }
 }

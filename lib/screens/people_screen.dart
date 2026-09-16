@@ -19,6 +19,7 @@ import '../widgets/superuser_badge.dart';
 import '../widgets/utopia_loader.dart';
 import '../widgets/utopia_snackbar.dart';
 import '../widgets/thought_cloud_badge.dart';
+import '../widgets/sciwordle_badge.dart';
 import '../widgets/utopia_wave_button.dart';
 import '../widgets/wave_count_badge.dart';
 import 'chat_screen.dart';
@@ -1634,6 +1635,8 @@ class _PeerGridCardState extends State<_PeerGridCard> {
     final discordId = (widget.user['discordId'] ?? widget.user['discordUsername'] ?? '').toString().trim();
     final isMe = uid == widget.currentUid;
     final hasActiveVibe = widget.vibe != null;
+    final sciwordleTitle = (widget.user['sciwordleTitle'] ?? '').toString().trim();
+    final showSciwordleBadge = widget.user['showSciwordleBadge'] != false;
 
     return M3Pressable(
       onTap: widget.onTap,
@@ -1814,6 +1817,16 @@ class _PeerGridCardState extends State<_PeerGridCard> {
                       child: ThoughtCloudBadge(
                         vibe: widget.vibe,
                         avatarRadius: 37,
+                      ),
+                    ),
+                  // SciWordle Badge top
+                  if (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                    Positioned(
+                      top: -7,
+                      left: -2,
+                      child: SciwordleBadge(
+                        title: sciwordleTitle,
+                        compact: true,
                       ),
                     ),
                 ],
@@ -2099,6 +2112,8 @@ class _PeerListTileState extends State<_PeerListTile> {
     final discordId = (widget.user['discordId'] ?? widget.user['discordUsername'] ?? '').toString().trim();
     final isMe = uid == widget.currentUid;
     final hasActiveVibe = widget.vibe != null;
+    final sciwordleTitle = (widget.user['sciwordleTitle'] ?? '').toString().trim();
+    final showSciwordleBadge = widget.user['showSciwordleBadge'] != false;
 
     return M3Pressable(
       onTap: widget.onTap,
@@ -2276,6 +2291,16 @@ class _PeerListTileState extends State<_PeerListTile> {
                       child: ThoughtCloudBadge(
                         vibe: widget.vibe,
                         avatarRadius: 28,
+                        compact: true,
+                      ),
+                    ),
+                  // SciWordle Badge top
+                  if (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                    Positioned(
+                      top: -7,
+                      left: -2,
+                      child: SciwordleBadge(
+                        title: sciwordleTitle,
                         compact: true,
                       ),
                     ),

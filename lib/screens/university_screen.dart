@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../main.dart';
+import '../services/university_service.dart';
 import 'university_selection_screen.dart';
 import 'iaa_screen.dart'; // ignore: unused_import
 import 'attendance_screen.dart'; // ignore: unused_import
@@ -100,19 +101,25 @@ class _UniversityScreenState extends State<UniversityScreen> {
         
         String uniName = '';
         if (uniId != null && uniId.isNotEmpty) {
-          final uniDoc = await FirebaseFirestore.instance
-              .collection('universities')
-              .doc(uniId)
-              .get();
-          if (uniDoc.exists && uniDoc.data() != null) {
-            uniName = uniDoc.data()?['name'] as String? ?? '';
-          }
+          final uniModel = await UniversityService().getUniversityById(uniId);
 
-          // Cache selected university locally
-          await CacheService().saveAppSetting('cached_university_id', uniId);
-          await CacheService().saveAppSetting('cached_university_name', uniName);
-          U.cachedUniversityId = uniId;
-          U.cachedUniversityName = uniName;
+          if (uniModel != null) {
+            uniName = uniModel.name;
+            await CacheService().saveAppSetting('cached_university_id', uniModel.id);
+            await CacheService().saveAppSetting('cached_university_name', uniName);
+            U.cachedUniversityId = uniModel.id;
+            U.cachedUniversityName = uniName;
+          } else {
+            // University does not exist in any Firestore university collection -> clear and prompt selection
+            await UniversityService().clearUserSelectedUniversity(user.uid);
+            if (mounted) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const AuthGate()),
+                (route) => false,
+              );
+              return;
+            }
+          }
         }
 
         if (mounted) {

@@ -5,13 +5,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:confetti/confetti.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../main.dart';
 import '../models/sciwordle_model.dart';
 import '../services/sciwordle_service.dart';
 import '../services/sciwordle_dictionary_service.dart';
+import '../services/notification_service.dart';
 import '../widgets/utopia_loader.dart';
+import '../widgets/utopia_snackbar.dart';
 import 'sciwordle_leaderboard.dart';
 import 'sciwordle_stats_screen.dart';
 import 'how_to_play_screen.dart';
@@ -36,6 +40,7 @@ class _SciwordleScreenState extends State<SciwordleScreen>
   SciwordlePlayerScore? _playerScore;
   final List<SciwordleGuessResult> _guesses = [];
   String _currentGuess = '';
+  String? _selectedDateKey;
   bool _gameOver = false;
   bool _won = false;
   int? _pointsEarned;
@@ -56,6 +61,9 @@ class _SciwordleScreenState extends State<SciwordleScreen>
       duration: const Duration(seconds: 3),
     );
     _loadGame();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkFirstVisitNotification();
+    });
   }
 
   @override
@@ -65,14 +73,149 @@ class _SciwordleScreenState extends State<SciwordleScreen>
     super.dispose();
   }
 
-  Future<void> _loadGame() async {
-    setState(() => _loading = true);
+  Future<void> _checkFirstVisitNotification() async {
+    final prefs = await SharedPreferences.getInstance();
+    final prompted = prefs.getBool('sciwordle_notif_prompted') ?? false;
+    if (!prompted && mounted) {
+      _showFirstVisitNotificationDialog();
+    }
+  }
+
+  Future<void> _showFirstVisitNotificationDialog() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: U.surfaceContainer,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: U.primary.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.notifications_active_rounded, color: U.primary, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Daily Puzzle Alerts',
+                style: GoogleFonts.robotoFlex(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                  color: U.text,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'SciWordle releases 3 science puzzles daily:',
+              style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 13.5),
+            ),
+            const SizedBox(height: 12),
+            _buildDialogSlotBullet('🌅 Morning Edition', 'Starts 1:00 AM (Reminder 8:00 AM)'),
+            const SizedBox(height: 6),
+            _buildDialogSlotBullet('☀️ Afternoon Edition', 'Starts 11:00 AM'),
+            const SizedBox(height: 6),
+            _buildDialogSlotBullet('🌙 Evening Edition', 'Starts 4:00 PM'),
+            const SizedBox(height: 14),
+            Text(
+              'Would you like reminders when each edition opens? You can customize these anytime in Settings.',
+              style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 12.5),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await prefs.setBool('sciwordle_notif_prompted', true);
+              await prefs.setBool('sciwordle_notif_enabled', false);
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: Text('Not Now', style: GoogleFonts.robotoFlex(color: U.sub)),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await prefs.setBool('sciwordle_notif_prompted', true);
+              await NotificationService.requestNotificationPermissionOnly();
+              await NotificationService.scheduleSciwordleDailyNotifications(
+                morning: true,
+                afternoon: true,
+                evening: true,
+              );
+              if (ctx.mounted) {
+                Navigator.pop(ctx);
+              }
+              if (mounted) {
+                showUtopiaSnackBar(
+                  context,
+                  message: 'Daily SciWordle alerts enabled! 🔔',
+                  tone: UtopiaSnackBarTone.success,
+                );
+              }
+            },
+            child: const Text('Enable Reminders'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDialogSlotBullet(String title, String subtitle) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.check_circle_outline_rounded, size: 16, color: U.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: GoogleFonts.robotoFlex(
+                  color: U.text,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                subtitle,
+                style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 11.5),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _loadGame([String? targetKey]) async {
+    final activeKey = targetKey ?? _service.todayKey;
+    _selectedDateKey = activeKey;
+    final isCurrentSlot = activeKey == _service.todayKey;
+    setState(() {
+      _loading = true;
+      _error = null;
+      _currentGuess = '';
+      _pointsEarned = null;
+    });
     try {
       final results = await Future.wait([
-        _service.fetchTodaysQuestion(),
+        _service.fetchTodaysQuestion(activeKey),
         _service.fetchPlayerScore(),
-        _service.hasPlayedToday(),
-        _service.fetchGuessProgress(),
+        _service.hasPlayedToday(activeKey),
+        isCurrentSlot ? _service.fetchGuessProgress() : Future.value(null),
         _dictionary.init(),
       ]);
 
@@ -81,15 +224,30 @@ class _SciwordleScreenState extends State<SciwordleScreen>
       final alreadyPlayed = results[2] as bool;
       final savedProgress = results[3] as SciwordleProgressData?;
 
-      setState(() {
-        _question = question;
-        _playerScore = playerScore;
-        _alreadyPlayedToday = alreadyPlayed;
-        if (alreadyPlayed) _gameOver = true;
-        _loading = false;
-      });
+      _guesses.clear();
+      bool gameOver = alreadyPlayed;
+      bool won = false;
 
-      // Restore in-progress guesses if the user backed out mid-game
+      // 1. If already played, restore completed guesses so user sees actual letters!
+      if (alreadyPlayed && question != null) {
+        final completedHistory = await _service.fetchCompletedGameHistory(activeKey);
+        if (completedHistory != null && completedHistory.guesses.isNotEmpty) {
+          final restored = <SciwordleGuessResult>[];
+          for (final word in completedHistory.guesses) {
+            restored.add(
+              _service.checkGuess(guess: word, answer: question.answer),
+            );
+          }
+          final lastCorrect = restored.isNotEmpty &&
+              restored.last.letters.every(
+                (l) => l.status == LetterStatus.correct,
+              );
+          _guesses.addAll(restored);
+          won = lastCorrect;
+        }
+      }
+
+      // 2. Restore in-progress guesses if the user backed out mid-game
       if (!alreadyPlayed &&
           question != null &&
           savedProgress != null &&
@@ -106,16 +264,21 @@ class _SciwordleScreenState extends State<SciwordleScreen>
             );
         final usedAll = restoredGuesses.length >= _maxAttempts;
 
-        setState(() {
-          _guesses.clear();
-          _guesses.addAll(restoredGuesses);
-          if (lastCorrect || usedAll) {
-            _gameOver = true;
-            _won = lastCorrect;
-            _alreadyPlayedToday = true;
-          }
-        });
+        _guesses.addAll(restoredGuesses);
+        if (lastCorrect || usedAll) {
+          gameOver = true;
+          won = lastCorrect;
+        }
       }
+
+      setState(() {
+        _question = question;
+        _playerScore = playerScore;
+        _alreadyPlayedToday = alreadyPlayed;
+        _gameOver = gameOver;
+        _won = won;
+        _loading = false;
+      });
     } catch (e) {
       setState(() {
         _error = e.toString().replaceFirst('Exception: ', '');
@@ -197,9 +360,16 @@ class _SciwordleScreenState extends State<SciwordleScreen>
     SciwordlePlayerScore? refreshedScore;
 
     if (gameOver) {
+      final guessWords = newGuesses
+          .map((g) => g.letters.map((l) => l.letter).join())
+          .toList();
       try {
         pointsEarned = await _service.saveGameResult(
           attemptNumber: isCorrect ? attemptNumber : null,
+          guesses: guessWords,
+          answer: _question!.answer,
+          question: _question?.question,
+          category: _question?.category,
         );
         refreshedScore = await _service.fetchPlayerScore();
         await _service.clearGuessProgress();
@@ -258,31 +428,374 @@ class _SciwordleScreenState extends State<SciwordleScreen>
     return map;
   }
 
-  void _shareResult() {
-    if (_question == null) return;
-    final attemptStr = _won ? '${_guesses.length}/$_maxAttempts' : 'X/$_maxAttempts';
-    final buffer = StringBuffer();
-    buffer.writeln('UTOPIA SciWordle ${_service.todayKey} $attemptStr');
-    buffer.writeln('Streak: ${_playerScore?.streak ?? 1} 🔥');
-    buffer.writeln();
-
-    for (final guess in _guesses) {
-      for (final l in guess.letters) {
-        if (l.status == LetterStatus.correct) {
-          buffer.write('🟩');
-        } else if (l.status == LetterStatus.present) {
-          buffer.write('🟨');
-        } else {
-          buffer.write('⬛');
-        }
-      }
-      buffer.writeln();
+  Future<void> _openSettingsModal() async {
+    final prefs = await SharedPreferences.getInstance();
+    bool masterEnabled = prefs.getBool('sciwordle_notif_enabled') ?? false;
+    bool morning = prefs.getBool('sciwordle_notif_morning') ?? true;
+    bool afternoon = prefs.getBool('sciwordle_notif_afternoon') ?? true;
+    bool evening = prefs.getBool('sciwordle_notif_evening') ?? true;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    bool showBadge = true;
+    if (uid != null) {
+      try {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+        showBadge = userDoc.data()?['showSciwordleBadge'] != false;
+      } catch (_) {}
     }
 
-    buffer.writeln();
-    buffer.write('Play daily on UTOPIA App! ✨');
-    // ignore: deprecated_member_use
-    Share.share(buffer.toString());
+    if (!mounted) return;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (modalContext, setModalState) {
+          return Container(
+            decoration: BoxDecoration(
+              color: U.surfaceContainer,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: U.outlineVariant.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: U.primary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(Icons.settings_rounded, color: U.primary, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'SciWordle Settings',
+                      style: GoogleFonts.robotoFlex(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: U.text,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // Section 1: Notifications
+                Text(
+                  'NOTIFICATIONS',
+                  style: GoogleFonts.robotoFlex(
+                    color: U.primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: U.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: U.outlineVariant.withValues(alpha: 0.35),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      SwitchListTile.adaptive(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        title: Text(
+                          'Daily Puzzle Alerts',
+                          style: GoogleFonts.robotoFlex(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14.5,
+                            color: U.text,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'Get notified when daily editions unlock',
+                          style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 12),
+                        ),
+                        value: masterEnabled,
+                        activeTrackColor: U.primary,
+                        onChanged: (val) async {
+                          setModalState(() => masterEnabled = val);
+                          await prefs.setBool('sciwordle_notif_enabled', val);
+                          if (val) {
+                            await NotificationService.requestNotificationPermissionOnly();
+                            await NotificationService.scheduleSciwordleDailyNotifications(
+                              morning: morning,
+                              afternoon: afternoon,
+                              evening: evening,
+                            );
+                          } else {
+                            await NotificationService.cancelSciwordleNotifications();
+                          }
+                        },
+                      ),
+                      if (masterEnabled) ...[
+                        Divider(height: 1, color: U.outlineVariant.withValues(alpha: 0.35)),
+                        CheckboxListTile.adaptive(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                          title: Text(
+                            '🌅 Morning Edition',
+                            style: GoogleFonts.robotoFlex(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13.5,
+                              color: U.text,
+                            ),
+                          ),
+                          subtitle: Text(
+                            'Reminder at 8:00 AM IST',
+                            style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 11.5),
+                          ),
+                          value: morning,
+                          activeColor: U.primary,
+                          onChanged: (val) async {
+                            final newVal = val ?? true;
+                            setModalState(() => morning = newVal);
+                            await prefs.setBool('sciwordle_notif_morning', newVal);
+                            await NotificationService.scheduleSciwordleDailyNotifications(
+                              morning: newVal,
+                              afternoon: afternoon,
+                              evening: evening,
+                            );
+                          },
+                        ),
+                        CheckboxListTile.adaptive(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                          title: Text(
+                            '☀️ Afternoon Edition',
+                            style: GoogleFonts.robotoFlex(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13.5,
+                              color: U.text,
+                            ),
+                          ),
+                          subtitle: Text(
+                            'Reminder at 11:00 AM IST',
+                            style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 11.5),
+                          ),
+                          value: afternoon,
+                          activeColor: U.primary,
+                          onChanged: (val) async {
+                            final newVal = val ?? true;
+                            setModalState(() => afternoon = newVal);
+                            await prefs.setBool('sciwordle_notif_afternoon', newVal);
+                            await NotificationService.scheduleSciwordleDailyNotifications(
+                              morning: morning,
+                              afternoon: newVal,
+                              evening: evening,
+                            );
+                          },
+                        ),
+                        CheckboxListTile.adaptive(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                          title: Text(
+                            '🌙 Evening Edition',
+                            style: GoogleFonts.robotoFlex(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13.5,
+                              color: U.text,
+                            ),
+                          ),
+                          subtitle: Text(
+                            'Reminder at 4:00 PM IST',
+                            style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 11.5),
+                          ),
+                          value: evening,
+                          activeColor: U.primary,
+                          onChanged: (val) async {
+                            final newVal = val ?? true;
+                            setModalState(() => evening = newVal);
+                            await prefs.setBool('sciwordle_notif_evening', newVal);
+                            await NotificationService.scheduleSciwordleDailyNotifications(
+                              morning: morning,
+                              afternoon: afternoon,
+                              evening: newVal,
+                            );
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Section 2: Profile Badge
+                Text(
+                  'PROFILE BADGE',
+                  style: GoogleFonts.robotoFlex(
+                    color: U.primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: U.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: U.outlineVariant.withValues(alpha: 0.35),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: SwitchListTile.adaptive(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    title: Text(
+                      'Show Badge on Profile Icon',
+                      style: GoogleFonts.robotoFlex(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14.5,
+                        color: U.text,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Display your elite title badge (Alpha, Prime, Fire, etc.) on your profile avatar.',
+                      style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 12),
+                    ),
+                    value: showBadge,
+                    activeTrackColor: U.primary,
+                    onChanged: (val) async {
+                      setModalState(() => showBadge = val);
+                      await prefs.setBool('show_sciwordle_badge', val);
+                      if (uid != null) {
+                        try {
+                          await FirebaseFirestore.instance.collection('users').doc(uid).set({
+                            'showSciwordleBadge': val,
+                          }, SetOptions(merge: true));
+                        } catch (_) {}
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTodayEditionsBar(bool isDark) {
+    final today = _service.getTodayDateIST();
+    final currentKey = _service.todayKey;
+    final currentSlot = SciwordleService.slotForDateKey(currentKey);
+
+    final editions = [
+      {'key': '$today-m', 'slot': 'm', 'icon': '🌅', 'label': 'Morning'},
+      {'key': '$today-a', 'slot': 'a', 'icon': '☀️', 'label': 'Afternoon'},
+      {'key': '$today-e', 'slot': 'e', 'icon': '🌙', 'label': 'Evening'},
+    ];
+
+    final slotOrder = {'m': 1, 'a': 2, 'e': 3};
+    final currentSlotIndex = slotOrder[currentSlot] ?? 1;
+    final selectedKey = _selectedDateKey ?? currentKey;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: U.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: U.outlineVariant.withValues(alpha: isDark ? 0.3 : 0.4),
+          width: 0.8,
+        ),
+      ),
+      child: Row(
+        children: editions.map((ed) {
+          final edKey = ed['key']!;
+          final edSlot = ed['slot']!;
+          final edIndex = slotOrder[edSlot] ?? 1;
+          final isUnlocked = edIndex <= currentSlotIndex;
+          final isSelected = edKey == selectedKey;
+          final isLive = edKey == currentKey;
+
+          return Expanded(
+            child: GestureDetector(
+              onTap: () {
+                if (!isUnlocked) {
+                  showUtopiaSnackBar(
+                    context,
+                    message: '${ed['label']} unlocks at ${edSlot == 'a' ? "11:00 AM" : "4:00 PM"} IST',
+                    tone: UtopiaSnackBarTone.info,
+                  );
+                  return;
+                }
+                if (edKey != selectedKey) {
+                  _loadGame(edKey);
+                }
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? U.primary.withValues(alpha: isDark ? 0.28 : 0.15)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  border: isSelected
+                      ? Border.all(color: U.primary.withValues(alpha: 0.6), width: 1)
+                      : null,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(ed['icon']!, style: const TextStyle(fontSize: 13)),
+                    const SizedBox(width: 5),
+                    Text(
+                      ed['label']!,
+                      style: GoogleFonts.robotoFlex(
+                        fontSize: 12,
+                        fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                        color: isSelected
+                            ? U.primary
+                            : isUnlocked
+                                ? U.text
+                                : U.sub.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    if (!isUnlocked) ...[
+                      const SizedBox(width: 4),
+                      Icon(Icons.lock_outline_rounded, size: 11, color: U.sub.withValues(alpha: 0.5)),
+                    ] else if (isLive && !isSelected) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        width: 5,
+                        height: 5,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF10B981),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
   }
 
   @override
@@ -352,6 +865,12 @@ class _SciwordleScreenState extends State<SciwordleScreen>
                 builder: (_) => const SciwordleLeaderboardScreen(),
               ),
             ),
+          ),
+          // Settings
+          IconButton(
+            icon: Icon(Icons.settings_outlined, color: U.sub, size: 22),
+            tooltip: 'Settings',
+            onPressed: _openSettingsModal,
           ),
           const SizedBox(width: 4),
         ],
@@ -481,6 +1000,9 @@ class _SciwordleScreenState extends State<SciwordleScreen>
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             child: Column(
               children: [
+                // Today's 3 Editions Bar
+                _buildTodayEditionsBar(isDark),
+
                 // Science Clue Card
                 _buildQuestionCard(question, isDark),
 
@@ -690,36 +1212,22 @@ class _SciwordleScreenState extends State<SciwordleScreen>
             style: GoogleFonts.robotoFlex(fontSize: 13, color: U.sub),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.share_rounded, size: 16),
-                  label: const Text('Share'),
-                  onPressed: _shareResult,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: U.text,
-                    side: BorderSide(color: U.outlineVariant),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              icon: const Icon(Icons.leaderboard_rounded, size: 18),
+              label: const Text('Weekly Leaderboard'),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const SciwordleLeaderboardScreen(),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.tonal(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const SciwordleLeaderboardScreen(),
-                    ),
-                  ),
-                  style: FilledButton.styleFrom(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
-                  child: const Text('Leaderboard'),
-                ),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
-            ],
+            ),
           ),
         ],
       ),
@@ -846,36 +1354,22 @@ class _SciwordleScreenState extends State<SciwordleScreen>
             ),
           ),
           const SizedBox(height: 18),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.share_rounded, size: 16),
-                  label: const Text('Share Result'),
-                  onPressed: _shareResult,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: U.text,
-                    side: BorderSide(color: U.outlineVariant),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              icon: const Icon(Icons.leaderboard_rounded, size: 18),
+              label: const Text('Weekly Leaderboard'),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const SciwordleLeaderboardScreen(),
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: FilledButton.tonal(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const SciwordleLeaderboardScreen(),
-                    ),
-                  ),
-                  style: FilledButton.styleFrom(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
-                  child: const Text('Leaderboard'),
-                ),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
-            ],
+            ),
           ),
         ],
       ),

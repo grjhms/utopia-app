@@ -153,8 +153,14 @@ service cloud.firestore {
       );
     }
 
-    match /universities/{docId} {
-      allow read: if isSignedIn();
+    match /{collectionName}/{docId} {
+      allow read: if collectionName == 'universities' || collectionName == 'universities ' || collectionName == 'Universities' || collectionName == 'Universities ';
+      allow write: if (collectionName == 'universities' || collectionName == 'universities ' || collectionName == 'Universities' || collectionName == 'Universities ') && isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superuser';
+    }
+
+    match /{path=**}/{collectionName}/{docId} {
+      allow read: if collectionName == 'universities' || collectionName == 'universities ' || collectionName == 'Universities' || collectionName == 'Universities ';
+      allow write: if (collectionName == 'universities' || collectionName == 'universities ' || collectionName == 'Universities' || collectionName == 'Universities ') && isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superuser';
     }
 
     match /uni_chats/{universityId} {
