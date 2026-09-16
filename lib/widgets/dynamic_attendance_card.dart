@@ -305,7 +305,7 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
                 Positioned.fill(
                   child: CustomPaint(
                     painter: _LiquidWavePainter(
-                      color: accentColor,
+                      color: Theme.of(context).colorScheme.primary,
                       progress: waveProgress,
                       fillPercent: pct,
                       isDark: isDark,
