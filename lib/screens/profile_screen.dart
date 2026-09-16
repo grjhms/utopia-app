@@ -25,6 +25,7 @@ import '../widgets/wave_count_badge.dart';
 import 'app_shell.dart';
 import 'university_selection_screen.dart';
 import 'utopia_section_screen.dart';
+import 'whatsapp_profile_crop_screen.dart';
 import '../theme/m3_expressive_theme.dart';
 import '../widgets/app_motion.dart';
 
@@ -849,17 +850,27 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       final picker = ImagePicker();
       final picked = await picker.pickImage(
         source: source,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 85,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        imageQuality: 92,
       );
       if (picked == null) return;
 
+      if (!mounted) return;
+      final croppedFile = await Navigator.push<File>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => WhatsAppProfileCropScreen(
+            imageFile: File(picked.path),
+          ),
+        ),
+      );
+      if (croppedFile == null) return; // User cancelled cropping
+
       setState(() => _uploadingPhoto = true);
-      final file = File(picked.path);
       final uniId = U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : 'profiles';
       final downloadUrl = await FileUploadService().uploadProfilePhoto(
-        file: file,
+        file: croppedFile,
         universityId: uniId,
       );
 
@@ -1304,7 +1315,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                               ),
                               Switch(
                                 value: _showThemeOnProfile,
-                                activeColor: theme.primary,
+                                activeThumbColor: theme.primary,
                                 onChanged: (val) => setState(() => _showThemeOnProfile = val),
                               ),
                             ],
