@@ -7,7 +7,64 @@
         { "fieldPath": "restored", "mode": "ASCENDING" },
         { "fieldPath": "deletedAt", "mode": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "projects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "category", "mode": "ASCENDING" },
+        { "fieldPath": "createdAt", "mode": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "projects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "category", "mode": "ASCENDING" },
+        { "fieldPath": "likesCount", "mode": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "projects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "mode": "ASCENDING" },
+        { "fieldPath": "createdAt", "mode": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "projects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "mode": "ASCENDING" },
+        { "fieldPath": "likesCount", "mode": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "projects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "techStack", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "createdAt", "mode": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "projects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "techStack", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "likesCount", "mode": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "projects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "contributorUids", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "createdAt", "mode": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
 }
+

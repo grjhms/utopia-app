@@ -836,6 +836,27 @@ class _SciwordleScreenState extends State<SciwordleScreen>
                   letterSpacing: -0.3,
                 ),
               ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: U.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: U.primary.withValues(alpha: 0.3),
+                    width: 0.8,
+                  ),
+                ),
+                child: Text(
+                  'BETA',
+                  style: GoogleFonts.robotoFlex(
+                    fontSize: 8.5,
+                    fontWeight: FontWeight.w800,
+                    color: U.primary,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+              ),
             ],
           ),
         ),

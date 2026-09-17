@@ -527,6 +527,14 @@ class U {
   static String cachedUniversityId = '';
   static String cachedUniversityName = '';
 
+  static bool get isAditya => isAdityaCollege(cachedUniversityId, cachedUniversityName);
+
+  static bool isAdityaCollege([String? id, String? name]) {
+    final checkId = (id ?? cachedUniversityId).trim().toLowerCase();
+    final checkName = (name ?? cachedUniversityName).trim().toLowerCase();
+    return checkId.contains('aditya') || checkName.contains('aditya');
+  }
+
   static ColorScheme get colorScheme => appThemeNotifier.value.colorScheme;
   static ColorScheme scheme(BuildContext context) => Theme.of(context).colorScheme;
 

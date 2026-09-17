@@ -17,6 +17,7 @@ import 'docs_screen.dart'; // ignore: unused_import
 import 'drive_notebooks_screen.dart'; // ignore: unused_import
 import 'events_screen.dart';
 import 'event_notifications_screen.dart';
+import 'projects_feed_screen.dart';
 import '../services/cache_service.dart';
 import '../services/event_service.dart';
 import '../services/notification_service.dart';
@@ -205,6 +206,19 @@ class _UniversityScreenState extends State<UniversityScreen> {
           MaterialPageRoute(builder: (_) => const EventsScreen()),
         ),
       ),
+      if (U.isAdityaCollege(_universityId, _universityName))
+        _CardItem(
+          title: 'Showcase',
+          subtitle: 'Explore campus\nstudent projects',
+          icon: Icons.rocket_launch_outlined,
+          color: theme.primary,
+          delay: 150,
+          showBetaBadge: true,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ProjectsFeedScreen()),
+          ),
+        ),
       /*
       _CardItem(
         title: 'Uni Chat',
