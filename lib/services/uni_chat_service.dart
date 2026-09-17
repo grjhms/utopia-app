@@ -16,13 +16,14 @@ class UniChatService {
   /// Stores in Firestore user document under `lastSeenUniChat.{universityId}`
   /// and local SharedPreferences so it persists across device sessions and relogins.
   Future<void> markAsSeen(String universityId) async {
+    final cleanUniId = universityId.trim().toLowerCase();
     final uid = _currentUid;
     final nowMillis = DateTime.now().millisecondsSinceEpoch;
 
     // Fast local persistence
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('last_seen_unichat_${universityId}_millis', nowMillis);
+      await prefs.setInt('last_seen_unichat_${cleanUniId}_millis', nowMillis);
     } catch (_) {}
 
     // Cross-session & relogin persistence in Firestore user document
@@ -30,7 +31,7 @@ class UniChatService {
       try {
         await _firestore.collection('users').doc(uid).set({
           'lastSeenUniChat': {
-            universityId: FieldValue.serverTimestamp(),
+            cleanUniId: FieldValue.serverTimestamp(),
           },
         }, SetOptions(merge: true));
       } catch (_) {}
@@ -43,11 +44,12 @@ class UniChatService {
     required String messageId,
     required String userId,
   }) async {
-    if (userId.isEmpty || universityId.isEmpty || messageId.isEmpty) return;
+    final cleanUniId = universityId.trim().toLowerCase();
+    if (userId.isEmpty || cleanUniId.isEmpty || messageId.isEmpty) return;
     try {
       await _firestore
           .collection('uni_chats')
-          .doc(universityId)
+          .doc(cleanUniId)
           .collection('messages')
           .doc(messageId)
           .update({
@@ -63,12 +65,13 @@ class UniChatService {
     required List<String> messageIds,
     required String userId,
   }) async {
-    if (userId.isEmpty || universityId.isEmpty || messageIds.isEmpty) return;
+    final cleanUniId = universityId.trim().toLowerCase();
+    if (userId.isEmpty || cleanUniId.isEmpty || messageIds.isEmpty) return;
     try {
       final batch = _firestore.batch();
       final collection = _firestore
           .collection('uni_chats')
-          .doc(universityId)
+          .doc(cleanUniId)
           .collection('messages');
       for (final id in messageIds.take(20)) {
         batch.update(collection.doc(id), {
@@ -95,12 +98,13 @@ class UniChatService {
   /// - There is a message authored by another user with timestamp > lastSeen timestamp
   /// - The user has never viewed the chat yet and there are messages from others
   Stream<bool> unreadStatusStream(String universityId) {
+    final cleanUniId = universityId.trim().toLowerCase();
     final uid = _currentUid;
     if (uid == null || uid.isEmpty) {
       return Stream.value(false);
     }
 
-    final cacheKey = '${uid}_$universityId';
+    final cacheKey = '${uid}_$cleanUniId';
     if (_unreadStreams.containsKey(cacheKey)) {
       return _unreadStreams[cacheKey]!;
     }
@@ -108,13 +112,13 @@ class UniChatService {
     final userDocStream = _firestore.collection('users').doc(uid).snapshots();
     final latestMessageStream = _firestore
         .collection('uni_chats')
-        .doc(universityId)
+        .doc(cleanUniId.isNotEmpty ? cleanUniId : 'support')
         .collection('messages')
         .orderBy('timestamp', descending: true)
         .limit(1)
         .snapshots();
 
-    final stream = _combineStreams(userDocStream, latestMessageStream, universityId, uid);
+    final stream = _combineStreams(userDocStream, latestMessageStream, cleanUniId, uid);
     _unreadStreams[cacheKey] = stream;
     return stream;
   }

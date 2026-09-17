@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/utopia_loader.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../main.dart';
 import '../services/attendance_service.dart';
-import '../services/secure_storage_service.dart';
 import '../widgets/utopia_snackbar.dart';
 
 /// A dedicated page that shows the student's overall / total attendance summary.
@@ -31,16 +31,30 @@ class TotalAttendanceScreen extends StatefulWidget {
 class _TotalAttendanceScreenState extends State<TotalAttendanceScreen> {
   late Map<String, dynamic> _data;
   bool _refreshing = false;
+  bool _isColoredMode = true;
 
   @override
   void initState() {
     super.initState();
     _data = widget.attendanceData;
+    _loadPreference();
     debugPrint(
       '[TotalAttendance] initState — overall=${_data['overallPercentage']}, '
       'totalClasses=${_data['totalClasses']}, '
       'totalAttended=${_data['totalAttended']}',
     );
+  }
+
+  Future<void> _loadPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getBool('attendance_colored_mode');
+      if (mounted) {
+        setState(() {
+          _isColoredMode = saved ?? true;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _refresh() async {
@@ -72,9 +86,13 @@ class _TotalAttendanceScreenState extends State<TotalAttendanceScreen> {
   }
 
   Color _percentageColor(double value) {
-    if (value >= 75) return const Color(0xFFA6E3A1);
-    if (value >= 65) return const Color(0xFFF9E2AF);
-    return const Color(0xFFF38BA8);
+    if (_isColoredMode) {
+      if (value < 65) return const Color(0xFFEF4444); // Red (<65%)
+      if (value <= 75) return const Color(0xFFF59E0B); // Yellow (65-75%)
+      return const Color(0xFF10B981); // Green (>75%)
+    }
+    // Coloured Mode OFF: Return default theme primary accent
+    return U.primary;
   }
 
   String _statusLabel(double value) {

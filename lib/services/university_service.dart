@@ -135,7 +135,7 @@ class UniversityService {
     String universityId, {
     String? universityName,
   }) async {
-    final cleanId = universityId.trim();
+    final cleanId = universityId.trim().toLowerCase();
     final cleanName = universityName?.trim() ?? '';
 
     await _firestore.collection('users').doc(uid).set({

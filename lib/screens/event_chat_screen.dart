@@ -680,17 +680,17 @@ class _EventChatScreenState extends State<EventChatScreen> {
                     ),
                     child: Center(
                       child: _isSending
-                          ? const SizedBox(
+                          ? SizedBox(
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(
-                                color: Colors.white,
+                                color: U.getContrastColor(U.primary),
                                 strokeWidth: 2,
                               ),
                             )
-                          : const Icon(
+                          : Icon(
                               Icons.send_rounded,
-                              color: Colors.white,
+                              color: U.getContrastColor(U.primary),
                               size: 19,
                             ),
                     ),
@@ -783,7 +783,7 @@ class _EventChatScreenState extends State<EventChatScreen> {
           Text(
             rawText,
             style: GoogleFonts.outfit(
-              color: isMe ? Colors.white : U.text,
+              color: isMe ? U.getContrastColor(U.primary) : U.text,
               fontSize: 15,
               height: 1.35,
               letterSpacing: -0.1,
@@ -793,7 +793,7 @@ class _EventChatScreenState extends State<EventChatScreen> {
           Text(
             _formatTime(msg.createdAt),
             style: GoogleFonts.outfit(
-              color: isMe ? Colors.white.withValues(alpha: 0.72) : U.dim,
+              color: isMe ? U.getContrastColor(U.primary).withValues(alpha: 0.72) : U.dim,
               fontSize: 10.5,
               fontWeight: FontWeight.w500,
             ),

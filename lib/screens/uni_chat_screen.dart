@@ -112,12 +112,20 @@ class _UniChatScreenState extends State<UniChatScreen> {
   late String _effectiveUniversityId;
   late Stream<QuerySnapshot> _messagesStream;
 
+  static String _normalizeUniId(String id) {
+    final trimmed = id.trim().toLowerCase();
+    if (trimmed.isEmpty || trimmed == 'support') return 'support';
+    return trimmed;
+  }
+
   @override
   void initState() {
     super.initState();
-    _effectiveUniversityId = widget.universityId.isNotEmpty && widget.universityId != 'support'
-        ? widget.universityId
-        : (U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : widget.universityId);
+    _effectiveUniversityId = _normalizeUniId(
+      widget.universityId.isNotEmpty && widget.universityId != 'support'
+          ? widget.universityId
+          : (U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : widget.universityId),
+    );
 
     NotificationService.setActiveChat('uni_$_effectiveUniversityId');
     _loadNotifPreference();
@@ -179,7 +187,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
   }
 
   void _initMessagesStream() {
-    final uniId = _effectiveUniversityId.isNotEmpty ? _effectiveUniversityId : 'support';
+    final uniId = _normalizeUniId(_effectiveUniversityId);
     _messagesStream = FirebaseFirestore.instance
         .collection('uni_chats')
         .doc(uniId)
@@ -191,19 +199,21 @@ class _UniChatScreenState extends State<UniChatScreen> {
 
   Future<void> _resolveUniversityId() async {
     final uid = _currentUid;
-    if (uid.isNotEmpty && (_effectiveUniversityId.isEmpty || _effectiveUniversityId == 'support')) {
+    if (uid.isNotEmpty) {
       try {
         final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-        final selectedId = doc.data()?['selectedUniversityId'] as String?;
-        if (selectedId != null && selectedId.isNotEmpty && selectedId != _effectiveUniversityId) {
+        final data = doc.data() ?? {};
+        final selectedId = (data['selectedUniversityId'] as String? ?? data['universityId'] as String? ?? '').trim();
+        final normalizedSelected = _normalizeUniId(selectedId);
+        if (normalizedSelected.isNotEmpty && normalizedSelected != _effectiveUniversityId) {
           if (mounted) {
             setState(() {
-              _effectiveUniversityId = selectedId;
-              U.cachedUniversityId = selectedId;
-              NotificationService.setActiveChat('uni_$selectedId');
+              _effectiveUniversityId = normalizedSelected;
+              U.cachedUniversityId = normalizedSelected;
+              NotificationService.setActiveChat('uni_$normalizedSelected');
               _initMessagesStream();
             });
-            unawaited(CacheService().saveAppSetting('cached_university_id', selectedId));
+            unawaited(CacheService().saveAppSetting('cached_university_id', normalizedSelected));
           }
         }
       } catch (_) {}
@@ -1151,6 +1161,42 @@ class _UniChatScreenState extends State<UniChatScreen> {
                   StreamBuilder<QuerySnapshot>(
                     stream: _messagesStream,
                     builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.wifi_off_rounded, color: U.red, size: 48),
+                                const SizedBox(height: 14),
+                                Text(
+                                  'Couldn\'t load chat messages',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    color: U.text,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  '${snapshot.error}'.replaceFirst('Exception: ', ''),
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.plusJakartaSans(color: U.dim, fontSize: 13),
+                                ),
+                                const SizedBox(height: 18),
+                                FilledButton.tonal(
+                                  onPressed: () {
+                                    setState(() => _initMessagesStream());
+                                  },
+                                  child: const Text('Retry'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+
                       if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
                         return const Center(child: UtopiaLoader(scale: 0.7));
                       }
@@ -1604,17 +1650,17 @@ class _UniChatScreenState extends State<UniChatScreen> {
                       ),
                       child: Center(
                         child: _sending
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 18,
                                 height: 18,
                                 child: CircularProgressIndicator(
-                                  color: Colors.white,
+                                  color: U.getContrastColor(U.primary),
                                   strokeWidth: 2,
                                 ),
                               )
                             : Icon(
                                 _editingMessageId != null ? Icons.check_rounded : Icons.send_rounded,
-                                color: Colors.white,
+                                color: U.getContrastColor(U.primary),
                                 size: 20,
                               ),
                       ),
@@ -1696,13 +1742,10 @@ class _UniChatScreenState extends State<UniChatScreen> {
     final sentBubbleColorEnd = isDarkTheme
         ? Color.lerp(U.primaryContainer, Colors.black, 0.08)!
         : U.primary.withValues(alpha: 0.88);
-    final sentTextColor = isDarkTheme ? U.onPrimaryContainer : Colors.white;
+    final sentTextColor = isDarkTheme ? U.onPrimaryContainer : U.getContrastColor(sentBubbleColor);
     final sentSubColor = isDarkTheme
         ? U.onPrimaryContainer.withValues(alpha: 0.75)
-        : Colors.white.withValues(alpha: 0.75);
-    final sentDimColor = isDarkTheme
-        ? U.onPrimaryContainer.withValues(alpha: 0.55)
-        : Colors.white70;
+        : U.getContrastColor(sentBubbleColor).withValues(alpha: 0.75);
 
     Widget buildViewCountWidget({bool compact = false}) {
       return AnimatedSize(
@@ -1970,10 +2013,10 @@ class _UniChatScreenState extends State<UniChatScreen> {
     if (url == null) return null;
     final uri = Uri.tryParse(url);
     final host = uri?.host ?? 'Link';
-    final sentTextColor = isDarkTheme ? U.onPrimaryContainer : Colors.white;
+    final sentTextColor = isDarkTheme ? U.onPrimaryContainer : U.getContrastColor(U.primary);
     final sentDimColor = isDarkTheme
         ? U.onPrimaryContainer.withValues(alpha: 0.55)
-        : Colors.white70;
+        : U.getContrastColor(U.primary).withValues(alpha: 0.7);
 
     return Padding(
       padding: const EdgeInsets.only(top: 6),
@@ -2167,7 +2210,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
         borderRadius: BorderRadius.circular(14),
         border: Border(
           left: BorderSide(
-            color: isMe ? (isDarkTheme ? U.onPrimaryContainer : Colors.white) : U.primary,
+            color: isMe ? (isDarkTheme ? U.onPrimaryContainer : U.getContrastColor(U.primary)) : U.primary,
             width: 3,
           ),
         ),
@@ -2182,7 +2225,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
                 Text(
                   sender,
                   style: GoogleFonts.plusJakartaSans(
-                    color: isMe ? (isDarkTheme ? U.onPrimaryContainer : Colors.white.withValues(alpha: 0.95)) : U.primary,
+                    color: isMe ? (isDarkTheme ? U.onPrimaryContainer : U.getContrastColor(U.primary).withValues(alpha: 0.95)) : U.primary,
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                   ),
@@ -2191,7 +2234,7 @@ class _UniChatScreenState extends State<UniChatScreen> {
                 Text(
                   text,
                   style: GoogleFonts.plusJakartaSans(
-                    color: isMe ? (isDarkTheme ? U.onPrimaryContainer.withValues(alpha: 0.7) : Colors.white.withValues(alpha: 0.8)) : U.sub,
+                    color: isMe ? (isDarkTheme ? U.onPrimaryContainer.withValues(alpha: 0.7) : U.getContrastColor(U.primary).withValues(alpha: 0.8)) : U.sub,
                     fontSize: 12,
                   ),
                   maxLines: 2,

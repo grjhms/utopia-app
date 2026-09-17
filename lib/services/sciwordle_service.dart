@@ -247,10 +247,11 @@ class SciwordleService {
     required String answer,
     String? question,
     String? category,
+    String? dateKey,
   }) async {
     try {
       final uid = _uid;
-      final today = todayKey;
+      final today = dateKey ?? todayKey;
       final currentWeek = getCurrentWeekKeyIST();
 
       // Load existing score
@@ -276,7 +277,7 @@ class SciwordleService {
       }
 
       // Guard: don't save twice for the same game slot
-      if (existing.lastPlayedDate == today) return 0;
+      if (await hasPlayedToday(today)) return 0;
 
       // Word score: 1st try = 18 pts, 2nd = 15 ... 6th = 3, failed = 0 (3x scoring)
       final wordScore = attemptNumber != null ? (7 - attemptNumber) * 3 : 0;
@@ -409,17 +410,34 @@ class SciwordleService {
 
   // ─── Check if already played today ───────────────────────────────────────
 
-  /// Returns true if the current player has already played today's active slot.
+  /// Returns true if the current player has already played the specified slot.
   Future<bool> hasPlayedToday([String? specificKey]) async {
     final key = specificKey ?? todayKey;
+
+    // 1. Check local SharedPreferences cache
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final local = prefs.getString('sciwordle_history_$key');
+      if (local != null && local.isNotEmpty) {
+        return true;
+      }
+    } catch (_) {}
+
+    // 2. Check Firestore scores document
     try {
       final doc = await _db.collection(_scoresCol).doc(_uid).get();
       if (!doc.exists || doc.data() == null) return false;
-      final lastPlayed = doc.data()!['lastPlayedDate'] as String? ?? '';
-      return lastPlayed == key;
-    } catch (_) {
-      return false;
-    }
+      final data = doc.data()!;
+      final lastPlayed = data['lastPlayedDate'] as String? ?? '';
+      if (lastPlayed == key) return true;
+
+      final historyMap = data['completedHistory'] as Map<String, dynamic>?;
+      if (historyMap != null && historyMap.containsKey(key)) {
+        return true;
+      }
+    } catch (_) {}
+
+    return false;
   }
 
   // ─── Completed session history persistence ────────────────────────────────

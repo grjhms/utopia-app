@@ -258,7 +258,7 @@ class _FriendsScreenState extends State<FriendsScreen>
                                     style: GoogleFonts.robotoFlex(
                                       fontSize: 7,
                                       fontWeight: FontWeight.w700,
-                                      color: Colors.white,
+                                      color: U.getContrastColor(U.primary),
                                       letterSpacing: 0.5,
                                     ),
                                   ),
@@ -950,7 +950,7 @@ class _FriendRow extends StatelessWidget {
                     child: Text(
                       unreadCount > 99 ? '99+' : '$unreadCount',
                       style: GoogleFonts.outfit(
-                        color: Colors.white,
+                        color: U.getContrastColor(U.primary),
                         fontSize: 10.5,
                         fontWeight: FontWeight.w700,
                       ),

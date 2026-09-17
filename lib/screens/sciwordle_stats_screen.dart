@@ -351,18 +351,42 @@ class _SciwordleStatsScreenState extends State<SciwordleStatsScreen> {
             final isMax = count > 0 && count == maxCount;
             final fraction = (count / maxCount).clamp(0.08, 1.0);
 
+            final Color barColor;
+            final Color textColor;
+            final Alignment barAlignment;
+            final EdgeInsets barPadding;
+
+            if (isMax) {
+              barColor = const Color(0xFF10B981);
+              textColor = Colors.white;
+              barAlignment = Alignment.centerRight;
+              barPadding = const EdgeInsets.symmetric(horizontal: 10);
+            } else if (count > 0) {
+              barColor = isDark ? const Color(0xFF3F3F46) : const Color(0xFF6B7280);
+              textColor = Colors.white;
+              barAlignment = Alignment.centerRight;
+              barPadding = const EdgeInsets.symmetric(horizontal: 10);
+            } else {
+              barColor = isDark
+                  ? U.surfaceContainerLowest
+                  : U.surfaceContainerHighest.withValues(alpha: 0.5);
+              textColor = U.sub;
+              barAlignment = Alignment.center;
+              barPadding = EdgeInsets.zero;
+            }
+
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Row(
                 children: [
                   SizedBox(
-                    width: 18,
+                    width: 20,
                     child: Text(
                       attempt,
                       style: GoogleFonts.robotoFlex(
-                        fontSize: 13,
+                        fontSize: 13.5,
                         fontWeight: FontWeight.w700,
-                        color: U.sub,
+                        color: U.text,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -371,7 +395,9 @@ class _SciwordleStatsScreenState extends State<SciwordleStatsScreen> {
                   Expanded(
                     child: LayoutBuilder(
                       builder: (context, constraints) {
-                        final barWidth = count == 0 ? 32.0 : constraints.maxWidth * fraction;
+                        final barWidth = count == 0
+                            ? 34.0
+                            : max(34.0, constraints.maxWidth * fraction);
 
                         return Align(
                           alignment: Alignment.centerLeft,
@@ -380,30 +406,34 @@ class _SciwordleStatsScreenState extends State<SciwordleStatsScreen> {
                             curve: Curves.easeOutCubic,
                             width: barWidth,
                             height: 28,
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            padding: barPadding,
                             decoration: BoxDecoration(
+                              color: barColor,
                               gradient: isMax
-                                  ? LinearGradient(
+                                  ? const LinearGradient(
                                       colors: [
-                                        U.primary,
-                                        U.primary.withValues(alpha: 0.85),
+                                        Color(0xFF10B981),
+                                        Color(0xFF059669),
                                       ],
                                     )
-                                  : LinearGradient(
-                                      colors: [
-                                        U.surfaceContainerHighest,
-                                        U.surfaceContainerHighest.withValues(alpha: 0.7),
-                                      ],
-                                    ),
+                                  : null,
                               borderRadius: BorderRadius.circular(8),
+                              border: count == 0
+                                  ? Border.all(
+                                      color: U.outlineVariant.withValues(
+                                        alpha: isDark ? 0.2 : 0.35,
+                                      ),
+                                      width: 0.8,
+                                    )
+                                  : null,
                             ),
-                            alignment: Alignment.centerRight,
+                            alignment: barAlignment,
                             child: Text(
                               '$count',
                               style: GoogleFonts.robotoFlex(
-                                fontSize: 12,
+                                fontSize: 12.5,
                                 fontWeight: FontWeight.w800,
-                                color: isMax ? Colors.white : U.text,
+                                color: textColor,
                               ),
                             ),
                           ),

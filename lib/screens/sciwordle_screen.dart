@@ -370,6 +370,7 @@ class _SciwordleScreenState extends State<SciwordleScreen>
           answer: _question!.answer,
           question: _question?.question,
           category: _question?.category,
+          dateKey: _selectedDateKey ?? _service.todayKey,
         );
         refreshedScore = await _service.fetchPlayerScore();
         await _service.clearGuessProgress();

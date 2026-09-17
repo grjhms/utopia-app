@@ -1479,17 +1479,17 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                         child: Center(
                           child: _sending
-                              ? const SizedBox(
+                              ? SizedBox(
                                   width: 18,
                                   height: 18,
                                   child: CircularProgressIndicator(
-                                    color: Colors.white,
+                                    color: U.getContrastColor(U.primary),
                                     strokeWidth: 2,
                                   ),
                                 )
                               : Icon(
                                   _editingMessageId != null ? Icons.check_rounded : Icons.send_rounded,
-                                  color: Colors.white,
+                                  color: U.getContrastColor(U.primary),
                                   size: 20,
                                 ),
                         ),
@@ -1573,10 +1573,10 @@ class _ChatScreenState extends State<ChatScreen> {
     final sentBubbleColorEnd = isDarkTheme
         ? Color.lerp(U.primaryContainer, Colors.black, 0.08)!
         : U.primary.withValues(alpha: 0.88);
-    final sentTextColor = isDarkTheme ? U.onPrimaryContainer : Colors.white;
+    final sentTextColor = isDarkTheme ? U.onPrimaryContainer : U.getContrastColor(sentBubbleColor);
     final sentSubColor = isDarkTheme
         ? U.onPrimaryContainer.withValues(alpha: 0.75)
-        : Colors.white.withValues(alpha: 0.75);
+        : U.getContrastColor(sentBubbleColor).withValues(alpha: 0.75);
 
     // Delivery / read receipt icon
     Widget buildDeliveryStatus({bool forGradient = false}) {
@@ -1875,10 +1875,10 @@ class _ChatScreenState extends State<ChatScreen> {
     if (url == null) return null;
     final uri = Uri.tryParse(url);
     final host = uri?.host ?? 'Link';
-    final sentTextColor = isDarkTheme ? U.onPrimaryContainer : Colors.white;
+    final sentTextColor = isDarkTheme ? U.onPrimaryContainer : U.getContrastColor(U.primary);
     final sentDimColor = isDarkTheme
         ? U.onPrimaryContainer.withValues(alpha: 0.55)
-        : Colors.white70;
+        : U.getContrastColor(U.primary).withValues(alpha: 0.7);
 
     return Padding(
       padding: const EdgeInsets.only(top: 6),
@@ -2001,7 +2001,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final sender = (replyData['senderName'] ?? (isMe ? 'You' : widget.displayName)).toString();
     final text = (replyData['text'] ?? '').toString();
     final mediaUrl = replyData['mediaUrl'] as String?;
-    final sentTextColor = isDarkTheme ? U.onPrimaryContainer : Colors.white;
+    final sentTextColor = isDarkTheme ? U.onPrimaryContainer : U.getContrastColor(U.primary);
     final sentBubbleColor = isDarkTheme ? U.primaryContainer : U.primary;
 
     return Container(

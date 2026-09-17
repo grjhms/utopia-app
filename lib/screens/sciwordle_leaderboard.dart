@@ -56,7 +56,7 @@ class _SciwordleLeaderboardScreenState
   }
 
   String? _getTitleForEntry(SciwordleLeaderboardEntry entry, int rank) {
-    if (_entries.isEmpty) return null;
+    if (_entries.isEmpty || entry.totalScore <= 0) return null;
 
     final isMaxStreak = entry.streak > 0 &&
         _entries.every((e) => entry.streak >= e.streak);
@@ -66,24 +66,68 @@ class _SciwordleLeaderboardScreenState
     if (isMaxStreak) return 'FIRE';
     if (rank == 2) return 'TOP 2';
     if (rank == 3) return 'TOP 3';
+    if (rank <= 10) return 'TOP 10';
     return null;
   }
 
-  Color _getTitleColor(String title) {
+  Color _getTitleColor(String title, bool isDark) {
     switch (title) {
       case 'ALPHA':
-        return const Color(0xFFEF4444);
+        return isDark ? const Color(0xFFEF4444) : const Color(0xFFDC2626);
       case 'PRIME':
-        return const Color(0xFFF59E0B);
+        return isDark ? const Color(0xFFF59E0B) : const Color(0xFFD97706);
       case 'FIRE':
-        return const Color(0xFFFB923C);
+        return isDark ? const Color(0xFFFB923C) : const Color(0xFFEA580C);
       case 'TOP 2':
-        return const Color(0xFF38BDF8);
+        return isDark ? const Color(0xFF38BDF8) : const Color(0xFF0284C7);
       case 'TOP 3':
-        return const Color(0xFFC084FC);
+        return isDark ? const Color(0xFFC084FC) : const Color(0xFF9333EA);
+      case 'TOP 10':
+        return isDark ? const Color(0xFF34D399) : const Color(0xFF059669);
       default:
         return U.primary;
     }
+  }
+
+  Color _getRankColor(int rank, bool isDark) {
+    switch (rank) {
+      case 1:
+        return isDark ? const Color(0xFFFFB800) : const Color(0xFFD97706);
+      case 2:
+        return isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569);
+      case 3:
+        return isDark ? const Color(0xFFE58A44) : const Color(0xFFC2410C);
+      default:
+        return U.sub;
+    }
+  }
+
+  Color _getStreakColor(bool isDark) {
+    return isDark ? const Color(0xFFFB923C) : const Color(0xFFEA580C);
+  }
+
+  Widget _buildTitleBadge(String title, bool isDark) {
+    final titleColor = _getTitleColor(title, isDark);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+      decoration: BoxDecoration(
+        color: titleColor.withValues(alpha: isDark ? 0.16 : 0.10),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: titleColor.withValues(alpha: isDark ? 0.4 : 0.35),
+          width: 0.6,
+        ),
+      ),
+      child: Text(
+        title,
+        style: GoogleFonts.robotoFlex(
+          fontSize: 9,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.5,
+          color: titleColor,
+        ),
+      ),
+    );
   }
 
   @override
@@ -248,8 +292,8 @@ class _SciwordleLeaderboardScreenState
               _buildPodiumStep(
                 entry: second,
                 rank: 2,
-                accentColor: const Color(0xFF94A3B8),
-                badgeColor: const Color(0xFF64748B),
+                accentColor: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
+                badgeColor: isDark ? const Color(0xFF64748B) : const Color(0xFF475569),
                 pillarHeight: 110,
                 isDark: isDark,
               ),
@@ -258,7 +302,7 @@ class _SciwordleLeaderboardScreenState
               _buildPodiumStep(
                 entry: first,
                 rank: 1,
-                accentColor: const Color(0xFFF59E0B),
+                accentColor: isDark ? const Color(0xFFFFB800) : const Color(0xFFD97706),
                 badgeColor: const Color(0xFFD97706),
                 pillarHeight: 145,
                 isDark: isDark,
@@ -268,8 +312,8 @@ class _SciwordleLeaderboardScreenState
               _buildPodiumStep(
                 entry: third,
                 rank: 3,
-                accentColor: const Color(0xFFD97706),
-                badgeColor: const Color(0xFFB45309),
+                accentColor: isDark ? const Color(0xFFE58A44) : const Color(0xFFC2410C),
+                badgeColor: isDark ? const Color(0xFFA1511A) : const Color(0xFF9A3412),
                 pillarHeight: 90,
                 isDark: isDark,
               ),
@@ -305,7 +349,7 @@ class _SciwordleLeaderboardScreenState
             height: rank == 1 ? 52 : 44,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: accentColor.withValues(alpha: 0.15),
+              color: accentColor.withValues(alpha: isDark ? 0.18 : 0.12),
               border: Border.all(color: accentColor, width: rank == 1 ? 2.0 : 1.5),
             ),
             child: Center(
@@ -314,7 +358,7 @@ class _SciwordleLeaderboardScreenState
                 style: GoogleFonts.outfit(
                   fontSize: rank == 1 ? 20 : 17,
                   fontWeight: FontWeight.w800,
-                  color: U.text,
+                  color: isDark ? Colors.white : accentColor,
                 ),
               ),
             ),
@@ -395,7 +439,7 @@ class _SciwordleLeaderboardScreenState
                         style: GoogleFonts.robotoFlex(
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
-                          color: const Color(0xFFFB923C),
+                          color: _getStreakColor(isDark),
                         ),
                       ),
                     ],
@@ -441,7 +485,7 @@ class _SciwordleLeaderboardScreenState
               style: GoogleFonts.outfit(
                 fontSize: 15,
                 fontWeight: FontWeight.w800,
-                color: rank <= 3 ? U.primary : U.sub,
+                color: _getRankColor(rank, isDark),
               ),
             ),
           ),
@@ -453,16 +497,19 @@ class _SciwordleLeaderboardScreenState
             height: 36,
             decoration: BoxDecoration(
               color: isMe
-                  ? U.primary.withValues(alpha: 0.25)
+                  ? U.primary.withValues(alpha: 0.16)
                   : U.surfaceContainerHighest,
               shape: BoxShape.circle,
+              border: isMe
+                  ? Border.all(color: U.primary.withValues(alpha: 0.5), width: 1.2)
+                  : null,
             ),
             child: Center(
               child: Text(
                 entry.name.isNotEmpty ? entry.name[0].toUpperCase() : 'S',
                 style: GoogleFonts.robotoFlex(
                   fontSize: 15,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                   color: isMe ? U.primary : U.text,
                 ),
               ),
@@ -500,7 +547,7 @@ class _SciwordleLeaderboardScreenState
                         child: Text(
                           'YOU',
                           style: GoogleFonts.robotoFlex(
-                            color: Colors.white,
+                            color: U.getContrastColor(U.primary),
                             fontSize: 9,
                             fontWeight: FontWeight.w900,
                           ),
@@ -511,26 +558,7 @@ class _SciwordleLeaderboardScreenState
                 ),
                 if (title != null) ...[
                   const SizedBox(height: 3),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                    decoration: BoxDecoration(
-                      color: _getTitleColor(title).withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: _getTitleColor(title).withValues(alpha: 0.4),
-                        width: 0.6,
-                      ),
-                    ),
-                    child: Text(
-                      title,
-                      style: GoogleFonts.robotoFlex(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.5,
-                        color: _getTitleColor(title),
-                      ),
-                    ),
-                  ),
+                  _buildTitleBadge(title, isDark),
                 ],
               ],
             ),
@@ -541,7 +569,7 @@ class _SciwordleLeaderboardScreenState
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFFFB923C).withValues(alpha: 0.12),
+                color: _getStreakColor(isDark).withValues(alpha: isDark ? 0.14 : 0.10),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Row(
@@ -552,7 +580,7 @@ class _SciwordleLeaderboardScreenState
                   Text(
                     '${entry.streak}',
                     style: GoogleFonts.robotoFlex(
-                      color: const Color(0xFFFB923C),
+                      color: _getStreakColor(isDark),
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                     ),
@@ -619,7 +647,7 @@ class _SciwordleLeaderboardScreenState
                     style: GoogleFonts.outfit(
                       fontSize: 15,
                       fontWeight: FontWeight.w900,
-                      color: Colors.white,
+                      color: U.getContrastColor(U.primary),
                     ),
                   ),
                 ),
@@ -642,24 +670,21 @@ class _SciwordleLeaderboardScreenState
                     const SizedBox(height: 2),
                     Row(
                       children: [
-                        Text(
-                          entry.name,
-                          style: GoogleFonts.robotoFlex(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            color: U.text,
+                        Flexible(
+                          child: Text(
+                            entry.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.robotoFlex(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: U.text,
+                            ),
                           ),
                         ),
                         if (title != null) ...[
                           const SizedBox(width: 8),
-                          Text(
-                            title,
-                            style: GoogleFonts.robotoFlex(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w900,
-                              color: _getTitleColor(title),
-                            ),
-                          ),
+                          _buildTitleBadge(title, isDark),
                         ],
                       ],
                     ),
@@ -676,7 +701,7 @@ class _SciwordleLeaderboardScreenState
                       style: GoogleFonts.robotoFlex(
                         fontSize: 13,
                         fontWeight: FontWeight.w800,
-                        color: const Color(0xFFFB923C),
+                        color: _getStreakColor(isDark),
                       ),
                     ),
                   ],

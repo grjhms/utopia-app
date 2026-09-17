@@ -22,16 +22,16 @@ class DynamicMotionAttendanceCard extends StatefulWidget {
     super.key,
     required this.isConnected,
     required this.attendancePct,
-    required this.studentName,
+    this.studentName = '',
     this.lastFetched,
-    required this.onTap,
+    this.onTap,
   });
 
   final bool isConnected;
   final double? attendancePct;
   final String studentName;
   final DateTime? lastFetched;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   State<DynamicMotionAttendanceCard> createState() => _DynamicMotionAttendanceCardState();
@@ -229,10 +229,7 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
   }
 
   Color _getThemeColor(double? pct) {
-    if (pct == null || pct <= 0) return U.primary;
-    if (pct >= 75) return U.green;
-    if (pct >= 65) return U.peach;
-    return U.red;
+    return U.primary;
   }
 
   String _formatLastFetchedDate(DateTime date) {
@@ -283,7 +280,7 @@ class _DynamicMotionAttendanceCardState extends State<DynamicMotionAttendanceCar
         // Subtle tactile fluid disturbance on tap (subtle 40% intensity)
         _tiltVelocity = (_tiltVelocity + 0.15).clamp(-2.0, 2.0);
         _sloshEnergy = (_sloshEnergy + 0.15).clamp(0.0, 1.0);
-        widget.onTap();
+        widget.onTap?.call();
       },
       scaleFactor: 0.98,
       borderRadius: M3Shapes.heroRadius,

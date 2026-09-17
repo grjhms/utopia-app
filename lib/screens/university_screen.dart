@@ -13,8 +13,8 @@ import 'attendance_screen.dart'; // ignore: unused_import
 import 'people_screen.dart'; // ignore: unused_import
 import 'friends_screen.dart'; // ignore: unused_import
 import 'uni_chat_screen.dart'; // ignore: unused_import
-import 'docs_screen.dart';
-import 'drive_notebooks_screen.dart';
+import 'docs_screen.dart'; // ignore: unused_import
+import 'drive_notebooks_screen.dart'; // ignore: unused_import
 import 'events_screen.dart';
 import 'event_notifications_screen.dart';
 import '../services/cache_service.dart';
@@ -25,7 +25,7 @@ import 'community_notes_screen.dart';
 import 'classes_screen.dart';
 import 'timetable_screen.dart';
 import 'assignments_screen.dart';
-import 'sciwordle_screen.dart';
+import 'sciwordle_screen.dart'; // ignore: unused_import
 import '../theme/m3_expressive_theme.dart';
 import '../widgets/app_motion.dart';
 
@@ -158,7 +158,7 @@ class _UniversityScreenState extends State<UniversityScreen> {
 
     final cards = [
       // ── Hidden Cards (kept for reference / future restore) ──
-      // Attendance, People, Friends, Uni Chat, IAA, Community Notes
+      // Attendance, People, Friends, Uni Chat, IAA, Docs, Drive Folders, SciWordle
       /*
       _CardItem(
         title: 'Attendance',
@@ -223,7 +223,6 @@ class _UniversityScreenState extends State<UniversityScreen> {
           }
         },
       ),
-      */
       _CardItem(
         title: 'Docs',
         subtitle: 'Access important\nresources',
@@ -247,7 +246,6 @@ class _UniversityScreenState extends State<UniversityScreen> {
           MaterialPageRoute(builder: (_) => const DriveNotebooksScreen()),
         ),
       ),
-      /*
       _CardItem(
         title: 'IAA',
         subtitle: 'Ask your academic\nAI assistant',
@@ -309,6 +307,7 @@ class _UniversityScreenState extends State<UniversityScreen> {
           MaterialPageRoute(builder: (_) => const TimetableScreen()),
         ),
       ),
+      /*
       _CardItem(
         title: 'SciWordle',
         subtitle: 'Daily science\nword puzzle',
@@ -321,6 +320,7 @@ class _UniversityScreenState extends State<UniversityScreen> {
           MaterialPageRoute(builder: (_) => const SciwordleScreen()),
         ),
       ),
+      */
     ];
 
     return Scaffold(

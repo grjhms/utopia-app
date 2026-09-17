@@ -18,6 +18,7 @@ import '../widgets/instagram_badge.dart';
 import '../widgets/superuser_badge.dart';
 import '../widgets/utopia_loader.dart';
 import '../widgets/utopia_snackbar.dart';
+import '../widgets/sciwordle_badge.dart';
 import '../widgets/thought_cloud_badge.dart';
 import '../widgets/utopia_wave_button.dart';
 import '../widgets/wave_count_badge.dart';
@@ -424,14 +425,14 @@ class _PeopleScreenState extends State<PeopleScreen> {
                                         child: Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                                           decoration: BoxDecoration(
-                                            color: Colors.white,
+                                            color: U.primary,
                                             borderRadius: M3Shapes.fullRadius,
                                             border: Border.all(color: U.surface, width: 1.5),
                                           ),
                                           child: Text(
                                             reqCount > 99 ? '99+' : '$reqCount',
                                             style: GoogleFonts.robotoFlex(
-                                              color: Colors.black,
+                                              color: U.getContrastColor(U.primary),
                                               fontSize: 9,
                                               fontWeight: FontWeight.w900,
                                             ),
@@ -1084,15 +1085,15 @@ class _RadarPingDot extends StatelessWidget {
             height: 12,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.35),
+              color: U.primary.withValues(alpha: 0.35),
             ),
           ).animate(onPlay: (c) => c.repeat()).scaleXY(begin: 0.6, end: 1.5, duration: 1100.ms, curve: Curves.easeOut).fadeOut(duration: 1100.ms),
           Container(
             width: 6.5,
             height: 6.5,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white,
+              color: U.primary,
             ),
           ),
         ],
@@ -1528,6 +1529,8 @@ class _PeerGridCardState extends State<_PeerGridCard> {
     final isSuperuser = widget.user['role'] == 'superuser';
     final isMe = uid == widget.currentUid;
     final hasActiveVibe = widget.vibe != null;
+    final sciwordleTitle = (widget.user['sciwordleTitle'] ?? '').toString().trim();
+    final showSciwordleBadge = widget.user['showSciwordleBadge'] != false;
 
     return M3Pressable(
       onTap: widget.onTap,
@@ -1655,10 +1658,14 @@ class _PeerGridCardState extends State<_PeerGridCard> {
                       color: U.surfaceContainerHigh,
                       borderRadius: BorderRadius.circular(22),
                       border: Border.all(
-                        color: widget.vibe != null
-                            ? U.primary
-                            : U.outlineVariant.withValues(alpha: 0.35),
-                        width: widget.vibe != null ? 2.2 : 1.0,
+                        color: (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                            ? SciwordleBadge.getTitleThemeColor(sciwordleTitle)
+                            : (widget.vibe != null
+                                ? U.primary
+                                : U.outlineVariant.withValues(alpha: 0.35)),
+                        width: (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                            ? 2.5
+                            : (widget.vibe != null ? 2.2 : 1.0),
                       ),
                     ),
                     padding: const EdgeInsets.all(3.5),
@@ -1696,6 +1703,18 @@ class _PeerGridCardState extends State<_PeerGridCard> {
                       ),
                     ),
                 ],
+                if (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                  Positioned(
+                    top: -13,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: SciwordleBadge(
+                        title: sciwordleTitle,
+                        compact: true,
+                      ),
+                    ),
+                  ),
               ],
             ),
 
@@ -1948,6 +1967,8 @@ class _PeerListTileState extends State<_PeerListTile> {
     final isSuperuser = widget.user['role'] == 'superuser';
     final isMe = uid == widget.currentUid;
     final hasActiveVibe = widget.vibe != null;
+    final sciwordleTitle = (widget.user['sciwordleTitle'] ?? '').toString().trim();
+    final showSciwordleBadge = widget.user['showSciwordleBadge'] != false;
 
     return M3Pressable(
       onTap: widget.onTap,
@@ -2106,6 +2127,18 @@ class _PeerListTileState extends State<_PeerListTile> {
                       ),
                     ),
                 ],
+                if (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                  Positioned(
+                    top: -8,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: SciwordleBadge(
+                        title: sciwordleTitle,
+                        compact: true,
+                      ),
+                    ),
+                  ),
               ],
             ),
             const SizedBox(width: 14),
@@ -3338,6 +3371,8 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
     final isSuperuser = widget.user['role'] == 'superuser';
     final wavesCount = (widget.user['wavesReceivedCount'] as num?)?.toInt() ?? 0;
     final isMe = uid == widget.currentUid;
+    final sciwordleTitle = (widget.user['sciwordleTitle'] ?? '').toString().trim();
+    final showSciwordleBadge = widget.user['showSciwordleBadge'] != false;
 
     return SafeArea(
       top: false,
@@ -3588,6 +3623,18 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                               child: ThoughtCloudBadge(
                                 vibe: widget.vibe,
                                 avatarRadius: 34,
+                              ),
+                            ),
+                          if (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                            Positioned(
+                              top: -8,
+                              left: 0,
+                              right: 0,
+                              child: Center(
+                                child: SciwordleBadge(
+                                  title: sciwordleTitle,
+                                  compact: true,
+                                ),
                               ),
                             ),
                         ],

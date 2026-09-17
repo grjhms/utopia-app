@@ -75,6 +75,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   double _attendanceTarget = 0.75;
   int get _targetPercentage => (_attendanceTarget * 100).round();
 
+  // ── Coloured Attendance mode (<65% Red, 65-75% Yellow, >75% Normal) ──
+  bool _isColoredMode = true;
+
   Future<void> _loadTargetPreference() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -85,6 +88,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             _attendanceTarget = saved;
           });
         }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadColoredPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedColored = prefs.getBool('attendance_colored_mode');
+      if (mounted) {
+        setState(() {
+          _isColoredMode = savedColored ?? true;
+        });
       }
     } catch (_) {}
   }
@@ -102,6 +117,23 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         context,
         message: 'Attendance target set to $_targetPercentage%',
         tone: UtopiaSnackBarTone.success,
+      );
+    }
+  }
+
+  Future<void> _toggleColoredMode(bool value) async {
+    setState(() {
+      _isColoredMode = value;
+    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('attendance_colored_mode', value);
+    } catch (_) {}
+    if (mounted) {
+      showUtopiaSnackBar(
+        context,
+        message: _isColoredMode ? 'Coloured attendance enabled' : 'Coloured attendance disabled',
+        tone: UtopiaSnackBarTone.info,
       );
     }
   }
@@ -136,6 +168,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       duration: const Duration(milliseconds: 900),
     );
     unawaited(_loadTargetPreference());
+    unawaited(_loadColoredPreference());
     unawaited(_loadSavedCredentials());
   }
 
@@ -965,6 +998,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           case 'change_target':
             _showTargetSelectionDialog();
             break;
+          case 'toggle_coloured':
+            _toggleColoredMode(!_isColoredMode);
+            break;
           case 'account_info':
             _showAccountInfoDialog();
             break;
@@ -1010,6 +1046,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             icon: Icons.track_changes_rounded,
             title: 'Attendance Target',
             subtitle: 'Currently $_targetPercentage% (65% or 75%)',
+          ),
+          _buildPopupItem(
+            value: 'toggle_coloured',
+            icon: Icons.palette_rounded,
+            title: 'Coloured Mode',
+            subtitle: _isColoredMode
+                ? 'ON (<65% Red, 65-75% Yellow, >75% Normal)'
+                : 'OFF (Standard Theme)',
           ),
           if (hasSavedCreds)
             _buildPopupItem(
@@ -1180,6 +1224,68 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                       _setTarget(0.65);
                       Navigator.pop(ctx);
                     },
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? U.surfaceContainerLowest.withValues(alpha: 0.5)
+                          : U.surfaceContainerLowest,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: U.outlineVariant.withValues(alpha: 0.25),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: U.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(Icons.palette_rounded, color: U.primary, size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Coloured Attendance',
+                                style: GoogleFonts.outfit(
+                                  color: U.text,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 1),
+                              Text(
+                                '<65% Red | 65-75% Yellow | >75% Normal',
+                                style: GoogleFonts.outfit(
+                                  color: U.sub,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch.adaptive(
+                          value: _isColoredMode,
+                          onChanged: (val) {
+                            setModalState(() {
+                              _isColoredMode = val;
+                            });
+                            _toggleColoredMode(val);
+                          },
+                          activeColor: U.primary,
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -2172,13 +2278,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (value <= 0) {
       return U.primary;
     }
-    if (value >= _targetPercentage) {
-      return U.green;
+    if (_isColoredMode) {
+      if (value < 65) {
+        return const Color(0xFFEF4444); // Red (<65%)
+      }
+      if (value <= 75) {
+        return const Color(0xFFF59E0B); // Yellow (65-75%)
+      }
+      return const Color(0xFF10B981); // Green (>75%)
     }
-    if (value >= (_targetPercentage - 10)) {
-      return U.peach;
-    }
-    return U.red;
+    // Coloured Mode OFF: Return default theme primary accent
+    return U.primary;
   }
 
   IconData _subjectIcon(String subject) {
@@ -5641,6 +5751,7 @@ class _AttendanceDateSheet extends StatefulWidget {
 
 class _AttendanceDateSheetState extends State<_AttendanceDateSheet> {
   late Future<Map<String, dynamic>> _future;
+  bool _isColoredMode = true;
 
   String _formatPortalDate(DateTime dt) {
     final day = dt.day.toString().padLeft(2, '0');
@@ -5652,7 +5763,20 @@ class _AttendanceDateSheetState extends State<_AttendanceDateSheet> {
   void initState() {
     super.initState();
     debugPrint('[DEBUG][Sheet] initState called for: ${widget.title}');
+    _loadPreference();
     _loadData();
+  }
+
+  Future<void> _loadPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getBool('attendance_colored_mode');
+      if (mounted) {
+        setState(() {
+          _isColoredMode = saved ?? true;
+        });
+      }
+    } catch (_) {}
   }
 
   void _loadData() {
@@ -5696,13 +5820,17 @@ class _AttendanceDateSheetState extends State<_AttendanceDateSheet> {
   }
 
   Color _percentageColor(double value) {
-    if (value >= 75) {
-      return U.green;
+    if (_isColoredMode) {
+      if (value < 65) {
+        return const Color(0xFFEF4444); // Red (<65%)
+      }
+      if (value <= 75) {
+        return const Color(0xFFF59E0B); // Yellow (65-75%)
+      }
+      return const Color(0xFF10B981); // Green (>75%)
     }
-    if (value >= 65) {
-      return U.peach;
-    }
-    return U.red;
+    // Coloured Mode OFF: Return default theme primary accent
+    return U.primary;
   }
 
   IconData _subjectIcon(String subject) {
