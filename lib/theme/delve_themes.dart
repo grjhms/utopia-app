@@ -1,126 +1,112 @@
 import 'package:flutter/material.dart';
 import 'delve_theme.dart';
 
-/// 4 flower themes × 2 modes (dark + light) = 8 total themes.
-///
-/// PURPLE  → Wisteria     — cascading droops, deep violet energy
-/// WHITE   → Bauhinia     — orchid-tree petals, dandelion wisps
-/// PINK    → Sakura       — cherry blossom branches, floating petals
-/// YELLOW  → Maple        — pointed autumn leaves, golden shower cascades
+/// Clean minimalist monochrome dark themes for Delve.
 class DelveThemes {
-  // ────────────────────────────────────────────────────
-  //  DARK THEMES  (lifted backgrounds + brighter inks for visibility)
-  // ────────────────────────────────────────────────────
-
-  /// Wisteria Dark — Deepest midnight violet, vibrant lavender.
+  /// OLED Pitch Black
   static const wisteriaDark = DelveTheme(
-    name: 'Wisteria',
-    background: Color(0xFF07040F), // Dimmed from 0F0A1F
-    text: Color(0xFFF3E8FF),
-    botanicalInk: Color(0xFF7C3AED), 
-    accent: Color(0xFFD8B4FE), 
-    accentSecondary: Color(0xFF8B5CF6),
+    name: 'OLED Black',
+    background: Color(0xFF000000),
+    text: Color(0xFFFFFFFF),
+    botanicalInk: Color(0xFF71717A), 
+    accent: Color(0xFFFFFFFF), 
+    accentSecondary: Color(0xFFD4D4D8),
     isDark: true,
-    feel: 'Midnight magic, deep and mystical.',
+    feel: 'Pure black content-first focus.',
     flowerType: FlowerType.wisteria,
   );
 
-  /// Bauhinia Dark — Rich obsidian with emerald energy.
+  /// Obsidian Minimal
   static const bauhiniaDark = DelveTheme(
-    name: 'Bauhinia',
-    background: Color(0xFF040807), // Dimmed from 0A1210
-    text: Color(0xFFE6FFFA),
-    botanicalInk: Color(0xFF059669), 
-    accent: Color(0xFF34D399), 
-    accentSecondary: Color(0xFF10B981),
+    name: 'Obsidian',
+    background: Color(0xFF09090B),
+    text: Color(0xFFFAFAFA),
+    botanicalInk: Color(0xFF52525B), 
+    accent: Color(0xFFFAFAFA), 
+    accentSecondary: Color(0xFFE4E4E7),
     isDark: true,
-    feel: 'Deep forest sanctuary, crisp and alive.',
+    feel: 'Deep matte dark sanctuary.',
     flowerType: FlowerType.bauhinia,
   );
 
-  /// Sakura Dark — Darkest burgundy with rose-gold glow.
+  /// Charcoal Contrast
   static const sakuraDark = DelveTheme(
-    name: 'Sakura',
-    background: Color(0xFF0D060A), // Dimmed from 1A0D14
-    text: Color(0xFFFFF1F2),
-    botanicalInk: Color(0xFFE11D48), 
-    accent: Color(0xFFFB7185), 
-    accentSecondary: Color(0xFFF43F5E),
+    name: 'Charcoal',
+    background: Color(0xFF121214),
+    text: Color(0xFFF4F4F5),
+    botanicalInk: Color(0xFF71717A), 
+    accent: Color(0xFFFFFFFF), 
+    accentSecondary: Color(0xFFE4E4E7),
     isDark: true,
-    feel: 'Moonlit blossoms, warm and romantic.',
+    feel: 'Sleek high contrast grayscale.',
     flowerType: FlowerType.sakura,
   );
 
-  /// Maple Dark — Obsidian brown with molten gold.
+  /// Midnight Graphite
   static const mapleDark = DelveTheme(
-    name: 'Maple',
-    background: Color(0xFF080706), // Dimmed from 120F0D
-    text: Color(0xFFFFFBEB),
-    botanicalInk: Color(0xFFB45309), 
-    accent: Color(0xFFFBBF24), 
-    accentSecondary: Color(0xFFF59E0B),
+    name: 'Graphite',
+    background: Color(0xFF16181A),
+    text: Color(0xFFE6E8EB),
+    botanicalInk: Color(0xFF6B7280), 
+    accent: Color(0xFFFFFFFF), 
+    accentSecondary: Color(0xFFD1D5DB),
     isDark: true,
-    feel: 'Autumn fireplace, warm and intense.',
+    feel: 'Refined cool graphite.',
     flowerType: FlowerType.maple,
   );
 
-  // ────────────────────────────────────────────────────
-  //  LIGHT THEMES (Premium High Contrast - Dimmed)
-  // ────────────────────────────────────────────────────
-
-  /// Wisteria Light — Softest violet mist.
+  /// Grayscale Dark 1
   static const wisteriaLight = DelveTheme(
-    name: 'Wisteria',
-    background: Color(0xFFE5E5F2), // Dimmed from FAFAFF
-    text: Color(0xFF1E1B4B),
-    botanicalInk: Color(0xFF8B5CF6),
-    accent: Color(0xFF6D28D9), 
-    accentSecondary: Color(0xFF4C1D95),
-    isDark: false,
-    feel: 'Clean, literary, sophisticated.',
+    name: 'Monochrome 1',
+    background: Color(0xFF080808),
+    text: Color(0xFFFAFAFA),
+    botanicalInk: Color(0xFF71717A),
+    accent: Color(0xFFFFFFFF), 
+    accentSecondary: Color(0xFFE4E4E7),
+    isDark: true,
+    feel: 'Ultra minimalist dark tone.',
     flowerType: FlowerType.wisteria,
   );
 
-  /// Bauhinia Light — Pure mineral white with forest accents.
+  /// Grayscale Dark 2
   static const bauhiniaLight = DelveTheme(
-    name: 'Bauhinia',
-    background: Color(0xFFD6EAE0), // Dimmed from F0FDF4
-    text: Color(0xFF064E3B),
-    botanicalInk: Color(0xFF10B981),
-    accent: Color(0xFF047857), 
-    accentSecondary: Color(0xFF065F46),
-    isDark: false,
-    feel: 'Fresh, organic, refined.',
+    name: 'Monochrome 2',
+    background: Color(0xFF0D0D0E),
+    text: Color(0xFFF4F4F5),
+    botanicalInk: Color(0xFF52525B),
+    accent: Color(0xFFFAFAFA), 
+    accentSecondary: Color(0xFFD4D4D8),
+    isDark: true,
+    feel: 'Crisp structural dark workspace.',
     flowerType: FlowerType.bauhinia,
   );
 
-  /// Sakura Light — Pearl rose.
+  /// Grayscale Dark 3
   static const sakuraLight = DelveTheme(
-    name: 'Sakura',
-    background: Color(0xFFE8D6D9), // Dimmed from FFF1F2
-    text: Color(0xFF881337),
-    botanicalInk: Color(0xFFF43F5E),
-    accent: Color(0xFFBE123C), 
-    accentSecondary: Color(0xFF9F1239),
-    isDark: false,
-    feel: 'Artistic, vibrant, spring morning.',
+    name: 'Monochrome 3',
+    background: Color(0xFF141416),
+    text: Color(0xFFFFFFFF),
+    botanicalInk: Color(0xFF71717A),
+    accent: Color(0xFFFFFFFF), 
+    accentSecondary: Color(0xFFE4E4E7),
+    isDark: true,
+    feel: 'Clean typography focus.',
     flowerType: FlowerType.sakura,
   );
 
-  /// Maple Light — Warm parchment with deep amber.
+  /// Grayscale Dark 4
   static const mapleLight = DelveTheme(
-    name: 'Maple',
-    background: Color(0xFFE8E2D1), // Dimmed from FFFBEB
-    text: Color(0xFF451A03),
-    botanicalInk: Color(0xFFD97706),
-    accent: Color(0xFFB45309), 
-    accentSecondary: Color(0xFF92400E),
-    isDark: false,
-    feel: 'Grounded, classic, warm paper.',
+    name: 'Monochrome 4',
+    background: Color(0xFF18181B),
+    text: Color(0xFFFAFAFA),
+    botanicalInk: Color(0xFFA1A1AA),
+    accent: Color(0xFFFFFFFF), 
+    accentSecondary: Color(0xFFD4D4D8),
+    isDark: true,
+    feel: 'Subtle slate elegance.',
     flowerType: FlowerType.maple,
   );
 
-  /// Ordered: dark first, then light. Within each mode: purple, white, pink, yellow.
   static const List<DelveTheme> all = [
     wisteriaDark,
     bauhiniaDark,
@@ -132,19 +118,14 @@ class DelveThemes {
     mapleLight,
   ];
 
-  static List<DelveTheme> get darkThemes => all.where((t) => t.isDark).toList();
-  static List<DelveTheme> get lightThemes => all.where((t) => !t.isDark).toList();
+  static List<DelveTheme> get darkThemes => all;
+  static List<DelveTheme> get lightThemes => [];
 
   static DelveTheme getByName(String name) {
     return all.firstWhere((t) => t.name == name, orElse: () => wisteriaDark);
   }
 
-  /// Get a theme by name + mode. Since names repeat across light/dark,
-  /// this finds the correct variant.
   static DelveTheme getByNameAndMode(String name, bool isDark) {
-    return all.firstWhere(
-      (t) => t.name == name && t.isDark == isDark,
-      orElse: () => wisteriaDark,
-    );
+    return getByName(name);
   }
 }

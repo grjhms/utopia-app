@@ -21,10 +21,7 @@ import '../models/event_model.dart';
 import '../services/event_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/app_motion.dart';
-import '../widgets/minimal_news_pill.dart';
-import '../theme/m3_expressive_theme.dart';
 import '../services/focus_supabase_service.dart';
-import '../services/cache_service.dart';
 import '../services/secure_storage_service.dart';
 import '../services/attendance_cache_service.dart';
 import '../services/uni_chat_service.dart';
@@ -47,9 +44,6 @@ class _FocusScreenState extends State<FocusScreen> {
   bool _isAttendanceConnected = false;
   DateTime? _lastAttendanceFetched;
 
-  String _weatherCity = '';
-  double? _weatherTemp;
-  int? _weatherCode;
   int _notificationCount = 0;
 
   String get _userName {
@@ -166,7 +160,6 @@ class _FocusScreenState extends State<FocusScreen> {
     final greetingText = _generateRandomGreeting(timeSlot);
     final userNameStr = _userName;
     _greetingText = userNameStr.isEmpty ? greetingText : '$greetingText, $userNameStr';
-    _loadCachedWeather();
     _loadData();
     _loadQuote();
     _loadNotificationCount();
@@ -260,157 +253,14 @@ class _FocusScreenState extends State<FocusScreen> {
     } catch (_) {}
   }
 
-  Future<void> _loadCachedWeather() async {
-    try {
-      final city = await CacheService().getAppSetting('weather_city');
-      final tempStr = await CacheService().getAppSetting('weather_temp');
-      final codeStr = await CacheService().getAppSetting('weather_code');
-      if (mounted) {
-        setState(() {
-          _weatherCity = city ?? (U.cachedUniversityName.isNotEmpty ? U.cachedUniversityName : 'Kakinada');
-          if (tempStr != null) _weatherTemp = double.tryParse(tempStr);
-          if (codeStr != null) _weatherCode = int.tryParse(codeStr);
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading cached weather: $e');
-    }
-  }
-
-  Future<void> _fetchWeather() async {
-    if (_weatherCity.isEmpty) return;
-    try {
-      final geoUrl = Uri.parse(
-        'https://geocoding-api.open-meteo.com/v1/search?name=${Uri.encodeComponent(_weatherCity)}&count=1&language=en&format=json',
-      );
-      final geoRes = await http.get(geoUrl);
-      if (geoRes.statusCode == 200) {
-        final geoData = jsonDecode(geoRes.body);
-        final results = geoData['results'] as List?;
-        if (results != null && results.isNotEmpty) {
-          final first = results.first;
-          final lat = first['latitude'];
-          final lon = first['longitude'];
-          final name = first['name'] as String? ?? _weatherCity;
-
-          final weatherUrl = Uri.parse(
-            'https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current_weather=true',
-          );
-          final weatherRes = await http.get(weatherUrl);
-          if (weatherRes.statusCode == 200) {
-            final weatherData = jsonDecode(weatherRes.body);
-            final current = weatherData['current_weather'];
-            if (current != null) {
-              final temp = (current['temperature'] as num?)?.toDouble();
-              final code = current['weathercode'] as int?;
-
-              if (mounted) {
-                setState(() {
-                  _weatherTemp = temp;
-                  _weatherCode = code;
-                  _weatherCity = name;
-                });
-              }
-
-              await CacheService().saveAppSetting('weather_city', name);
-              if (temp != null) {
-                await CacheService().saveAppSetting('weather_temp', temp.toString());
-              }
-              if (code != null) {
-                await CacheService().saveAppSetting('weather_code', code.toString());
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('Error fetching weather: $e');
-    }
-  }
-
-  IconData _getWeatherIcon(int? code) {
-    if (code == null) return Icons.thermostat_rounded;
-    if (code == 0) return Icons.wb_sunny_rounded;
-    if (code >= 1 && code <= 3) return Icons.wb_cloudy_rounded;
-    if (code == 45 || code == 48) return Icons.cloud_rounded;
-    if (code >= 51 && code <= 55) return Icons.grain_rounded;
-    if (code >= 61 && code <= 65) return Icons.umbrella_rounded;
-    if (code >= 71 && code <= 75) return Icons.ac_unit_rounded;
-    if (code >= 80 && code <= 82) return Icons.umbrella_rounded;
-    if (code >= 95 && code <= 99) return Icons.thunderstorm_rounded;
-    return Icons.thermostat_rounded;
-  }
-
-  void _showWeatherCityPicker() {
-    final controller = TextEditingController(text: _weatherCity);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: U.card,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: U.border, width: 0.5),
-        ),
-        title: Text(
-          'Set Weather Location',
-          style: GoogleFonts.outfit(
-            color: U.text,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        content: TextField(
-          controller: controller,
-          style: GoogleFonts.plusJakartaSans(color: U.text),
-          decoration: InputDecoration(
-            labelText: 'City Name',
-            labelStyle: GoogleFonts.plusJakartaSans(color: U.sub),
-            hintText: 'e.g. Kakinada, Surampalem',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(
-              'Cancel',
-              style: GoogleFonts.plusJakartaSans(color: U.sub),
-            ),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final newCity = controller.text.trim();
-              if (newCity.isNotEmpty) {
-                setState(() {
-                  _weatherCity = newCity;
-                });
-                Navigator.pop(ctx);
-                await CacheService().saveAppSetting('weather_city', newCity);
-                _fetchWeather();
-              }
-            },
-            style: FilledButton.styleFrom(
-              backgroundColor: U.primary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            child: Text(
-              'Save',
-              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _loadData() async {
     try {
       await _service.initialize();
       // Start download sync in background to update local SQLite
       _service.syncDownAllData().then((_) {
         _loadStats();
-        _fetchWeather();
       });
       _loadStats();
-      _fetchWeather();
     } catch (_) {}
   }
 
@@ -552,53 +402,7 @@ class _FocusScreenState extends State<FocusScreen> {
     } catch (_) {}
   }
 
-  Widget _buildQuickPill({
-    required String label,
-    required IconData icon,
-    required Color color,
-    ResponsiveScale? rs,
-    VoidCallback? onTap,
-  }) {
-    return M3Pressable(
-      onTap: onTap,
-      scaleFactor: 0.94,
-      borderRadius: M3Shapes.fullRadius,
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: rs?.s(16, min: 12, max: 20) ?? 16,
-          vertical: rs?.s(10, min: 8, max: 13) ?? 10,
-        ),
-        decoration: BoxDecoration(
-          color: U.surfaceContainerHigh,
-          borderRadius: M3Shapes.fullRadius,
-          border: Border.all(
-            color: U.outlineVariant.withValues(alpha: 0.35),
-            width: 0.8,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: rs?.s(15, min: 13, max: 18) ?? 15,
-              color: color,
-            ),
-            SizedBox(width: rs?.s(8, min: 6, max: 10) ?? 8),
-            Text(
-              label,
-              style: GoogleFonts.robotoFlex(
-                fontSize: rs?.font(12, min: 10.5, max: 14) ?? 12,
-                fontWeight: FontWeight.w700,
-                color: U.text,
-                letterSpacing: 0.1,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -806,48 +610,7 @@ class _FocusScreenState extends State<FocusScreen> {
 
                   SizedBox(height: rs.vs(18, min: 12, max: 24)),
 
-                  // ── Inline Metric Quick Bar ──
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: padH),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      physics: const BouncingScrollPhysics(),
-                      child: Row(
-                        children: [
-                          const MinimalNewsPill(),
-                          SizedBox(width: rs.s(8, min: 6, max: 12)),
-                          _buildQuickPill(
-                            label: _weatherTemp != null
-                                ? '${_weatherTemp!.toStringAsFixed(0)}°C $_weatherCity'
-                                : 'Set Location',
-                            icon: _getWeatherIcon(_weatherCode),
-                            color: U.lavender,
-                            rs: rs,
-                            onTap: _showWeatherCityPicker,
-                          ),
-                          SizedBox(width: rs.s(8, min: 6, max: 12)),
-                          _buildQuickPill(
-                            label: 'SciWordle',
-                            icon: Icons.psychology_rounded,
-                            color: const Color(0xFF10B981),
-                            rs: rs,
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const SciwordleScreen(),
-                                ),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ).animate()
-                      .fadeIn(delay: 150.ms, duration: 400.ms)
-                      .slideY(begin: 0.1, end: 0, delay: 150.ms, duration: 400.ms, curve: Curves.easeOutCubic),
 
-                  SizedBox(height: rs.vs(20, min: 14, max: 26)),
 
                   // ── Dynamic Motion Attendance Hero Card (Always in Motion) ──
                   Padding(
@@ -1155,129 +918,7 @@ class _FocusScreenState extends State<FocusScreen> {
                       .fadeIn(delay: 350.ms, duration: 500.ms)
                       .slideY(begin: 0.1, end: 0, delay: 350.ms, duration: 500.ms, curve: Curves.easeOutCubic),
 
-                  // ── Dynamic Online News Card ──
-                  StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    stream: FirebaseFirestore.instance
-                        .collection('config')
-                        .doc('app_config')
-                        .snapshots(),
-                    builder: (context, snapshot) {
-                      if (snapshot.hasError || !snapshot.hasData || snapshot.data == null || !snapshot.data!.exists) {
-                        return const SizedBox.shrink();
-                      }
 
-                      final data = snapshot.data!.data();
-                      if (data == null) return const SizedBox.shrink();
-
-                      final bool isEnabled = data['news_enabled'] as bool? ?? false;
-                      final String title = (data['news_title'] as String? ?? '').trim();
-                      final String description = (data['news_description'] as String? ?? '').trim();
-
-                      if (!isEnabled || title.isEmpty) {
-                        return const SizedBox.shrink();
-                      }
-
-                      return Padding(
-                        padding: EdgeInsets.only(top: rs.vs(20, min: 14, max: 26), left: padH, right: padH),
-                        child: Container(
-                          width: double.infinity,
-                          padding: EdgeInsets.all(rs.s(20, min: 16, max: 24)),
-                          decoration: BoxDecoration(
-                            color: U.surfaceContainerLow,
-                            borderRadius: BorderRadius.circular(rs.s(24, min: 18, max: 28)),
-                            border: Border.all(
-                              color: U.outlineVariant.withValues(alpha: isDarkTheme ? 0.3 : 0.45),
-                              width: 0.8,
-                            ),
-                          ),
-                          child: Stack(
-                            children: [
-                              // Accent edge
-                              Positioned(
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                height: 2,
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        U.primary.withValues(alpha: 0.0),
-                                        U.primary,
-                                        U.primary.withValues(alpha: 0.0),
-                                      ],
-                                      stops: const [0.0, 0.5, 1.0],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      // Tonal tag
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: U.primary.withValues(alpha: 0.12),
-                                          borderRadius: M3Shapes.smallRadius,
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.newspaper_rounded,
-                                              size: 12,
-                                              color: U.primary,
-                                            ),
-                                            const SizedBox(width: 5),
-                                            Text(
-                                              'NEWS',
-                                              style: GoogleFonts.robotoFlex(
-                                                fontSize: 9.5,
-                                                fontWeight: FontWeight.w800,
-                                                letterSpacing: 1.2,
-                                                color: U.primary,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  SizedBox(height: rs.vs(12, min: 8, max: 16)),
-                                  Text(
-                                    title,
-                                    style: GoogleFonts.newsreader(
-                                      fontSize: rs.font(18, min: 15, max: 22),
-                                      fontWeight: FontWeight.bold,
-                                      fontStyle: FontStyle.italic,
-                                      color: U.text,
-                                      letterSpacing: -0.4,
-                                    ),
-                                  ),
-                                  if (description.isNotEmpty) ...[
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      description,
-                                      style: GoogleFonts.robotoFlex(
-                                        fontSize: rs.font(13, min: 11, max: 15),
-                                        color: U.sub,
-                                        height: 1.4,
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ).animate()
-                          .fadeIn(delay: 500.ms, duration: 500.ms)
-                          .slideY(begin: 0.1, end: 0, delay: 500.ms, duration: 500.ms, curve: Curves.easeOutCubic);
-                    },
-                  ),
 
                   SizedBox(height: rs.vs(120, min: 90, max: 140)),
                 ],

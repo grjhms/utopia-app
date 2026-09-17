@@ -9,8 +9,7 @@ import '../services/sciwordle_service.dart';
 import '../theme/m3_expressive_theme.dart';
 import 'sciwordle_badge.dart';
 
-/// A card displaying a student's SciWordle weekly league score, streak, and rank title.
-/// Permanently visible in profile details (cannot be hidden).
+/// Minimalist, clean SciWordle performance card for user profiles.
 class SciwordleProfileCard extends StatefulWidget {
   const SciwordleProfileCard({
     super.key,
@@ -54,8 +53,6 @@ class _SciwordleProfileCardState extends State<SciwordleProfileCard> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = appThemeNotifier.value.isDark;
-
     final totalScore = _score?.totalScore ?? widget.initialScore ?? 0;
     final streak = _score?.streak ?? widget.initialStreak ?? 0;
     final bestStreak = _score?.bestStreak ?? widget.initialBestStreak ?? 0;
@@ -71,21 +68,14 @@ class _SciwordleProfileCardState extends State<SciwordleProfileCard> {
     return Container(
       constraints: const BoxConstraints(maxWidth: 440),
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: U.card,
-        borderRadius: M3Shapes.cardRadius,
+        borderRadius: M3Shapes.largeRadius,
         border: Border.all(
-          color: const Color(0xFF6366F1).withValues(alpha: isDark ? 0.35 : 0.25),
+          color: U.border.withValues(alpha: 0.6),
           width: 0.8,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF6366F1).withValues(alpha: isDark ? 0.08 : 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -96,26 +86,19 @@ class _SciwordleProfileCardState extends State<SciwordleProfileCard> {
             children: [
               Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF6366F1).withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      Icons.psychology_rounded,
-                      size: 16,
-                      color: Color(0xFF6366F1),
-                    ),
+                  const Icon(
+                    Icons.psychology_outlined,
+                    size: 16,
+                    color: Color(0xFFA1A1AA),
                   ),
                   const SizedBox(width: 8),
                   Text(
                     'SCIWORDLE LEAGUE',
-                    style: GoogleFonts.outfit(
-                      color: const Color(0xFF6366F1),
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.1,
+                    style: GoogleFonts.robotoFlex(
+                      color: const Color(0xFFA1A1AA),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.0,
                     ),
                   ),
                 ],
@@ -125,16 +108,16 @@ class _SciwordleProfileCardState extends State<SciwordleProfileCard> {
             ],
           ),
 
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
 
-          // 3-Column Metrics Grid
+          // 3-Column Metrics Row
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: U.surfaceContainerLowest.withValues(alpha: 0.65),
-              borderRadius: BorderRadius.circular(14),
+              color: U.bg,
+              borderRadius: M3Shapes.mediumRadius,
               border: Border.all(
-                color: U.outlineVariant.withValues(alpha: 0.25),
+                color: U.border.withValues(alpha: 0.4),
                 width: 0.8,
               ),
             ),
@@ -145,35 +128,32 @@ class _SciwordleProfileCardState extends State<SciwordleProfileCard> {
                   label: 'WEEKLY SCORE',
                   value: '$totalScore',
                   unit: 'pts',
-                  color: U.primary,
                 ),
                 Container(
-                  height: 32,
-                  width: 1,
-                  color: U.outlineVariant.withValues(alpha: 0.35),
+                  height: 28,
+                  width: 0.8,
+                  color: U.border.withValues(alpha: 0.4),
                 ),
                 _buildMetricColumn(
                   label: 'STREAK',
                   value: '$streak',
-                  unit: 'days 🔥',
-                  color: const Color(0xFFFB923C),
+                  unit: 'days',
                 ),
                 Container(
-                  height: 32,
-                  width: 1,
-                  color: U.outlineVariant.withValues(alpha: 0.35),
+                  height: 28,
+                  width: 0.8,
+                  color: U.border.withValues(alpha: 0.4),
                 ),
                 _buildMetricColumn(
                   label: 'BEST STREAK',
                   value: '$bestStreak',
-                  unit: 'days 🏆',
-                  color: const Color(0xFFF59E0B),
+                  unit: 'days',
                 ),
               ],
             ),
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
 
           // Footer note with tap to play
           InkWell(
@@ -185,16 +165,16 @@ class _SciwordleProfileCardState extends State<SciwordleProfileCard> {
             },
             borderRadius: BorderRadius.circular(8),
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
+              padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     gamesPlayed > 0
-                        ? '$gamesPlayed played • Resets Mon 00:00'
-                        : 'Resets weekly • Mon 00:00 IST',
+                        ? '$gamesPlayed played • Resets Mon'
+                        : 'Resets weekly • Mon 00:00',
                     style: GoogleFonts.robotoFlex(
-                      color: U.sub,
+                      color: const Color(0xFF71717A),
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
                     ),
@@ -205,16 +185,16 @@ class _SciwordleProfileCardState extends State<SciwordleProfileCard> {
                       Text(
                         'Play SciWordle',
                         style: GoogleFonts.robotoFlex(
-                          color: const Color(0xFF6366F1),
+                          color: const Color(0xFFFFFFFF),
                           fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(width: 4),
                       const Icon(
                         Icons.arrow_forward_ios_rounded,
                         size: 10,
-                        color: Color(0xFF6366F1),
+                        color: Color(0xFFFFFFFF),
                       ),
                     ],
                   ),
@@ -231,7 +211,6 @@ class _SciwordleProfileCardState extends State<SciwordleProfileCard> {
     required String label,
     required String value,
     required String unit,
-    required Color color,
   }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -239,13 +218,13 @@ class _SciwordleProfileCardState extends State<SciwordleProfileCard> {
         Text(
           label,
           style: GoogleFonts.robotoFlex(
-            color: U.sub,
+            color: const Color(0xFFA1A1AA),
             fontSize: 9.5,
             fontWeight: FontWeight.w700,
             letterSpacing: 0.5,
           ),
         ),
-        const SizedBox(height: 3),
+        const SizedBox(height: 2),
         Row(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -254,18 +233,18 @@ class _SciwordleProfileCardState extends State<SciwordleProfileCard> {
             Text(
               value,
               style: GoogleFonts.outfit(
-                color: color,
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
+                color: const Color(0xFFFFFFFF),
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
               ),
             ),
             const SizedBox(width: 3),
             Text(
               unit,
               style: GoogleFonts.robotoFlex(
-                color: U.text,
-                fontSize: 10.5,
-                fontWeight: FontWeight.w600,
+                color: const Color(0xFF71717A),
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ],

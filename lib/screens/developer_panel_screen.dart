@@ -26,11 +26,7 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
   int _totalAccounts = 0;
   int _dailyActiveUsers = 0;
 
-  // ── News Card controls ──
-  bool _newsEnabled = false;
-  bool _savingNews = false;
-  final _newsTitleController = TextEditingController();
-  final _newsDescController = TextEditingController();
+
 
   // ── App Update controls ──
   bool _updateEnabled = true;
@@ -58,15 +54,12 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadStats();
-      _loadNewsConfig();
       _loadUpdateConfig();
     });
   }
 
   @override
   void dispose() {
-    _newsTitleController.dispose();
-    _newsDescController.dispose();
     _latestVersionController.dispose();
     _minVersionController.dispose();
     _updateTitleController.dispose();
@@ -76,53 +69,7 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
     super.dispose();
   }
 
-  Future<void> _loadNewsConfig() async {
-    try {
-      final doc = await FirebaseFirestore.instance.collection('config').doc('app_config').get();
-      if (doc.exists) {
-        final data = doc.data() ?? {};
-        if (mounted) {
-          setState(() {
-            _newsEnabled = data['news_enabled'] as bool? ?? false;
-            _newsTitleController.text = data['news_title'] as String? ?? '';
-            _newsDescController.text = data['news_description'] as String? ?? '';
-          });
-        }
-      }
-    } catch (_) {}
-  }
 
-  Future<void> _saveNewsConfig() async {
-    setState(() => _savingNews = true);
-    try {
-      final currentDoc = await FirebaseFirestore.instance.collection('config').doc('app_config').get();
-      final data = currentDoc.exists ? (currentDoc.data() ?? {}) : <String, dynamic>{};
-      data['news_enabled'] = _newsEnabled;
-      data['news_title'] = _newsTitleController.text.trim();
-      data['news_description'] = _newsDescController.text.trim();
-      data['news_updated_at'] = FieldValue.serverTimestamp();
-
-      await WriterFirestoreService.updateConfig('app_config', data);
-
-      if (mounted) {
-        showUtopiaSnackBar(
-          context,
-          message: 'News Card updated successfully!',
-          tone: UtopiaSnackBarTone.success,
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        showUtopiaSnackBar(
-          context,
-          message: 'Failed to update News Card',
-          tone: UtopiaSnackBarTone.error,
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _savingNews = false);
-    }
-  }
 
   Future<void> _loadUpdateConfig() async {
     try {
@@ -611,7 +558,6 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
               _buildStatsSection(),
               _buildUpdateSection(),
               _buildLunaAiTestingSection(),
-              _buildNewsCardSection(),
               _sectionHeader('Announcements'),
               _actionTile(
                 icon: Icons.campaign_outlined,
@@ -663,109 +609,7 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
 
 
 
-  Widget _buildNewsCardSection() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionHeader('Main Screen News Card'),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: U.card,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.04),
-              width: 1,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                activeTrackColor: U.primary,
-                title: Text(
-                  'Show News Card',
-                  style: GoogleFonts.outfit(
-                    color: U.text,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                  ),
-                ),
-                subtitle: Text(
-                  'Displays news widget on main screen when enabled (online only)',
-                  style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
-                ),
-                value: _newsEnabled,
-                onChanged: (val) {
-                  setState(() => _newsEnabled = val);
-                  _saveNewsConfig();
-                },
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _newsTitleController,
-                style: GoogleFonts.plusJakartaSans(color: U.text, fontSize: 14),
-                decoration: InputDecoration(
-                  labelText: 'News Title',
-                  labelStyle: GoogleFonts.outfit(color: U.sub),
-                  hintText: 'e.g. Midterm Exam Schedule',
-                  hintStyle: GoogleFonts.outfit(color: U.dim),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: U.primary),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _newsDescController,
-                maxLines: 3,
-                style: GoogleFonts.plusJakartaSans(color: U.text, fontSize: 13),
-                decoration: InputDecoration(
-                  labelText: 'News Description',
-                  labelStyle: GoogleFonts.outfit(color: U.sub),
-                  hintText: 'Enter announcement details here...',
-                  hintStyle: GoogleFonts.outfit(color: U.dim),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: U.primary),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _savingNews ? null : _saveNewsConfig,
-                  icon: _savingNews
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.save_rounded, size: 18),
-                  label: Text(
-                    _savingNews ? 'Saving...' : 'Save News Content',
-                    style: GoogleFonts.outfit(fontWeight: FontWeight.w600),
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: U.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 
   Widget _buildUpdateSection() {
     final isDark = Theme.of(context).brightness == Brightness.dark;

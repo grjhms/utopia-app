@@ -1,7 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../main.dart';
 
 enum UtopiaSnackBarTone { success, error, info }
 
@@ -18,9 +17,9 @@ void showUtopiaSnackBar(
   final isDark = Theme.of(context).brightness == Brightness.dark;
 
   final toneColor = switch (tone) {
-    UtopiaSnackBarTone.success => const Color(0xFF08BB68),
-    UtopiaSnackBarTone.error => const Color(0xFFF38BA8),
-    UtopiaSnackBarTone.info => U.primary,
+    UtopiaSnackBarTone.success => const Color(0xFFFAFAFA),
+    UtopiaSnackBarTone.error => const Color(0xFFFAFAFA),
+    UtopiaSnackBarTone.info => const Color(0xFFFFFFFF),
   };
 
   final icon = switch (tone) {
@@ -30,17 +29,9 @@ void showUtopiaSnackBar(
   };
 
   // Base background and border with premium glassmorphism
-  final Color backgroundColor = isDark
-      ? toneColor.withValues(alpha: 0.08)
-      : toneColor.withValues(alpha: 0.06);
-      
-  final Color borderColor = isDark
-      ? toneColor.withValues(alpha: 0.25)
-      : toneColor.withValues(alpha: 0.18);
-
-  final Color textColor = isDark
-      ? Colors.white
-      : Colors.black87;
+  const Color backgroundColor = Color(0xFF18181B);
+  const Color borderColor = Color(0xFF27272A);
+  const Color textColor = Colors.white;
 
   messenger.showSnackBar(
     SnackBar(

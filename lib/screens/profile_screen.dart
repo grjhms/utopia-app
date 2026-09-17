@@ -684,19 +684,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ],
               ).animate().fadeIn(delay: 80.ms, duration: 350.ms),
-                const SizedBox(height: 20),
-
-                // ── SciWordle League Performance Card (Always shown) ──
-                if (user != null)
-                  SciwordleProfileCard(
-                    uid: user.uid,
-                    initialScore: sciwordleScore,
-                    initialStreak: sciwordleStreak,
-                    initialBestStreak: sciwordleBestStreak,
-                    initialTitle: sciwordleTitle,
-                  ),
-
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
 
                 // ── Grouped Settings Menu (Simple, Single Section) ──
                 Container(
@@ -1614,12 +1602,12 @@ class _ThemeStyleSheetState extends State<_ThemeStyleSheet> {
   Widget build(BuildContext context) {
     final activeTheme = appThemeNotifier.value;
     final isDark = activeTheme.isDark;
-    final filteredThemes = appThemes.where((t) => t.isDark == _isDarkSelected).toList();
+    final filteredThemes = appThemes;
 
     return DraggableScrollableSheet(
-      initialChildSize: 0.72,
-      minChildSize: 0.45,
-      maxChildSize: 0.88,
+      initialChildSize: 0.65,
+      minChildSize: 0.40,
+      maxChildSize: 0.85,
       expand: false,
       builder: (context, scrollController) {
         return Container(
@@ -1627,7 +1615,7 @@ class _ThemeStyleSheetState extends State<_ThemeStyleSheet> {
             color: U.surfaceContainerHigh,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             border: Border.all(
-              color: U.outlineVariant.withValues(alpha: isDark ? 0.35 : 0.5),
+              color: U.outlineVariant.withValues(alpha: 0.35),
               width: 0.8,
             ),
           ),
@@ -1660,7 +1648,7 @@ class _ThemeStyleSheetState extends State<_ThemeStyleSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Appearance',
+                            'Dark Monochrome UI',
                             style: GoogleFonts.robotoFlex(
                               color: U.text,
                               fontSize: 20,
@@ -1670,7 +1658,7 @@ class _ThemeStyleSheetState extends State<_ThemeStyleSheet> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Choose mode and accent style',
+                            'Clean, content-first black & gray palette',
                             style: GoogleFonts.robotoFlex(color: U.sub, fontSize: 12),
                           ),
                         ],
@@ -1690,43 +1678,49 @@ class _ThemeStyleSheetState extends State<_ThemeStyleSheet> {
                     controller: scrollController,
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
                     children: [
-                      // Mode Selector (Light / Dark)
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _ModeOptionCard(
-                              label: 'Light Mode',
-                              icon: Icons.light_mode_rounded,
-                              isSelected: !_isDarkSelected,
-                              onTap: () {
-                                if (_isDarkSelected) {
-                                  HapticFeedback.selectionClick();
-                                  setState(() => _isDarkSelected = false);
-                                }
-                              },
+                      // Dark Mode Enforcement Badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: U.surfaceContainerLow,
+                          borderRadius: M3Shapes.mediumRadius,
+                          border: Border.all(color: U.border.withValues(alpha: 0.5), width: 0.8),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.dark_mode_rounded, color: U.text, size: 20),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Dark Mode Only',
+                                    style: GoogleFonts.robotoFlex(
+                                      color: U.text,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Optimized for high contrast legibility',
+                                    style: GoogleFonts.robotoFlex(
+                                      color: U.sub,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _ModeOptionCard(
-                              label: 'Dark Mode',
-                              icon: Icons.dark_mode_rounded,
-                              isSelected: _isDarkSelected,
-                              onTap: () {
-                                if (!_isDarkSelected) {
-                                  HapticFeedback.selectionClick();
-                                  setState(() => _isDarkSelected = true);
-                                }
-                              },
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 22),
 
                       // Section Title
                       Text(
-                        'COLOR PALETTE',
+                        'MONOCHROME VARIANTS',
                         style: GoogleFonts.robotoFlex(
                           color: U.sub,
                           fontSize: 11,

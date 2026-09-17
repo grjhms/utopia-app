@@ -177,10 +177,10 @@ class M3Typography {
 class M3ThemeFactory {
   const M3ThemeFactory._();
 
-  /// Sage green primary seed color for Utopia
-  static const Color sageGreenSeed = Color(0xFF94A87C);
+  /// Minimalist Monochrome Dark primary seed color for Utopia
+  static const Color monochromeSeed = Color(0xFFFFFFFF);
 
-  /// Generates full M3 ColorScheme from a seed color with proper tonal surface tiers.
+  /// Generates full M3 ColorScheme from a seed color with proper dark monochrome surface tiers.
   static ColorScheme createColorScheme({
     required Color seedColor,
     required bool isDark,
@@ -192,74 +192,40 @@ class M3ThemeFactory {
     Color? customText,
     Color? customSub,
   }) {
-    // Generate baseline M3 color scheme from seed
+    // Force Dark Mode for full Utopia dark minimalist theme
     final base = ColorScheme.fromSeed(
       seedColor: seedColor,
-      brightness: isDark ? Brightness.dark : Brightness.light,
+      brightness: Brightness.dark,
     );
 
-    // Harmonize with M3 tonal roles
-    final effectivePrimary = customPrimary ?? base.primary;
-    final effectiveSecondary = customSecondary ?? base.secondary;
-    final effectiveSurface = surfaceBackground ?? base.surface;
-    final effectiveText = customText ?? (isDark ? const Color(0xFFE2E3D8) : const Color(0xFF191C16));
-    final effectiveSub = customSub ?? (isDark ? const Color(0xFFC4C8BA) : const Color(0xFF44483E));
+    // Dark Monochrome Harmonization
+    final effectivePrimary = customPrimary ?? const Color(0xFFFFFFFF);
+    final effectiveSecondary = customSecondary ?? const Color(0xFFD4D4D8);
+    final effectiveSurface = surfaceBackground ?? const Color(0xFF09090B);
+    final effectiveText = customText ?? const Color(0xFFFFFFFF);
+    final effectiveSub = customSub ?? const Color(0xFFA1A1AA);
 
-    final onPrimary = ThemeData.estimateBrightnessForColor(effectivePrimary) == Brightness.dark
-        ? Colors.white
-        : const Color(0xFF11140E);
+    const onPrimary = Color(0xFF000000);
+    const onSecondary = Color(0xFF000000);
 
-    final onSecondary = ThemeData.estimateBrightnessForColor(effectiveSecondary) == Brightness.dark
-        ? Colors.white
-        : const Color(0xFF11140E);
+    const primaryContainer = Color(0xFF27272A);
+    const onPrimaryContainer = Color(0xFFFFFFFF);
 
-    // Material 3 Expressive Tonal Hierarchy
-    final primaryContainer = isDark
-        ? Color.lerp(effectivePrimary, Colors.black, 0.65)!
-        : Color.lerp(effectivePrimary, Colors.white, 0.72)!;
+    const secondaryContainer = Color(0xFF18181B);
+    const onSecondaryContainer = Color(0xFFE4E4E7);
 
-    final onPrimaryContainer = ThemeData.estimateBrightnessForColor(primaryContainer) == Brightness.dark
-        ? (isDark ? Color.lerp(effectivePrimary, Colors.white, 0.85)! : Colors.white)
-        : (isDark ? Colors.black : Color.lerp(effectivePrimary, Colors.black, 0.75)!);
+    // Monochrome surface container elevation steps
+    const surfaceContainerLowest = Color(0xFF000000);
+    final surfaceContainerLow = customSurface ?? const Color(0xFF121214);
+    final surfaceContainer = customCard ?? const Color(0xFF18181B);
+    const surfaceContainerHigh = Color(0xFF27272A);
+    const surfaceContainerHighest = Color(0xFF3F3F46);
 
-    final secondaryContainer = isDark
-        ? Color.lerp(effectiveSecondary, Colors.black, 0.60)!
-        : Color.lerp(effectiveSecondary, Colors.white, 0.75)!;
-
-    final onSecondaryContainer = ThemeData.estimateBrightnessForColor(secondaryContainer) == Brightness.dark
-        ? (isDark ? Color.lerp(effectiveSecondary, Colors.white, 0.85)! : Colors.white)
-        : (isDark ? Colors.black : Color.lerp(effectiveSecondary, Colors.black, 0.75)!);
-
-    // Compute precise surface container tonal elevation steps
-    final surfaceContainerLowest = isDark
-        ? Color.lerp(effectiveSurface, Colors.black, 0.45)!
-        : Color.lerp(effectiveSurface, Colors.white, 0.70)!;
-
-    final surfaceContainerLow = customSurface ?? (isDark
-        ? Color.lerp(effectiveSurface, Colors.white, 0.04)!
-        : Color.lerp(effectiveSurface, effectivePrimary, 0.04)!);
-
-    final surfaceContainer = customCard ?? (isDark
-        ? Color.lerp(effectiveSurface, Colors.white, 0.08)!
-        : Color.lerp(effectiveSurface, effectivePrimary, 0.08)!);
-
-    final surfaceContainerHigh = isDark
-        ? Color.lerp(effectiveSurface, Colors.white, 0.13)!
-        : Color.lerp(effectiveSurface, effectivePrimary, 0.12)!;
-
-    final surfaceContainerHighest = isDark
-        ? Color.lerp(effectiveSurface, Colors.white, 0.19)!
-        : Color.lerp(effectiveSurface, effectivePrimary, 0.17)!;
-
-    final outlineVariant = isDark
-        ? Color.lerp(effectiveSurface, Colors.white, 0.14)!
-        : Color.lerp(effectiveSurface, effectivePrimary, 0.16)!;
-
-    final outline = isDark
-        ? Color.lerp(effectiveSurface, Colors.white, 0.28)!
-        : Color.lerp(effectiveSurface, Colors.black, 0.25)!;
+    const outlineVariant = Color(0xFF27272A);
+    const outline = Color(0xFF3F3F46);
 
     return base.copyWith(
+      brightness: Brightness.dark,
       primary: effectivePrimary,
       onPrimary: onPrimary,
       primaryContainer: primaryContainer,
@@ -272,7 +238,7 @@ class M3ThemeFactory {
       onSurface: effectiveText,
       onSurfaceVariant: effectiveSub,
       surfaceDim: surfaceContainerLowest,
-      surfaceBright: isDark ? surfaceContainerHigh : Colors.white,
+      surfaceBright: surfaceContainerHigh,
       surfaceContainerLowest: surfaceContainerLowest,
       surfaceContainerLow: surfaceContainerLow,
       surfaceContainer: surfaceContainer,
@@ -295,8 +261,6 @@ class M3ThemeFactory {
       subColor: sub,
     );
 
-    final isDark = colorScheme.brightness == Brightness.dark;
-
     return ThemeData(
       useMaterial3: true,
       brightness: colorScheme.brightness,
@@ -312,7 +276,7 @@ class M3ThemeFactory {
         shape: RoundedRectangleBorder(
           borderRadius: M3Shapes.largeRadius,
           side: BorderSide(
-            color: colorScheme.outlineVariant.withValues(alpha: isDark ? 0.3 : 0.6),
+            color: colorScheme.outlineVariant.withValues(alpha: 0.4),
             width: 0.8,
           ),
         ),
@@ -354,7 +318,7 @@ class M3ThemeFactory {
           elevation: 0,
           foregroundColor: colorScheme.onSurface,
           side: BorderSide(
-            color: colorScheme.outline.withValues(alpha: isDark ? 0.4 : 0.6),
+            color: colorScheme.outline.withValues(alpha: 0.5),
             width: 1.0,
           ),
           shape: RoundedRectangleBorder(borderRadius: M3Shapes.fullRadius),

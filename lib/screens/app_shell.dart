@@ -294,17 +294,15 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                                 height: 72,
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                 decoration: BoxDecoration(
-                                  color: isDark
-                                      ? U.surfaceContainerHighest.withValues(alpha: 0.85)
-                                      : U.surfaceContainerHighest.withValues(alpha: 0.92),
+                                  color: const Color(0xFF0D0D0E).withValues(alpha: 0.90),
                                   borderRadius: M3Shapes.fullRadius,
                                   border: Border.all(
-                                    color: U.outlineVariant.withValues(alpha: isDark ? 0.25 : 0.4),
+                                    color: const Color(0xFF27272A).withValues(alpha: 0.6),
                                     width: 0.8,
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
+                                      color: Colors.black.withValues(alpha: 0.40),
                                       blurRadius: 24,
                                       offset: const Offset(0, 8),
                                       spreadRadius: -2,
@@ -320,7 +318,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                                         activeIcon: Icons.home_rounded,
                                         label: 'Home',
                                         isActive: _index == 0,
-                                        isDark: isDark,
+                                        isDark: true,
                                         onTap: () => _setIndex(0),
                                       ),
                                     ),
@@ -330,7 +328,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                                         activeIcon: Icons.groups_rounded,
                                         label: 'People',
                                         isActive: _index == 1,
-                                        isDark: isDark,
+                                        isDark: true,
                                         onTap: () => _setIndex(1),
                                       ),
                                     ),
@@ -340,7 +338,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                                         activeIcon: Icons.school_rounded,
                                         label: 'Campus',
                                         isActive: _index == 2,
-                                        isDark: isDark,
+                                        isDark: true,
                                         onTap: () => _setIndex(2),
                                       ),
                                     ),
@@ -350,7 +348,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                                         activeIcon: Icons.person_rounded,
                                         label: 'Profile',
                                         isActive: _index == 3,
-                                        isDark: isDark,
+                                        isDark: true,
                                         onTap: () => _setIndex(3),
                                       ),
                                     ),
@@ -373,27 +371,14 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
   }
 
   Widget _buildMeshGradient(AppTheme theme) {
-    final isDark = theme.isDark;
     return AnimatedBuilder(
       animation: _gradientController,
       builder: (context, _) {
         final value = _gradientController.value;
         final dx1 = cos(value * 2 * pi);
         final dy1 = sin(value * 2 * pi);
-        final dx2 = sin(value * 2 * pi);
-        final dy2 = cos(value * 2 * pi);
 
-        final alpha1 = isDark
-            ? (0.16 + 0.05 * sin(value * 2 * pi)).clamp(0.0, 1.0)
-            : (0.15 + 0.03 * sin(value * 2 * pi)).clamp(0.0, 1.0);
-
-        final alpha2 = isDark
-            ? (0.14 + 0.04 * cos(value * 2 * pi)).clamp(0.0, 1.0)
-            : (0.12 + 0.02 * cos(value * 2 * pi)).clamp(0.0, 1.0);
-
-        final alpha3 = isDark
-            ? (0.08 + 0.03 * sin(value * 2 * pi + pi)).clamp(0.0, 1.0)
-            : (0.09 + 0.02 * sin(value * 2 * pi + pi)).clamp(0.0, 1.0);
+        final alpha1 = (0.05 + 0.02 * sin(value * 2 * pi)).clamp(0.0, 1.0);
 
         return Container(
           decoration: BoxDecoration(
@@ -401,10 +386,10 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
           ),
           child: Stack(
             children: [
-              // Top Left moving glow
+              // Subtle dark ambient grayscale glow
               Positioned(
-                top: -200 + dy1 * 150,
-                left: -200 + dx1 * 150,
+                top: -200 + dy1 * 120,
+                left: -200 + dx1 * 120,
                 width: 600,
                 height: 600,
                 child: Container(
@@ -412,47 +397,8 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
                       colors: [
-                        theme.primary.withValues(alpha: alpha1),
-                        theme.primary.withValues(alpha: 0.0),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              // Bottom Right moving glow
-              Positioned(
-                bottom: -200 + dy2 * 130,
-                right: -200 + dx2 * 130,
-                width: 600,
-                height: 600,
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        (theme.key == 'gruvbox'
-                                ? theme.peach
-                                : theme.teal)
-                            .withValues(alpha: alpha2),
-                        theme.teal.withValues(alpha: 0.0),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              // Center subtle moving ambient light
-              Positioned(
-                top: 250 - dy1 * 80,
-                right: 0 - dx2 * 80,
-                width: 400,
-                height: 400,
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        theme.blue.withValues(alpha: alpha3),
-                        theme.blue.withValues(alpha: 0.0),
+                        Colors.white.withValues(alpha: alpha1),
+                        Colors.transparent,
                       ],
                     ),
                   ),
@@ -512,9 +458,7 @@ class _NavItem extends StatelessWidget {
                     key: ValueKey<bool>(isActive),
                     color: isActive
                         ? U.onPrimaryContainer
-                        : (isDark
-                            ? Colors.white.withValues(alpha: 0.55)
-                            : Colors.black.withValues(alpha: 0.50)),
+                        : const Color(0xFF71717A),
                     size: 24,
                   ),
                 ),
@@ -529,9 +473,7 @@ class _NavItem extends StatelessWidget {
                 fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
                 color: isActive
                     ? U.text
-                    : (isDark
-                        ? Colors.white.withValues(alpha: 0.50)
-                        : Colors.black.withValues(alpha: 0.45)),
+                    : const Color(0xFF71717A),
                 letterSpacing: 0.2,
               ),
               child: Text(label),

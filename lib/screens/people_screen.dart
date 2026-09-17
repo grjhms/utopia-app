@@ -19,7 +19,6 @@ import '../widgets/superuser_badge.dart';
 import '../widgets/utopia_loader.dart';
 import '../widgets/utopia_snackbar.dart';
 import '../widgets/thought_cloud_badge.dart';
-import '../widgets/sciwordle_badge.dart';
 import '../widgets/utopia_wave_button.dart';
 import '../widgets/wave_count_badge.dart';
 import 'chat_screen.dart';
@@ -406,34 +405,34 @@ class _PeopleScreenState extends State<PeopleScreen> {
                                   clipBehavior: Clip.none,
                                   children: [
                                     Container(
-                                      width: 44,
-                                      height: 44,
+                                      width: 38,
+                                      height: 38,
                                       decoration: BoxDecoration(
                                         color: U.surfaceContainerHigh,
-                                        borderRadius: BorderRadius.circular(16),
+                                        borderRadius: BorderRadius.circular(12),
                                         border: Border.all(
                                           color: U.outlineVariant.withValues(alpha: 0.35),
                                           width: 0.8,
                                         ),
                                       ),
-                                      child: Icon(Icons.people_alt_outlined, color: U.text, size: 20),
+                                      child: Icon(Icons.people_alt_outlined, color: U.text, size: 18),
                                     ),
                                     if (reqCount > 0)
                                       Positioned(
-                                        right: -3,
-                                        top: -3,
+                                        right: -2,
+                                        top: -2,
                                         child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                                           decoration: BoxDecoration(
-                                            color: U.red,
+                                            color: Colors.white,
                                             borderRadius: M3Shapes.fullRadius,
-                                            border: Border.all(color: U.surface, width: 2),
+                                            border: Border.all(color: U.surface, width: 1.5),
                                           ),
                                           child: Text(
                                             reqCount > 99 ? '99+' : '$reqCount',
                                             style: GoogleFonts.robotoFlex(
-                                              color: Colors.white,
-                                              fontSize: 9.5,
+                                              color: Colors.black,
+                                              fontSize: 9,
                                               fontWeight: FontWeight.w900,
                                             ),
                                           ),
@@ -444,7 +443,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
                               );
                             },
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 6),
 
                           // View Switcher (Grid vs List) with spring rotating animation
                           M3Pressable(
@@ -463,15 +462,15 @@ class _PeopleScreenState extends State<PeopleScreen> {
                                 );
                               }).catchError((_) {});
                             },
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(12),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 180),
                               curve: Curves.easeOutCubic,
-                              width: 44,
-                              height: 44,
+                              width: 38,
+                              height: 38,
                               decoration: BoxDecoration(
                                 color: U.surfaceContainerHigh,
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
                                   color: U.outlineVariant.withValues(alpha: 0.35),
                                   width: 0.8,
@@ -489,68 +488,43 @@ class _PeopleScreenState extends State<PeopleScreen> {
                                       : Icons.grid_view_rounded,
                                   key: ValueKey(_viewMode),
                                   color: U.text,
-                                  size: 20,
+                                  size: 18,
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 6),
 
                           // Graph View Toggle Button (full-screen Obsidian-style link graph)
-                          Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              Tooltip(
-                                message: 'Link Graph View',
-                                child: M3Pressable(
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    _searchFocusNode.unfocus();
-                                    Navigator.of(context).push(
-                                      buildGraphCrossfadeRoute(const LinkGraphScreen()),
-                                    );
-                                  },
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: Container(
-                                    width: 44,
-                                    height: 44,
-                                    decoration: BoxDecoration(
-                                      color: U.surfaceContainerHigh,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: U.outlineVariant.withValues(alpha: 0.35),
-                                        width: 0.8,
-                                      ),
-                                    ),
-                                    child: Icon(
-                                      Icons.hub_outlined,
-                                      color: U.text,
-                                      size: 20,
-                                    ),
+                          Tooltip(
+                            message: 'Link Graph View',
+                            child: M3Pressable(
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                _searchFocusNode.unfocus();
+                                Navigator.of(context).push(
+                                  buildGraphCrossfadeRoute(const LinkGraphScreen()),
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  color: U.surfaceContainerHigh,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: U.outlineVariant.withValues(alpha: 0.35),
+                                    width: 0.8,
                                   ),
                                 ),
-                              ),
-                              Positioned(
-                                top: -4,
-                                right: -6,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
-                                  decoration: BoxDecoration(
-                                    color: U.primary,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    'BETA',
-                                    style: GoogleFonts.robotoFlex(
-                                      fontSize: 7,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.white,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
+                                child: Icon(
+                                  Icons.hub_outlined,
+                                  color: U.text,
+                                  size: 18,
                                 ),
                               ),
-                            ],
+                            ),
                           ),
                         ],
                       ),
@@ -700,84 +674,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
                       },
                     ),
                   ),
-
-                  // ── 4. Academic Branch Prompt Banner ────────────────────────────
-                  if (!hasSelectedBranch && query.isEmpty)
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: U.surfaceContainerHigh,
-                            borderRadius: M3Shapes.cardRadius,
-                            border: Border.all(
-                              color: U.primary.withValues(alpha: 0.35),
-                              width: 1.0,
-                            ),
-                          ),
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  color: U.primary.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: Icon(Icons.school_rounded, color: U.primary, size: 26),
-                              ).animate(onPlay: (c) => c.repeat(reverse: true)).scaleXY(begin: 0.95, end: 1.05, duration: 1200.ms, curve: Curves.easeInOut),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Set your major / branch',
-                                      style: GoogleFonts.robotoFlex(
-                                        color: U.text,
-                                        fontSize: 14.5,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      'Connect easily with peers in your program',
-                                      style: GoogleFonts.robotoFlex(
-                                        color: U.sub,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              FilledButton.tonal(
-                                onPressed: _openSetMyBranchModal,
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: U.primary.withValues(alpha: 0.16),
-                                  foregroundColor: U.primary,
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                  minimumSize: Size.zero,
-                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                child: Text(
-                                  'Select',
-                                  style: GoogleFonts.robotoFlex(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ).animate().fadeIn(duration: 280.ms).slideY(begin: 0.1, end: 0, curve: Curves.easeOutBack),
-                      ),
-                    ),
 
                   // ── 5. Hyper Material 3 Filter Chips ────────────────────────────
                   SliverToBoxAdapter(
@@ -1188,7 +1084,7 @@ class _RadarPingDot extends StatelessWidget {
             height: 12,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF22C55E).withValues(alpha: 0.35),
+              color: Colors.white.withValues(alpha: 0.35),
             ),
           ).animate(onPlay: (c) => c.repeat()).scaleXY(begin: 0.6, end: 1.5, duration: 1100.ms, curve: Curves.easeOut).fadeOut(duration: 1100.ms),
           Container(
@@ -1196,7 +1092,7 @@ class _RadarPingDot extends StatelessWidget {
             height: 6.5,
             decoration: const BoxDecoration(
               shape: BoxShape.circle,
-              color: Color(0xFF22C55E),
+              color: Colors.white,
             ),
           ),
         ],
@@ -1630,13 +1526,8 @@ class _PeerGridCardState extends State<_PeerGridCard> {
     final photoUrl = widget.user['photoUrl']?.toString();
     final branch = (widget.user['branch'] ?? '').toString().trim();
     final isSuperuser = widget.user['role'] == 'superuser';
-    final instagramId = (widget.user['instagramId'] ?? '').toString().trim();
-    final githubId = (widget.user['githubId'] ?? widget.user['githubUsername'] ?? '').toString().trim();
-    final discordId = (widget.user['discordId'] ?? widget.user['discordUsername'] ?? '').toString().trim();
     final isMe = uid == widget.currentUid;
     final hasActiveVibe = widget.vibe != null;
-    final sciwordleTitle = (widget.user['sciwordleTitle'] ?? '').toString().trim();
-    final showSciwordleBadge = widget.user['showSciwordleBadge'] != false;
 
     return M3Pressable(
       onTap: widget.onTap,
@@ -1671,23 +1562,8 @@ class _PeerGridCardState extends State<_PeerGridCard> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Modern top accent bar for active status
-            if (hasActiveVibe)
-              Container(
-                height: 3.5,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      U.primary.withValues(alpha: 0.85),
-                      U.primary.withValues(alpha: 0.40),
-                    ],
-                  ),
-                ),
-              )
-            else
-              const SizedBox(height: 3.5),
-            const SizedBox(height: 10.5),
-            // Content with inner padding (after the edge-to-edge accent bar)
+            const SizedBox(height: 12),
+            // Content with inner padding
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
@@ -1819,16 +1695,6 @@ class _PeerGridCardState extends State<_PeerGridCard> {
                         avatarRadius: 37,
                       ),
                     ),
-                  // SciWordle Badge top
-                  if (showSciwordleBadge && sciwordleTitle.isNotEmpty)
-                    Positioned(
-                      top: -7,
-                      left: -2,
-                      child: SciwordleBadge(
-                        title: sciwordleTitle,
-                        compact: true,
-                      ),
-                    ),
                 ],
               ],
             ),
@@ -1856,18 +1722,6 @@ class _PeerGridCardState extends State<_PeerGridCard> {
                 if (isSuperuser) ...[
                   const SizedBox(width: 3),
                   const SuperUserBadge(size: 13),
-                ],
-                if (instagramId.isNotEmpty) ...[
-                  const SizedBox(width: 3),
-                  InstagramBadge(handle: instagramId, iconSize: 11, showHandle: false),
-                ],
-                if (githubId.isNotEmpty) ...[
-                  const SizedBox(width: 3),
-                  GithubBadge(handle: githubId, iconSize: 11, showHandle: false),
-                ],
-                if (discordId.isNotEmpty) ...[
-                  const SizedBox(width: 3),
-                  DiscordBadge(handle: discordId, iconSize: 11, showHandle: false),
                 ],
               ],
             ),
@@ -1964,15 +1818,6 @@ class _PeerListTile extends StatefulWidget {
 
 class _PeerListTileState extends State<_PeerListTile> {
   bool _loadingFollow = false;
-  bool _hasWaved = false;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.interactionService.hasWavedRecently(widget.user['uid'].toString()).then((waved) {
-      if (mounted) setState(() => _hasWaved = waved);
-    });
-  }
 
   Future<void> _handleFollow(LinkStatus status) async {
     if (_loadingFollow) return;
@@ -2091,12 +1936,6 @@ class _PeerListTileState extends State<_PeerListTile> {
     }
   }
 
-  Future<void> _handleWave() async {
-    if (_hasWaved) return;
-    setState(() => _hasWaved = true);
-    await widget.interactionService.sendWave(widget.user['uid'].toString());
-  }
-
   @override
   Widget build(BuildContext context) {
     final uid = widget.user['uid'].toString();
@@ -2107,13 +1946,8 @@ class _PeerListTileState extends State<_PeerListTile> {
     final bio = (widget.user['bio'] ?? '').toString().trim();
     final branch = (widget.user['branch'] ?? '').toString().trim();
     final isSuperuser = widget.user['role'] == 'superuser';
-    final instagramId = (widget.user['instagramId'] ?? '').toString().trim();
-    final githubId = (widget.user['githubId'] ?? widget.user['githubUsername'] ?? '').toString().trim();
-    final discordId = (widget.user['discordId'] ?? widget.user['discordUsername'] ?? '').toString().trim();
     final isMe = uid == widget.currentUid;
     final hasActiveVibe = widget.vibe != null;
-    final sciwordleTitle = (widget.user['sciwordleTitle'] ?? '').toString().trim();
-    final showSciwordleBadge = widget.user['showSciwordleBadge'] != false;
 
     return M3Pressable(
       onTap: widget.onTap,
@@ -2144,37 +1978,14 @@ class _PeerListTileState extends State<_PeerListTile> {
                 ]
               : null,
         ),
-        child: Row(
-          children: [
-            // Modern left accent strip for active status
-            if (hasActiveVibe)
-              Container(
-                width: 3.5,
-                height: 68,
-                decoration: BoxDecoration(
-                  borderRadius: const BorderRadius.only(
-                    topRight: Radius.circular(3),
-                    bottomRight: Radius.circular(3),
-                  ),
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      U.primary.withValues(alpha: 0.85),
-                      U.primary.withValues(alpha: 0.35),
-                    ],
-                  ),
-                ),
-              ),
-            Expanded(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(hasActiveVibe ? 10.5 : 14, 14, 14, 14),
-                child: Row(
-                  children: [
-            // Squircle Avatar + Status Badge
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              // Squircle Avatar + Status Badge
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
                 if (widget.vibe != null &&
                     widget.vibe!.mediaUrl != null &&
                     widget.vibe!.mediaUrl!.isNotEmpty) ...[
@@ -2294,16 +2105,6 @@ class _PeerListTileState extends State<_PeerListTile> {
                         compact: true,
                       ),
                     ),
-                  // SciWordle Badge top
-                  if (showSciwordleBadge && sciwordleTitle.isNotEmpty)
-                    Positioned(
-                      top: -7,
-                      left: -2,
-                      child: SciwordleBadge(
-                        title: sciwordleTitle,
-                        compact: true,
-                      ),
-                    ),
                 ],
               ],
             ),
@@ -2331,18 +2132,6 @@ class _PeerListTileState extends State<_PeerListTile> {
                       if (isSuperuser) ...[
                         const SizedBox(width: 4),
                         const SuperUserBadge(size: 13),
-                      ],
-                      if (instagramId.isNotEmpty) ...[
-                        const SizedBox(width: 4),
-                        InstagramBadge(handle: instagramId, iconSize: 12, showHandle: false),
-                      ],
-                      if (githubId.isNotEmpty) ...[
-                        const SizedBox(width: 4),
-                        GithubBadge(handle: githubId, iconSize: 12, showHandle: false),
-                      ],
-                      if (discordId.isNotEmpty) ...[
-                        const SizedBox(width: 4),
-                        DiscordBadge(handle: discordId, iconSize: 12, showHandle: false),
                       ],
                     ],
                   ),
@@ -2392,15 +2181,7 @@ class _PeerListTileState extends State<_PeerListTile> {
             const SizedBox(width: 10),
 
             // Actions
-            if (!isMe) ...[
-              UtopiaWaveButton(
-                hasWaved: _hasWaved,
-                onWave: _handleWave,
-                variant: WaveButtonVariant.iconOnly,
-                width: 36,
-                height: 36,
-              ),
-              const SizedBox(width: 8),
+            if (!isMe)
               StreamBuilder<FollowStatus>(
                 stream: widget.followService.followStatusStream(widget.currentUid, uid),
                 builder: (context, statusSnap) {
@@ -2412,14 +2193,10 @@ class _PeerListTileState extends State<_PeerListTile> {
                   );
                 },
               ),
-            ],
-                  ],
-                ),
-              ),
-            ),
           ],
         ),
       ),
+    ),
     );
   }
 }

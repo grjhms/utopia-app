@@ -812,28 +812,31 @@ class _SciwordleScreenState extends State<SciwordleScreen>
           icon: Icon(Icons.arrow_back_ios_new_rounded, color: U.text, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: U.primary.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(10),
+        title: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: U.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.psychology_rounded, color: U.primary, size: 18),
               ),
-              child: Icon(Icons.psychology_rounded, color: U.primary, size: 18),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'SciWordle',
-              style: GoogleFonts.robotoFlex(
-                fontWeight: FontWeight.w800,
-                fontSize: 20,
-                color: U.text,
-                letterSpacing: -0.3,
+              const SizedBox(width: 8),
+              Text(
+                'SciWordle',
+                style: GoogleFonts.robotoFlex(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 20,
+                  color: U.text,
+                  letterSpacing: -0.3,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         centerTitle: true,
         actions: [
