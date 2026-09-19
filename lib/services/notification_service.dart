@@ -155,7 +155,6 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     final senderName = (message.data['senderName'] ?? message.data['sender_name'] ?? title).toString();
     final senderId = (message.data['senderId'] ?? message.data['sender_id'] ?? '').toString();
     final recipientId = (message.data['recipientId'] ?? message.data['recipient_id'] ?? '').toString();
-    final type = (message.data['type'] ?? '').toString();
     final List<AndroidNotificationAction>? actions = isChat
         ? NotificationService.buildChatActions(senderName: senderName)
         : NotificationService._getActionsForType(type, Map<String, dynamic>.from(message.data));
