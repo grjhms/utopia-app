@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:utopia_app/models/sciwordle_model.dart';
 import 'package:utopia_app/services/sciwordle_service.dart';
 
 void main() {
@@ -34,9 +35,16 @@ void main() {
         equals('PRIME'),
       );
 
-      // Rank 4 but has highest streak
+      // Rank 4 but is highest streak user
       expect(
-        SciwordleService.computeTitle(rank: 4, streak: 5, maxStreak: 5, totalScore: 80),
+        SciwordleService.computeTitle(
+          rank: 4,
+          streak: 5,
+          maxStreak: 5,
+          totalScore: 80,
+          isHighestStreakUser: true,
+          rank1Streak: 2,
+        ),
         equals('FIRE'),
       );
 
@@ -52,10 +60,10 @@ void main() {
         equals('TOP 3'),
       );
 
-      // Rank 8
+      // Rank 8 - should be null (no generic multi-user badge)
       expect(
         SciwordleService.computeTitle(rank: 8, streak: 2, maxStreak: 5, totalScore: 50),
-        equals('TOP 10'),
+        isNull,
       );
 
       // Rank 15
@@ -69,6 +77,50 @@ void main() {
         SciwordleService.computeTitle(rank: 1, streak: 5, maxStreak: 5, totalScore: 0),
         isNull,
       );
+    });
+
+    test('computeLeaderboardTitles ensures every badge is unique to at most 1 user (everyone on streak 1)', () {
+      final entries = [
+        const SciwordleLeaderboardEntry(uid: 'u1', name: 'Ram Vinay', totalScore: 40, streak: 1, bestStreak: 1, gamesPlayed: 1),
+        const SciwordleLeaderboardEntry(uid: 'u2', name: 'Abhi Ram', totalScore: 40, streak: 1, bestStreak: 1, gamesPlayed: 1),
+        const SciwordleLeaderboardEntry(uid: 'u3', name: 'John Moses', totalScore: 28, streak: 1, bestStreak: 1, gamesPlayed: 1),
+        const SciwordleLeaderboardEntry(uid: 'u4', name: 'Sivan Devara', totalScore: 20, streak: 1, bestStreak: 1, gamesPlayed: 1),
+        const SciwordleLeaderboardEntry(uid: 'u5', name: 'crusader', totalScore: 14, streak: 1, bestStreak: 1, gamesPlayed: 1),
+      ];
+
+      final titles = SciwordleService.computeLeaderboardTitles(entries);
+
+      expect(titles['u1'], equals('ALPHA'));
+      expect(titles['u2'], equals('TOP 2'));
+      expect(titles['u3'], equals('TOP 3'));
+      expect(titles['u4'], isNull);
+      expect(titles['u5'], isNull);
+
+      // Verify all assigned titles are completely unique
+      final assigned = titles.values.toList();
+      expect(assigned.toSet().length, equals(assigned.length));
+    });
+
+    test('computeLeaderboardTitles awards FIRE to strictly 1 player when streak leader is not Rank 1', () {
+      final entries = [
+        const SciwordleLeaderboardEntry(uid: 'u1', name: 'Player 1', totalScore: 100, streak: 2, bestStreak: 2, gamesPlayed: 1),
+        const SciwordleLeaderboardEntry(uid: 'u2', name: 'Player 2', totalScore: 90, streak: 2, bestStreak: 2, gamesPlayed: 1),
+        const SciwordleLeaderboardEntry(uid: 'u3', name: 'Player 3', totalScore: 80, streak: 2, bestStreak: 2, gamesPlayed: 1),
+        const SciwordleLeaderboardEntry(uid: 'u4', name: 'Streak Master', totalScore: 70, streak: 6, bestStreak: 6, gamesPlayed: 1),
+        const SciwordleLeaderboardEntry(uid: 'u5', name: 'Streak Equal', totalScore: 50, streak: 6, bestStreak: 6, gamesPlayed: 1),
+      ];
+
+      final titles = SciwordleService.computeLeaderboardTitles(entries);
+
+      expect(titles['u1'], equals('PRIME'));
+      expect(titles['u2'], equals('TOP 2'));
+      expect(titles['u3'], equals('TOP 3'));
+      expect(titles['u4'], equals('FIRE'));
+      expect(titles['u5'], isNull); // Tied for streak with u4, but only 1 person gets FIRE
+
+      // Verify all assigned titles are completely unique
+      final assigned = titles.values.toList();
+      expect(assigned.toSet().length, equals(assigned.length));
     });
   });
 }

@@ -24,6 +24,7 @@ class _SciwordleLeaderboardScreenState
   bool _loading = true;
   String? _error;
   List<SciwordleLeaderboardEntry> _entries = [];
+  Map<String, String> _titles = {};
 
   @override
   void initState() {
@@ -42,6 +43,7 @@ class _SciwordleLeaderboardScreenState
       if (mounted) {
         setState(() {
           _entries = data;
+          _titles = SciwordleService.computeLeaderboardTitles(data);
           _loading = false;
         });
       }
@@ -56,18 +58,11 @@ class _SciwordleLeaderboardScreenState
   }
 
   String? _getTitleForEntry(SciwordleLeaderboardEntry entry, int rank) {
-    if (_entries.isEmpty || entry.totalScore <= 0) return null;
-
-    final isMaxStreak = entry.streak > 0 &&
-        _entries.every((e) => entry.streak >= e.streak);
-
-    if (rank == 1 && isMaxStreak) return 'ALPHA';
-    if (rank == 1) return 'PRIME';
-    if (isMaxStreak) return 'FIRE';
-    if (rank == 2) return 'TOP 2';
-    if (rank == 3) return 'TOP 3';
-    if (rank <= 10) return 'TOP 10';
-    return null;
+    if (_titles.isNotEmpty) {
+      return _titles[entry.uid];
+    }
+    final titles = SciwordleService.computeLeaderboardTitles(_entries);
+    return titles[entry.uid];
   }
 
   Color _getTitleColor(String title, bool isDark) {
@@ -82,8 +77,6 @@ class _SciwordleLeaderboardScreenState
         return isDark ? const Color(0xFF38BDF8) : const Color(0xFF0284C7);
       case 'TOP 3':
         return isDark ? const Color(0xFFC084FC) : const Color(0xFF9333EA);
-      case 'TOP 10':
-        return isDark ? const Color(0xFF34D399) : const Color(0xFF059669);
       default:
         return U.primary;
     }

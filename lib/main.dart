@@ -313,15 +313,15 @@ const _slateMonochromeTheme = AppTheme(
 );
 
 const appThemes = [
-  _oledPitchBlackTheme,
   _obsidianDarkTheme,
+  _oledPitchBlackTheme,
   _charcoalTheme,
   _graphiteTheme,
   _slateMonochromeTheme,
 ];
 
 final ValueNotifier<AppTheme> appThemeNotifier = ValueNotifier<AppTheme>(
-  _oledPitchBlackTheme,
+  _obsidianDarkTheme,
 );
 
 
@@ -545,6 +545,14 @@ class U {
   static String cachedUniversityId = '';
   static String cachedUniversityName = '';
 
+  static bool get isAditya => isAdityaCollege(cachedUniversityId, cachedUniversityName);
+
+  static bool isAdityaCollege([String? id, String? name]) {
+    final checkId = (id ?? cachedUniversityId).trim().toLowerCase();
+    final checkName = (name ?? cachedUniversityName).trim().toLowerCase();
+    return checkId.contains('aditya') || checkName.contains('aditya');
+  }
+
   static ColorScheme get colorScheme => appThemeNotifier.value.colorScheme;
   static ColorScheme scheme(BuildContext context) => Theme.of(context).colorScheme;
 
@@ -608,7 +616,7 @@ class U {
         return theme;
       }
     }
-    return _oledPitchBlackTheme;
+    return _obsidianDarkTheme;
   }
 
   static void applyTheme(String? key) {

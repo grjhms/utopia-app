@@ -1452,22 +1452,34 @@ class _ThemePickerSheet extends StatelessWidget {
                           ),
                           child: Row(
                             children: [
-                              // Palette circles
+                              // Theme Mini-Card Swatch
                               Container(
-                                width: 22,
-                                height: 22,
+                                width: 32,
+                                height: 32,
+                                padding: const EdgeInsets.all(3),
                                 decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
                                   color: t.bg,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: t.border,
+                                    width: 1.2,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 6),
-                              Container(
-                                width: 22,
-                                height: 22,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: t.primary,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: t.card,
+                                    borderRadius: BorderRadius.circular(5),
+                                  ),
+                                  child: Center(
+                                    child: Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: t.primary,
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 14),

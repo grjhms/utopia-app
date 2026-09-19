@@ -26,6 +26,8 @@ import '../services/secure_storage_service.dart';
 import '../services/attendance_cache_service.dart';
 import '../services/uni_chat_service.dart';
 import '../widgets/dynamic_attendance_card.dart';
+import '../widgets/dynamic_showcase_hero_card.dart';
+import 'projects_feed_screen.dart';
 import '../utils/responsive_scale.dart';
 
 class FocusScreen extends StatefulWidget {
@@ -43,6 +45,8 @@ class _FocusScreenState extends State<FocusScreen> {
   String _studentName = '';
   bool _isAttendanceConnected = false;
   DateTime? _lastAttendanceFetched;
+  String _universityId = U.cachedUniversityId;
+  String _universityName = U.cachedUniversityName;
 
   int _notificationCount = 0;
 
@@ -255,6 +259,20 @@ class _FocusScreenState extends State<FocusScreen> {
 
   Future<void> _loadData() async {
     try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final uniId = userDoc.data()?['selectedUniversityId'] as String?;
+        final uniName = userDoc.data()?['universityName'] as String? ?? userDoc.data()?['university'] as String?;
+        if (uniId != null && uniId.isNotEmpty) {
+          _universityId = uniId;
+          U.cachedUniversityId = uniId;
+        }
+        if (uniName != null && uniName.isNotEmpty) {
+          _universityName = uniName;
+          U.cachedUniversityName = uniName;
+        }
+      }
       await _service.initialize();
       // Start download sync in background to update local SQLite
       _service.syncDownAllData().then((_) {
@@ -612,22 +630,35 @@ class _FocusScreenState extends State<FocusScreen> {
 
 
 
-                  // ── Dynamic Motion Attendance Hero Card (Always in Motion) ──
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: padH),
-                    child: DynamicMotionAttendanceCard(
-                      isConnected: _isAttendanceConnected,
-                      attendancePct: _attendancePct,
-                      studentName: _studentName,
-                      lastFetched: _lastAttendanceFetched,
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const AttendanceScreen()),
-                      ).then((_) => _loadData()),
-                    ),
-                  ).animate()
-                      .fadeIn(delay: 250.ms, duration: 500.ms)
-                      .slideY(begin: 0.1, end: 0, delay: 250.ms, duration: 500.ms, curve: Curves.easeOutCubic),
+                  // ── Hero Section: Attendance Card for Aditya colleges, Project Showcase Card for all other colleges ──
+                  if (U.isAdityaCollege(_universityId, _universityName))
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: padH),
+                      child: DynamicMotionAttendanceCard(
+                        isConnected: _isAttendanceConnected,
+                        attendancePct: _attendancePct,
+                        studentName: _studentName,
+                        lastFetched: _lastAttendanceFetched,
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const AttendanceScreen()),
+                        ).then((_) => _loadData()),
+                      ),
+                    ).animate()
+                        .fadeIn(delay: 250.ms, duration: 500.ms)
+                        .slideY(begin: 0.1, end: 0, delay: 250.ms, duration: 500.ms, curve: Curves.easeOutCubic)
+                  else
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: padH),
+                      child: DynamicShowcaseHeroCard(
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const ProjectsFeedScreen()),
+                        ),
+                      ),
+                    ).animate()
+                        .fadeIn(delay: 250.ms, duration: 500.ms)
+                        .slideY(begin: 0.1, end: 0, delay: 250.ms, duration: 500.ms, curve: Curves.easeOutCubic),
 
                   SizedBox(height: rs.vs(16, min: 12, max: 22)),
 

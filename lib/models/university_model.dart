@@ -45,6 +45,12 @@ class UniversityModel {
     );
   }
 
+  /// Whether this university is an Aditya-affiliated institution.
+  bool get isAditya =>
+      id.trim().toLowerCase().contains('aditya') ||
+      name.trim().toLowerCase().contains('aditya') ||
+      shortName.trim().toLowerCase().contains('aditya');
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,

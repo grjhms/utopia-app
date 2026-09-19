@@ -213,5 +213,37 @@ service cloud.firestore {
         request.auth.uid == resource.data.receiverId
       );
     }
+
+    // ── Projects Showcase ─────────────────────────────────────────────────
+    match /projects/{projectId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.ownerId;
+      allow update: if isSignedIn() && (
+        request.auth.uid == resource.data.ownerId ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'likedByUserIds'])
+      );
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.ownerId;
+    }
+
+    // ── Honest Reviews ───────────────────────────────────────────────────
+    match /honest_reviews/{reviewId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.authorAccountId;
+      allow update: if isSignedIn() && (
+        request.auth.uid == resource.data.authorAccountId ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['helpfulCount', 'helpfulUserIds', 'reportCount', 'status', 'flaggedForCoordination']) ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superuser'
+      );
+      allow delete: if isSignedIn() && (
+        request.auth.uid == resource.data.authorAccountId ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superuser'
+      );
+    }
+
+    match /review_reports/{reportId} {
+      allow read: if isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superuser';
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.reporterAccountId;
+    }
   }
 }
+

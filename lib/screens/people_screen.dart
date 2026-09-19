@@ -25,6 +25,7 @@ import '../widgets/wave_count_badge.dart';
 import 'chat_screen.dart';
 import 'friends_screen.dart';
 import 'link_graph_screen.dart';
+import 'projects_feed_screen.dart';
 import 'user_profile_screen.dart';
 import '../theme/m3_expressive_theme.dart';
 
@@ -58,6 +59,7 @@ class PeopleScreen extends StatefulWidget {
 class _PeopleScreenState extends State<PeopleScreen> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  final ScrollController _scrollController = ScrollController();
   final PeopleInteractionService _interactionService = PeopleInteractionService();
   final FollowService _followService = FollowService();
 
@@ -66,6 +68,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
   String _selectedBranch = 'All';
   bool _hasAutoPromptedBranch = false;
   bool _isSearchFocused = false;
+  bool _isShowcaseMinimized = false;
+  bool _showScrollToTop = false;
 
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _usersStream;
 
@@ -81,6 +85,17 @@ class _PeopleScreenState extends State<PeopleScreen> {
         .collection('users')
         .orderBy('displayName')
         .snapshots();
+
+    _scrollController.addListener(() {
+      final shouldShow = _scrollController.hasClients && _scrollController.offset > 350;
+      if (shouldShow != _showScrollToTop) {
+        if (mounted) {
+          setState(() {
+            _showScrollToTop = shouldShow;
+          });
+        }
+      }
+    });
 
     _searchFocusNode.addListener(() {
       if (mounted) {
@@ -99,16 +114,43 @@ class _PeopleScreenState extends State<PeopleScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final mode = prefs.getString('people_view_mode');
-      if (mode != null && mounted) {
+      final isMin = prefs.getBool('showcase_card_minimized') ?? false;
+      if (mounted) {
         setState(() {
-          _viewMode = mode == 'grid' ? PeopleViewMode.grid : PeopleViewMode.list;
+          if (mode != null) {
+            _viewMode = mode == 'grid' ? PeopleViewMode.grid : PeopleViewMode.list;
+          }
+          _isShowcaseMinimized = isMin;
         });
       }
     } catch (_) {}
   }
 
+  Future<void> _toggleShowcaseMinimized() async {
+    final next = !_isShowcaseMinimized;
+    setState(() {
+      _isShowcaseMinimized = next;
+    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('showcase_card_minimized', next);
+    } catch (_) {}
+  }
+
+  void _scrollToTop() {
+    HapticFeedback.lightImpact();
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
   @override
   void dispose() {
+    _scrollController.dispose();
     _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
@@ -331,6 +373,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
               behavior: HitTestBehavior.translucent,
               onTap: () => _searchFocusNode.unfocus(),
               child: CustomScrollView(
+                controller: _scrollController,
                 physics: const BouncingScrollPhysics(),
                 keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                 slivers: [
@@ -529,6 +572,171 @@ class _PeopleScreenState extends State<PeopleScreen> {
                           ),
                         ],
                       ),
+                    ),
+                  ),
+
+                  // ── 1.5. Project Showcase Top Banner Card (Aditya colleges only) ────────
+                  if (U.isAditya)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
+                        child: _isShowcaseMinimized
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: U.surfaceContainerHigh,
+                                borderRadius: M3Shapes.fullRadius,
+                                border: Border.all(
+                                  color: U.outlineVariant.withValues(alpha: 0.35),
+                                  width: 0.8,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.rocket_launch_rounded, color: U.primary, size: 16),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        _searchFocusNode.unfocus();
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(builder: (_) => const ProjectsFeedScreen()),
+                                        );
+                                      },
+                                      child: Text(
+                                        'Project Showcase',
+                                        style: GoogleFonts.robotoFlex(
+                                          color: U.text,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () {
+                                      _searchFocusNode.unfocus();
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(builder: (_) => const ProjectsFeedScreen()),
+                                      );
+                                    },
+                                    child: Icon(Icons.arrow_forward_ios_rounded, color: U.sub, size: 12),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  GestureDetector(
+                                    onTap: _toggleShowcaseMinimized,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: U.surfaceContainerHighest.withValues(alpha: 0.5),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(Icons.keyboard_arrow_down_rounded, color: U.sub, size: 16),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : M3Pressable(
+                              onTap: () {
+                                _searchFocusNode.unfocus();
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(builder: (_) => const ProjectsFeedScreen()),
+                                );
+                              },
+                              borderRadius: M3Shapes.largeRadius,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      U.primary.withValues(alpha: appThemeNotifier.value.isDark ? 0.18 : 0.12),
+                                      U.teal.withValues(alpha: appThemeNotifier.value.isDark ? 0.12 : 0.08),
+                                    ],
+                                  ),
+                                  borderRadius: M3Shapes.largeRadius,
+                                  border: Border.all(
+                                    color: U.primary.withValues(alpha: 0.3),
+                                    width: 1.0,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 44,
+                                      height: 44,
+                                      decoration: BoxDecoration(
+                                        color: U.primary.withValues(alpha: 0.2),
+                                        borderRadius: M3Shapes.mediumRadius,
+                                      ),
+                                      child: Center(
+                                        child: Icon(Icons.rocket_launch_rounded, color: U.primary, size: 22),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Text(
+                                                'Project Showcase',
+                                                style: GoogleFonts.robotoFlex(
+                                                  color: U.text,
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w800,
+                                                  letterSpacing: -0.2,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: U.primary,
+                                                  borderRadius: M3Shapes.fullRadius,
+                                                ),
+                                                child: Text(
+                                                  'NEW',
+                                                  style: GoogleFonts.robotoFlex(
+                                                    color: U.getContrastColor(U.primary),
+                                                    fontSize: 9.5,
+                                                    fontWeight: FontWeight.w900,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            'Explore apps, hardware & research by campus peers',
+                                            style: GoogleFonts.robotoFlex(
+                                              color: U.sub,
+                                              fontSize: 12,
+                                              height: 1.25,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onTap: _toggleShowcaseMinimized,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(5),
+                                        decoration: BoxDecoration(
+                                          color: U.card.withValues(alpha: 0.6),
+                                          shape: BoxShape.circle,
+                                          border: Border.all(color: U.outlineVariant.withValues(alpha: 0.3)),
+                                        ),
+                                        child: Icon(Icons.keyboard_arrow_up_rounded, color: U.sub, size: 16),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                     ),
                   ),
 
@@ -972,6 +1180,56 @@ class _PeopleScreenState extends State<PeopleScreen> {
           },
         ),
       ),
+      floatingActionButton: AnimatedSlide(
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        offset: _showScrollToTop ? Offset.zero : const Offset(0, 1.5),
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          opacity: _showScrollToTop ? 1.0 : 0.0,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 74),
+            child: M3Pressable(
+              onTap: _showScrollToTop ? _scrollToTop : null,
+              borderRadius: BorderRadius.circular(15),
+              scaleFactor: 0.92,
+              child: Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: U.primary,
+                  borderRadius: BorderRadius.circular(15),
+                  boxShadow: [
+                    BoxShadow(
+                      color: U.primary.withValues(alpha: 0.38),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.25),
+                    width: 0.8,
+                  ),
+                ),
+                child: Center(
+                  child: Icon(
+                    Icons.arrow_upward_rounded,
+                    color: U.getContrastColor(U.primary),
+                    size: 22,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
@@ -1712,6 +1970,7 @@ class _PeerGridCardState extends State<_PeerGridCard> {
                       child: SciwordleBadge(
                         title: sciwordleTitle,
                         compact: true,
+                        showEmoji: false,
                       ),
                     ),
                   ),
@@ -2088,8 +2347,14 @@ class _PeerListTileState extends State<_PeerListTile> {
                       color: U.surfaceContainerHigh,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(
-                        color: widget.vibe != null ? U.primary : U.outlineVariant.withValues(alpha: 0.35),
-                        width: widget.vibe != null ? 2.0 : 0.8,
+                        color: (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                            ? SciwordleBadge.getTitleThemeColor(sciwordleTitle)
+                            : (widget.vibe != null
+                                ? U.primary
+                                : U.outlineVariant.withValues(alpha: 0.35)),
+                        width: (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                            ? 2.2
+                            : (widget.vibe != null ? 2.0 : 0.8),
                       ),
                     ),
                     padding: const EdgeInsets.all(2.5),
@@ -2136,6 +2401,7 @@ class _PeerListTileState extends State<_PeerListTile> {
                       child: SciwordleBadge(
                         title: sciwordleTitle,
                         compact: true,
+                        showEmoji: false,
                       ),
                     ),
                   ),
@@ -3593,8 +3859,14 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                               color: U.surfaceContainerHigh,
                               borderRadius: BorderRadius.circular(22),
                               border: Border.all(
-                                color: widget.vibe != null ? U.primary : U.outlineVariant.withValues(alpha: 0.35),
-                                width: widget.vibe != null ? 2.0 : 1.0,
+                                color: (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                                    ? SciwordleBadge.getTitleThemeColor(sciwordleTitle)
+                                    : (widget.vibe != null
+                                        ? U.primary
+                                        : U.outlineVariant.withValues(alpha: 0.35)),
+                                width: (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                                    ? 2.5
+                                    : (widget.vibe != null ? 2.0 : 1.0),
                               ),
                             ),
                             padding: const EdgeInsets.all(3),
@@ -3627,13 +3899,14 @@ class _QuickPeekProfileSheetState extends State<_QuickPeekProfileSheet> {
                             ),
                           if (showSciwordleBadge && sciwordleTitle.isNotEmpty)
                             Positioned(
-                              top: -8,
+                              top: -12,
                               left: 0,
                               right: 0,
                               child: Center(
                                 child: SciwordleBadge(
                                   title: sciwordleTitle,
                                   compact: true,
+                                  showEmoji: false,
                                 ),
                               ),
                             ),

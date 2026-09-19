@@ -25,6 +25,10 @@ import '../widgets/superuser_badge.dart';
 import '../widgets/wave_count_badge.dart';
 import '../widgets/sciwordle_badge.dart';
 import '../widgets/sciwordle_profile_card.dart';
+import '../models/project_model.dart';
+import '../services/project_service.dart';
+import 'create_project_screen.dart';
+import 'project_detail_screen.dart';
 import 'app_shell.dart';
 import 'university_selection_screen.dart';
 import 'user_profile_screen.dart';
@@ -97,6 +101,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _showSignOutDialog() {
     final isDark = appThemeNotifier.value.isDark;
+    const dangerRed = Color(0xFFEF4444);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -115,11 +120,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: U.red.withValues(alpha: 0.12),
+                color: dangerRed.withValues(alpha: 0.12),
                 shape: BoxShape.circle,
               ),
-              child: Center(
-                child: Icon(Icons.logout_rounded, color: U.red, size: 24),
+              child: const Center(
+                child: Icon(Icons.logout_rounded, color: dangerRed, size: 24),
               ),
             ),
             const SizedBox(height: 14),
@@ -156,7 +161,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   child: Text(
                     'Cancel',
-                    style: GoogleFonts.robotoFlex(fontWeight: FontWeight.w600, fontSize: 13.5),
+                    style: GoogleFonts.robotoFlex(
+                      color: U.text,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13.5,
+                    ),
                   ),
                 ),
               ),
@@ -168,14 +177,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     _signOut();
                   },
                   style: FilledButton.styleFrom(
-                    backgroundColor: U.red,
+                    backgroundColor: dangerRed,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: M3Shapes.fullRadius),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
                   child: Text(
                     'Sign Out',
-                    style: GoogleFonts.robotoFlex(fontWeight: FontWeight.w700, fontSize: 13.5),
+                    style: GoogleFonts.robotoFlex(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13.5,
+                    ),
                   ),
                 ),
               ),
@@ -393,8 +406,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               border: Border.all(
-                                color: theme.primary.withValues(alpha: 0.45),
-                                width: 2,
+                                color: (showSciwordleBadge && sciwordleTitle.isNotEmpty)
+                                    ? SciwordleBadge.getTitleThemeColor(sciwordleTitle)
+                                    : theme.primary.withValues(alpha: 0.45),
+                                width: (showSciwordleBadge && sciwordleTitle.isNotEmpty) ? 2.8 : 2.0,
                               ),
                             ),
                             child: CircleAvatar(
@@ -417,7 +432,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           if (showSciwordleBadge && sciwordleTitle.isNotEmpty)
                             Positioned(
-                              top: -8,
+                              top: -14,
                               child: SciwordleBadge(
                                 title: sciwordleTitle,
                               ),
@@ -686,6 +701,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ).animate().fadeIn(delay: 80.ms, duration: 350.ms),
                 const SizedBox(height: 16),
 
+                // ── Projects Showcase Section ──
+                _UserProjectsProfileSection(userId: user?.uid ?? ''),
+                const SizedBox(height: 16),
+
+                // ── SciWordle League Performance Card (Collapsed by default) ──
+                if (user != null) ...[
+                  SciwordleProfileCard(
+                    uid: user.uid,
+                    initialScore: sciwordleScore,
+                    initialStreak: sciwordleStreak,
+                    initialBestStreak: sciwordleBestStreak,
+                    initialTitle: sciwordleTitle,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
                 // ── Grouped Settings Menu (Simple, Single Section) ──
                 Container(
                   decoration: BoxDecoration(
@@ -898,7 +929,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   String? _photoUrl;
   bool _uploadingPhoto = false;
   bool _saving = false;
-  bool _showThemeOnProfile = true;
   bool _showRollNumberOnProfile = true;
 
   @override
@@ -922,11 +952,9 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     if (user == null) return;
     try {
       final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      final val = doc.data()?['showThemeOnProfile'] as bool?;
       final rollVal = doc.data()?['showRollNumberOnProfile'] as bool?;
       if (mounted) {
         setState(() {
-          _showThemeOnProfile = val ?? true;
           _showRollNumberOnProfile = rollVal ?? true;
         });
       }
@@ -1063,7 +1091,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             'githubId': nextGithub,
             'discordId': nextDiscord,
             'branch': _selectedBranch ?? '',
-            'showThemeOnProfile': _showThemeOnProfile,
             'showRollNumberOnProfile': _showRollNumberOnProfile,
             'rollNumber': nextRollNumber,
             'email': user.email ?? '',
@@ -1419,56 +1446,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                         ),
                         const SizedBox(height: 24),
 
-                        // Show Theme on Profile toggle
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? U.surfaceContainerLowest.withValues(alpha: 0.6)
-                                : U.surfaceContainerHighest.withValues(alpha: 0.5),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: U.outlineVariant.withValues(alpha: 0.4),
-                              width: 0.8,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.palette_outlined, size: 20, color: theme.primary),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Show Theme on Profile',
-                                      style: GoogleFonts.robotoFlex(
-                                        color: U.text,
-                                        fontSize: 13.5,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 1),
-                                    Text(
-                                      'Display your color palette publicly',
-                                      style: GoogleFonts.robotoFlex(
-                                        color: U.sub,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Switch(
-                                value: _showThemeOnProfile,
-                                activeThumbColor: theme.primary,
-                                onChanged: (val) => setState(() => _showThemeOnProfile = val),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-
                         // Show Roll Number on Profile toggle
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1511,7 +1488,15 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                               ),
                               Switch(
                                 value: _showRollNumberOnProfile,
-                                activeThumbColor: theme.primary,
+                                activeColor: theme.primary,
+                                activeTrackColor: theme.primary.withValues(alpha: 0.25),
+                                inactiveThumbColor: isDark ? const Color(0xFFD4D4D8) : U.sub,
+                                inactiveTrackColor: isDark ? const Color(0xFF27272A) : U.surfaceContainerHighest,
+                                trackOutlineColor: WidgetStateProperty.resolveWith(
+                                  (states) => states.contains(WidgetState.selected)
+                                      ? theme.primary.withValues(alpha: 0.5)
+                                      : U.outlineVariant.withValues(alpha: 0.5),
+                                ),
                                 onChanged: (val) => setState(() => _showRollNumberOnProfile = val),
                               ),
                             ],
@@ -1586,22 +1571,8 @@ class _ThemeStyleSheet extends StatefulWidget {
 }
 
 class _ThemeStyleSheetState extends State<_ThemeStyleSheet> {
-  late bool _isDarkSelected;
-
-  @override
-  void initState() {
-    super.initState();
-    final activeTheme = appThemes.firstWhere(
-      (t) => t.key == widget.currentKey,
-      orElse: () => appThemes.first,
-    );
-    _isDarkSelected = activeTheme.isDark;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final activeTheme = appThemeNotifier.value;
-    final isDark = activeTheme.isDark;
     final filteredThemes = appThemes;
 
     return DraggableScrollableSheet(
@@ -1764,78 +1735,6 @@ class _ThemeStyleSheetState extends State<_ThemeStyleSheet> {
   }
 }
 
-class _ModeOptionCard extends StatelessWidget {
-  const _ModeOptionCard({
-    required this.label,
-    required this.icon,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = appThemeNotifier.value;
-    final isDark = theme.isDark;
-
-    return M3Pressable(
-      onTap: onTap,
-      scaleFactor: 0.97,
-      borderRadius: BorderRadius.circular(16),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? theme.primary.withValues(alpha: 0.12)
-              : (isDark ? U.surfaceContainerLowest.withValues(alpha: 0.6) : U.surfaceContainer),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected ? theme.primary : U.outlineVariant.withValues(alpha: 0.4),
-            width: isSelected ? 1.8 : 0.8,
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isSelected ? theme.primary : U.outlineVariant.withValues(alpha: 0.25),
-              ),
-              child: Icon(
-                icon,
-                size: 17,
-                color: isSelected ? theme.colorScheme.onPrimary : U.text,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                label,
-                style: GoogleFonts.robotoFlex(
-                  color: U.text,
-                  fontSize: 13.5,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            if (isSelected)
-              Icon(Icons.check_circle_rounded, color: theme.primary, size: 18),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _ThemePaletteTile extends StatelessWidget {
   const _ThemePaletteTile({
     required this.theme,
@@ -1871,25 +1770,32 @@ class _ThemePaletteTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // Palette Preview Swatch (Dual-tone)
+            // Theme Mini-Card Swatch
             Container(
               width: 36,
               height: 36,
+              padding: const EdgeInsets.all(3),
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
                 color: theme.bg,
+                borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: U.outlineVariant.withValues(alpha: 0.5),
+                  color: theme.border,
                   width: 1.2,
                 ),
               ),
-              child: Center(
-                child: Container(
-                  width: 18,
-                  height: 18,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: theme.primary,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: theme.card,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Center(
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: theme.primary,
+                    ),
                   ),
                 ),
               ),
@@ -1923,34 +1829,11 @@ class _ThemePaletteTile extends StatelessWidget {
               ),
             ),
 
-            // Trailing Accent Dots & Selection indicator
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: theme.teal,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: theme.primary,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                if (isSelected)
-                  Icon(Icons.check_circle_rounded, color: activeTheme.primary, size: 20)
-                else
-                  Icon(Icons.circle_outlined, color: U.dim.withValues(alpha: 0.35), size: 20),
-              ],
-            ),
+            // Selection indicator
+            if (isSelected)
+              Icon(Icons.check_circle_rounded, color: activeTheme.primary, size: 20)
+            else
+              Icon(Icons.circle_outlined, color: U.dim.withValues(alpha: 0.35), size: 20),
           ],
         ),
       ),
@@ -2234,3 +2117,331 @@ class _RaiseIssueSheetState extends State<_RaiseIssueSheet> {
     );
   }
 }
+
+/// Profile Section displaying projects authored or contributed to by the user.
+class _UserProjectsProfileSection extends StatefulWidget {
+  final String userId;
+
+  const _UserProjectsProfileSection({required this.userId});
+
+  @override
+  State<_UserProjectsProfileSection> createState() => _UserProjectsProfileSectionState();
+}
+
+class _UserProjectsProfileSectionState extends State<_UserProjectsProfileSection> {
+  bool _isExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.userId.isEmpty) return const SizedBox.shrink();
+
+    final theme = appThemeNotifier.value;
+    final isDark = theme.isDark;
+
+    return StreamBuilder<List<ProjectModel>>(
+      stream: ProjectService().getUserProjectsStream(widget.userId),
+      builder: (context, snapshot) {
+        final projects = snapshot.data ?? [];
+
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+            color: U.surfaceContainer,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: U.outlineVariant.withValues(alpha: isDark ? 0.35 : 0.5),
+              width: 0.8,
+            ),
+          ),
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header (Tappable to Expand / Collapse)
+              InkWell(
+                onTap: () {
+                  setState(() {
+                    _isExpanded = !_isExpanded;
+                  });
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: U.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.rocket_launch_rounded, color: U.primary, size: 16),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                'PROJECTS',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.robotoFlex(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.1,
+                                  color: U.primary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: U.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: U.primary.withValues(alpha: 0.28),
+                                  width: 0.8,
+                                ),
+                              ),
+                              child: Text(
+                                'BETA',
+                                style: GoogleFonts.robotoFlex(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w800,
+                                  color: U.primary,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                            if (projects.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: U.primary.withValues(alpha: 0.14),
+                                  borderRadius: M3Shapes.fullRadius,
+                                ),
+                                child: Text(
+                                  '${projects.length}',
+                                  style: GoogleFonts.robotoFlex(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: U.primary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      // Post / Showcase Button
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const CreateProjectScreen()),
+                          );
+                        },
+                        icon: const Icon(Icons.add_rounded, size: 15),
+                        label: const Text('Add'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: U.primary,
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          textStyle: GoogleFonts.robotoFlex(fontSize: 12, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      // Expand/Collapse Chevron Icon
+                      Icon(
+                        _isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                        color: U.primary,
+                        size: 22,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              if (_isExpanded) ...[
+                const SizedBox(height: 14),
+
+                if (projects.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: U.surfaceContainerLow,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: U.outlineVariant.withValues(alpha: 0.25),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(Icons.lightbulb_outline_rounded, size: 28, color: U.sub),
+                        const SizedBox(height: 6),
+                        Text(
+                          'No projects showcased yet',
+                          style: GoogleFonts.robotoFlex(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: U.text,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Publish your academic projects, hackathons, or apps to get recognized.',
+                          style: GoogleFonts.robotoFlex(fontSize: 12, color: U.sub),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: projects.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final p = projects[index];
+                      final isOwner = p.ownerId == widget.userId;
+                      final role = isOwner
+                          ? 'Owner & Lead'
+                          : (p.contributors.firstWhere(
+                              (c) => c.userId == widget.userId,
+                              orElse: () => ProjectContributor(userId: widget.userId, name: '', role: 'Contributor'),
+                            ).role ?? 'Contributor');
+
+                      return InkWell(
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ProjectDetailScreen(projectId: p.id, initialProject: p),
+                            ),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: U.surfaceContainerLow,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: U.outlineVariant.withValues(alpha: 0.35),
+                              width: 0.8,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              // Thumbnail
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  width: 56,
+                                  height: 56,
+                                  color: U.surfaceContainerHighest,
+                                  child: p.coverImage.isNotEmpty
+                                      ? CachedNetworkImage(
+                                          imageUrl: p.coverImage,
+                                          fit: BoxFit.cover,
+                                          placeholder: (context, url) => Center(
+                                            child: SizedBox(
+                                              width: 16,
+                                              height: 16,
+                                              child: CircularProgressIndicator(strokeWidth: 2, color: U.primary),
+                                            ),
+                                          ),
+                                          errorWidget: (context, url, error) => Icon(Icons.code_rounded, color: U.sub, size: 24),
+                                        )
+                                      : Icon(Icons.palette_outlined, color: U.sub, size: 24),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      p.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.robotoFlex(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: U.text,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Wrap(
+                                      spacing: 6,
+                                      runSpacing: 4,
+                                      crossAxisAlignment: WrapCrossAlignment.center,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: isOwner
+                                                ? U.primary.withValues(alpha: 0.12)
+                                                : U.peach.withValues(alpha: 0.12),
+                                            borderRadius: M3Shapes.fullRadius,
+                                          ),
+                                          child: Text(
+                                            role,
+                                            style: GoogleFonts.robotoFlex(
+                                              fontSize: 10.5,
+                                              fontWeight: FontWeight.w700,
+                                              color: isOwner ? U.primary : U.peach,
+                                            ),
+                                          ),
+                                        ),
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.schedule_rounded, size: 11, color: U.sub),
+                                            const SizedBox(width: 3),
+                                            Text(
+                                              p.relativeTime,
+                                              style: GoogleFonts.robotoFlex(fontSize: 10.5, color: U.sub, fontWeight: FontWeight.w500),
+                                            ),
+                                          ],
+                                        ),
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.favorite_rounded, size: 12, color: U.red),
+                                            const SizedBox(width: 3),
+                                            Text(
+                                              '${p.likesCount}',
+                                              style: GoogleFonts.robotoFlex(fontSize: 11, color: U.sub, fontWeight: FontWeight.w600),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(Icons.arrow_forward_ios_rounded, size: 12, color: U.dim),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+

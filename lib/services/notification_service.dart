@@ -11,6 +11,10 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../firebase_options.dart';
 import '../main.dart';
 import 'platform_support.dart';
+import 'follow_service.dart';
+import 'people_interaction_service.dart';
+import 'chat_service.dart';
+import 'uni_chat_service.dart';
 import '../screens/chat_screen.dart';
 import '../screens/delve/delve_shell.dart';
 import '../screens/event_certificates_screen.dart';
@@ -151,9 +155,10 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     final senderName = (message.data['senderName'] ?? message.data['sender_name'] ?? title).toString();
     final senderId = (message.data['senderId'] ?? message.data['sender_id'] ?? '').toString();
     final recipientId = (message.data['recipientId'] ?? message.data['recipient_id'] ?? '').toString();
+    final type = (message.data['type'] ?? '').toString();
     final List<AndroidNotificationAction>? actions = isChat
         ? NotificationService.buildChatActions(senderName: senderName)
-        : null;
+        : NotificationService._getActionsForType(type, Map<String, dynamic>.from(message.data));
 
     final StyleInformation styleInformation;
     if (isChat && chatId.isNotEmpty) {
@@ -223,7 +228,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         actions: actions,
         styleInformation: styleInformation,
         icon: 'ic_notification',
-        largeIcon: const DrawableResourceAndroidBitmap('ic_notification_large'),
+        actions: actions,
       ),
       iOS: const DarwinNotificationDetails(
         presentAlert: true,
@@ -515,23 +520,17 @@ class NotificationService {
               }
               return;
             }
+            if (response.actionId != null && response.actionId!.isNotEmpty && response.payload != null) {
+              unawaited(_handleQuickAction(
+                actionId: response.actionId!,
+                payload: response.payload!,
+                notificationId: response.id,
+                input: response.input,
+              ));
+              return;
+            }
             if (response.payload != null && response.payload!.isNotEmpty) {
               unawaited(_handleNotificationPayload(response.payload!));
-            }
-            if (response.actionId != null && response.payload != null) {
-              final decoded = jsonDecode(response.payload!);
-              if (decoded is Map<String, dynamic> && decoded['type'] == 'focus_reminder') {
-                final habitId = decoded['habitId']?.toString();
-                final userId = decoded['userId']?.toString();
-                if (habitId != null && userId != null) {
-                  unawaited(_handleBackgroundHabitAction(
-                    actionId: response.actionId,
-                    habitId: habitId,
-                    userId: userId,
-                    notificationId: response.id,
-                  ));
-                }
-              }
             }
           } catch (e) {
             debugPrint('Error handling notification response: $e');
@@ -990,7 +989,7 @@ class NotificationService {
         payload: payloadString,
       );
     } catch (e) {
-      debugPrint('NOTIF: Failed to show fallback local notification: $e');
+      debugPrint('NOTIF: Failed to show local notification: $e');
     }
   }
 
@@ -1347,19 +1346,12 @@ class NotificationService {
     if (payload != null) {
       try {
         final decoded = jsonDecode(payload);
-        if (decoded is Map<String, dynamic> && decoded['habitId'] != null) {
-          actions = const [
-            AndroidNotificationAction(
-              'action_completed',
-              'Completed',
-              showsUserInterface: false,
-            ),
-            AndroidNotificationAction(
-              'action_not_done',
-              'Not Done',
-              showsUserInterface: false,
-            ),
-          ];
+        if (decoded is Map<String, dynamic>) {
+          final type = (decoded['type'] ?? decoded['data']?['type'] ?? '').toString();
+          final payloadData = decoded['data'] is Map
+              ? Map<String, dynamic>.from(decoded['data'] as Map)
+              : decoded;
+          actions = _getActionsForType(type, payloadData);
         }
       } catch (_) {}
     }
@@ -1372,41 +1364,7 @@ class NotificationService {
       presentList: true,
     );
 
-    // 1. Try INEXACT scheduling WITH Large Icon (Standard Google Play compliant mode)
-    try {
-      await _localNotifications.zonedSchedule(
-        id,
-        title,
-        body,
-        scheduledDate,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            channelId,
-            channelName,
-            channelDescription: channelDescription,
-            importance: Importance.max,
-            priority: Priority.high,
-            playSound: true,
-            enableVibration: true,
-            icon: 'ic_notification',
-            largeIcon: const DrawableResourceAndroidBitmap('ic_notification_large'),
-            actions: actions,
-          ),
-          iOS: darwinDetails,
-        ),
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: matchDateTimeComponents,
-        payload: payload,
-      );
-      debugPrint("NOTIF: Scheduled successfully (inexact, with large icon) for ID $id at $scheduledDate");
-      return;
-    } catch (e) {
-      debugPrint("NOTIF: Inexact schedule with large icon failed for ID $id ($e). Trying inexact WITHOUT large icon...");
-    }
-
-    // 2. Try INEXACT scheduling WITHOUT Large Icon (fallback)
+    // Try INEXACT scheduling (Standard Google Play compliant mode)
     try {
       await _localNotifications.zonedSchedule(
         id,
@@ -1433,7 +1391,7 @@ class NotificationService {
         matchDateTimeComponents: matchDateTimeComponents,
         payload: payload,
       );
-      debugPrint("NOTIF: Scheduled successfully (inexact, no large icon) for ID $id at $scheduledDate");
+      debugPrint("NOTIF: Scheduled successfully (inexact) for ID $id at $scheduledDate");
     } catch (e) {
       debugPrint("NOTIF: Failed to schedule local notification for ID $id: $e");
     }
@@ -1822,6 +1780,15 @@ class NotificationService {
         }
         return;
       }
+      if (response.actionId != null && response.actionId!.isNotEmpty && response.payload != null) {
+        unawaited(_handleQuickAction(
+          actionId: response.actionId!,
+          payload: response.payload!,
+          notificationId: response.id,
+          input: response.input,
+        ));
+        return;
+      }
       if (response.payload != null && response.payload!.isNotEmpty) {
         final payload = response.payload!;
         final decoded = jsonDecode(payload);
@@ -2162,6 +2129,328 @@ class NotificationService {
       }
     } catch (e) {
       debugPrint("NOTIF: Error in background habit action handler: $e");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Quick Action Buttons for Notification Drawer
+  // ---------------------------------------------------------------------------
+
+  /// Returns the appropriate quick action buttons based on notification type.
+  static List<AndroidNotificationAction>? _getActionsForType(
+    String type,
+    Map<String, dynamic>? data,
+  ) {
+    switch (type) {
+      case 'follow_request':
+      case 'link_request':
+        return const [
+          AndroidNotificationAction(
+            'action_accept_link',
+            '✓ Accept',
+            showsUserInterface: false,
+            cancelNotification: true,
+          ),
+          AndroidNotificationAction(
+            'action_decline_link',
+            '✗ Decline',
+            showsUserInterface: false,
+            cancelNotification: true,
+          ),
+        ];
+
+      case 'wave':
+        final isReply = data?['isReply'] == true || data?['isReply'] == 'true';
+        return [
+          if (!isReply)
+            const AndroidNotificationAction(
+              'action_wave_back',
+              '👋 Wave Back',
+              showsUserInterface: false,
+              cancelNotification: true,
+            ),
+          const AndroidNotificationAction(
+            'action_reply_wave',
+            '💬 Reply',
+            inputs: [
+              AndroidNotificationActionInput(
+                label: 'Send a message...',
+                allowFreeFormInput: true,
+              ),
+            ],
+            showsUserInterface: false,
+            cancelNotification: true,
+          ),
+        ];
+
+      case 'chat':
+        return const [
+          AndroidNotificationAction(
+            'action_reply_chat',
+            '💬 Reply',
+            inputs: [
+              AndroidNotificationActionInput(
+                label: 'Type a reply...',
+                allowFreeFormInput: true,
+              ),
+            ],
+            showsUserInterface: false,
+            cancelNotification: true,
+          ),
+          AndroidNotificationAction(
+            'action_mark_read',
+            '✓ Mark Read',
+            showsUserInterface: false,
+            cancelNotification: true,
+          ),
+        ];
+
+      case 'uni_chat':
+      case 'global_chat':
+        return const [
+          AndroidNotificationAction(
+            'action_reply_uni_chat',
+            '💬 Reply',
+            inputs: [
+              AndroidNotificationActionInput(
+                label: 'Reply to channel...',
+                allowFreeFormInput: true,
+              ),
+            ],
+            showsUserInterface: false,
+            cancelNotification: true,
+          ),
+          AndroidNotificationAction(
+            'action_mark_read',
+            '✓ Mark Read',
+            showsUserInterface: false,
+            cancelNotification: true,
+          ),
+        ];
+
+      case 'focus_reminder':
+        if (data?['habitId'] != null) {
+          return const [
+            AndroidNotificationAction(
+              'action_completed',
+              '✓ Completed',
+              showsUserInterface: false,
+              cancelNotification: true,
+            ),
+            AndroidNotificationAction(
+              'action_not_done',
+              '✗ Not Done',
+              showsUserInterface: false,
+              cancelNotification: true,
+            ),
+            AndroidNotificationAction(
+              'action_snooze_10m',
+              '⏰ Snooze 10m',
+              showsUserInterface: false,
+              cancelNotification: true,
+            ),
+          ];
+        }
+        return null;
+
+      default:
+        return null;
+    }
+  }
+
+  /// Unified handler for all quick action button presses and inline direct replies from notification drawer.
+  static Future<void> _handleQuickAction({
+    required String actionId,
+    required String payload,
+    int? notificationId,
+    String? input,
+  }) async {
+    try {
+      debugPrint('NOTIF_ACTION: Handling quick action: $actionId, input: $input');
+      try {
+        await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      } catch (_) {}
+
+      Map<String, dynamic> decoded = {};
+      Map<String, dynamic> data = {};
+      try {
+        final raw = jsonDecode(payload);
+        if (raw is Map<String, dynamic>) {
+          decoded = raw;
+          data = raw['data'] is Map
+              ? Map<String, dynamic>.from(raw['data'] as Map)
+              : raw;
+        }
+      } catch (_) {}
+
+      final replyText = (input ?? '').trim();
+
+      switch (actionId) {
+        // ── Direct Reply for 1-on-1 Chat ──
+        case 'action_reply_chat':
+          final senderId = (data['senderId'] ?? data['sender_id'] ?? '').toString();
+          if (senderId.isNotEmpty && replyText.isNotEmpty) {
+            await ChatService().sendMessage(
+              otherUserId: senderId,
+              text: replyText,
+            );
+            debugPrint('NOTIF_ACTION: Sent direct reply to $senderId: "$replyText"');
+          }
+          final notifId = (data['notificationId'] ?? data['messageId'] ?? '').toString();
+          if (notifId.isNotEmpty) {
+            await dismissNotification(notifId);
+          }
+          break;
+
+        // ── Direct Reply for Uni / Campus Chat ──
+        case 'action_reply_uni_chat':
+          if (replyText.isNotEmpty) {
+            final uniId = (data['universityId'] ?? data['university_id'] ?? '').toString();
+            final effectiveUniId = uniId.isNotEmpty
+                ? uniId
+                : (U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : 'support');
+            final cleanUniId = effectiveUniId.trim().toLowerCase();
+
+            final user = FirebaseAuth.instance.currentUser;
+            final currentUid = user?.uid ?? '';
+            final currentName = user?.displayName ?? 'Student';
+            final currentEmail = user?.email ?? '';
+
+            if (cleanUniId.isNotEmpty && currentUid.isNotEmpty) {
+              await FirebaseFirestore.instance
+                  .collection('uni_chats')
+                  .doc(cleanUniId)
+                  .collection('messages')
+                  .add({
+                'text': replyText,
+                'senderId': currentUid,
+                'senderName': currentName,
+                'senderEmail': currentEmail,
+                'timestamp': FieldValue.serverTimestamp(),
+                'views': [currentUid],
+                'viewCount': 1,
+              });
+              debugPrint('NOTIF_ACTION: Sent uni chat reply to $cleanUniId: "$replyText"');
+            }
+          }
+          final notifId = (data['notificationId'] ?? data['messageId'] ?? '').toString();
+          if (notifId.isNotEmpty) {
+            await dismissNotification(notifId);
+          }
+          break;
+
+        // ── Direct Reply for Wave ──
+        case 'action_reply_wave':
+          final senderId = (data['senderId'] ?? data['sender_id'] ?? '').toString();
+          if (senderId.isNotEmpty && replyText.isNotEmpty) {
+            await ChatService().sendMessage(
+              otherUserId: senderId,
+              text: replyText,
+            );
+            debugPrint('NOTIF_ACTION: Sent wave reply message to $senderId: "$replyText"');
+          }
+          final notifId = (data['notificationId'] ?? data['waveId'] ?? '').toString();
+          if (notifId.isNotEmpty) {
+            await dismissNotification(notifId);
+          }
+          break;
+
+        // ── Link / Follow Request Actions ──
+        case 'action_accept_link':
+          final requestDocId = (data['requestDocId'] ?? data['followDocId'] ?? data['notificationId'] ?? '').toString();
+          if (requestDocId.isNotEmpty) {
+            await FollowService().acceptRequest(requestDocId);
+            debugPrint('NOTIF_ACTION: Accepted link request: $requestDocId');
+          }
+          break;
+
+        case 'action_decline_link':
+          final requestDocId = (data['requestDocId'] ?? data['followDocId'] ?? data['notificationId'] ?? '').toString();
+          if (requestDocId.isNotEmpty) {
+            await FollowService().declineRequest(requestDocId);
+            debugPrint('NOTIF_ACTION: Declined link request: $requestDocId');
+          }
+          break;
+
+        // ── Wave Back Action ──
+        case 'action_wave_back':
+          final senderId = (data['senderId'] ?? data['sender_id'] ?? '').toString();
+          final waveId = (data['waveId'] ?? '').toString();
+          if (senderId.isNotEmpty) {
+            await PeopleInteractionService().sendWave(
+              senderId,
+              isReply: true,
+              replyToWaveId: waveId.isNotEmpty ? waveId : null,
+            );
+            debugPrint('NOTIF_ACTION: Waved back at $senderId');
+          }
+          break;
+
+        // ── Chat Mark Read Action ──
+        case 'action_mark_read':
+          final chatId = (data['chatId'] ?? data['chat_id'] ?? '').toString();
+          final notifId = (data['notificationId'] ?? data['messageId'] ?? '').toString();
+          if (notifId.isNotEmpty) {
+            await dismissNotification(notifId);
+          }
+          if (chatId.isNotEmpty) {
+            try {
+              final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+              if (uid.isNotEmpty) {
+                await FirebaseFirestore.instance.collection('chats').doc(chatId).set({
+                  'lastReadBy_$uid': FieldValue.serverTimestamp(),
+                  'unreadCount_$uid': 0,
+                }, SetOptions(merge: true));
+              }
+            } catch (_) {}
+          }
+          final uniId = (data['universityId'] ?? data['university_id'] ?? '').toString();
+          if (uniId.isNotEmpty) {
+            await UniChatService().markAsSeen(uniId);
+          }
+          debugPrint('NOTIF_ACTION: Marked chat as read: $chatId / $uniId');
+          break;
+
+        // ── Focus / Habit Actions ──
+        case 'action_completed':
+        case 'action_not_done':
+          final habitId = (decoded['habitId'] ?? data['habitId'] ?? '').toString();
+          final userId = (decoded['userId'] ?? data['userId'] ?? '').toString();
+          if (habitId.isNotEmpty && userId.isNotEmpty) {
+            await _handleBackgroundHabitAction(
+              actionId: actionId,
+              habitId: habitId,
+              userId: userId,
+              notificationId: notificationId,
+            );
+          }
+          break;
+
+        case 'action_snooze_10m':
+          final title = (decoded['title'] ?? data['title'] ?? 'Reminder').toString();
+          final body = (decoded['body'] ?? data['body'] ?? '').toString();
+          final snoozeId = ((notificationId ?? 9999) + 50000) & 0x7FFFFFFF;
+          final snoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(minutes: 10));
+          await _safeZonedSchedule(
+            id: snoozeId,
+            title: title,
+            body: body,
+            scheduledDate: snoozeTime,
+            channelId: 'utopia_high_importance_v3',
+            channelName: 'UTOPIA Notifications',
+            channelDescription: 'Snoozed reminders',
+            payload: payload,
+          );
+          debugPrint('NOTIF_ACTION: Snoozed reminder for 10 minutes: $snoozeId');
+          break;
+      }
+
+      // Dismiss the notification from the drawer after action
+      if (notificationId != null) {
+        await _localNotifications.cancel(notificationId);
+      }
+    } catch (e) {
+      debugPrint('NOTIF_ACTION: Error handling quick action $actionId: $e');
     }
   }
 
