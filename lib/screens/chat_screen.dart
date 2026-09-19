@@ -85,6 +85,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _messagesStream = _chatService.messagesStream(_chatId);
 
     NotificationService.setActiveChat(_chatId);
+    unawaited(NotificationService.clearChatNotification(_chatId));
     unawaited(_chatService.markChatRead(widget.otherUserId));
     _messageController.addListener(_handleComposerChanged);
     _scrollController.addListener(_onScroll);
@@ -92,6 +93,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    unawaited(NotificationService.clearChatNotification(_chatId));
+    unawaited(_chatService.markChatRead(widget.otherUserId));
     NotificationService.setActiveChat(null);
     _typingDebounce?.cancel();
     unawaited(

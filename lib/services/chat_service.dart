@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'notification_service.dart';
 
 class ChatService {
   static final ChatService _instance = ChatService._internal();
@@ -307,16 +308,15 @@ class ChatService {
     final chatId = chatIdFor(user.uid, otherUserId);
     final chatRef = _firestore.collection('chats').doc(chatId);
 
+    // Immediately clear active Android notification and clear accumulated history
+    unawaited(NotificationService.clearChatNotification(chatId));
+
     try {
       final unreadMessages = await chatRef
           .collection('messages')
           .where('senderId', isEqualTo: otherUserId)
           .where('read', isEqualTo: false)
           .get();
-
-      if (unreadMessages.docs.isEmpty) {
-        return;
-      }
 
       final batch = _firestore.batch();
       for (final doc in unreadMessages.docs) {

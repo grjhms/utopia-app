@@ -179,6 +179,8 @@ exports.onChatMessageCreated = onDocumentCreated(
 
     if (!recipientId) return;
 
+    const unreadCount = Number(chat[`unreadCount_${recipientId}`]) || 1;
+
     const senderSnap = await db.doc(`users/${senderId}`).get();
     const sender = senderSnap.data() || {};
     const senderName = sender.displayName || sender.email || "Student";
@@ -196,6 +198,7 @@ exports.onChatMessageCreated = onDocumentCreated(
           senderId,
           senderName,
           recipientId,
+          unreadCount: String(unreadCount),
           body: preview,
         },
       },

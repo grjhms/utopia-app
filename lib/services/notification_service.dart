@@ -39,6 +39,13 @@ import 'focus_supabase_service.dart';
 @pragma('vm:entry-point')
 Future<void> notificationActionBackgroundCallback(NotificationResponse response) async {
   WidgetsFlutterBinding.ensureInitialized();
+  final localNotif = FlutterLocalNotificationsPlugin();
+  const androidSettings = AndroidInitializationSettings('ic_notification');
+  try {
+    await localNotif.initialize(
+      const InitializationSettings(android: androidSettings),
+    );
+  } catch (_) {}
   await NotificationService.onDidReceiveBackgroundNotificationResponse(response);
 }
 
@@ -160,12 +167,15 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         : NotificationService._getActionsForType(type, Map<String, dynamic>.from(message.data));
 
     final StyleInformation styleInformation;
+    final unreadCountStr = (message.data['unreadCount'] ?? message.data['unread_count'] ?? '').toString();
+    final unreadCount = int.tryParse(unreadCountStr);
     if (isChat && chatId.isNotEmpty) {
       final messageList = await NotificationService.getAccumulatedChatMessages(
         chatId: chatId,
         senderName: senderName,
         senderId: senderId,
         newBody: body,
+        unreadCount: unreadCount,
       );
       const mePerson = Person(
         name: 'Me',
@@ -221,7 +231,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         enableVibration: true,
         enableLights: true,
         category: isChat ? AndroidNotificationCategory.message : AndroidNotificationCategory.event,
-        tag: notifTag,
+        tag: null,
         groupKey: (isChat && chatId.isNotEmpty) ? 'chat_$chatId' : null,
         color: themeColor,
         actions: actions,
@@ -356,21 +366,66 @@ class NotificationService {
     required String senderName,
     required String senderId,
     required String newBody,
+    int? unreadCount,
     DateTime? timestamp,
   }) async {
     final prefs = await SharedPreferences.getInstance();
+    try {
+      await prefs.reload();
+    } catch (_) {}
+
+    // Check Firestore for the true unreadCount if not supplied in push payload
+    int effectiveUnread = unreadCount ?? 0;
+    if (effectiveUnread <= 0) {
+      try {
+        final myUid = FirebaseAuth.instance.currentUser?.uid ??
+            prefs.getString('cached_user_uid') ??
+            prefs.getString('auth_uid') ??
+            prefs.getString('last_known_uid') ??
+            '';
+        if (myUid.isNotEmpty) {
+          final chatDoc = await FirebaseFirestore.instance
+              .collection('chats')
+              .doc(chatId)
+              .get()
+              .timeout(const Duration(milliseconds: 1500));
+          if (chatDoc.exists) {
+            effectiveUnread =
+                (chatDoc.data()?['unreadCount_$myUid'] as num?)?.toInt() ?? 0;
+          }
+        }
+      } catch (_) {}
+    }
+
     final key = 'notif_msgs_$chatId';
     final rawList = prefs.getStringList(key) ?? [];
     final nowMs = (timestamp ?? DateTime.now()).millisecondsSinceEpoch;
+    final lastReadMs = prefs.getInt('chat_last_read_$chatId') ?? 0;
 
     final List<Map<String, dynamic>> messagesJson = [];
-    for (final item in rawList) {
-      try {
-        final decoded = jsonDecode(item);
-        if (decoded is Map<String, dynamic>) {
-          messagesJson.add(decoded);
-        }
-      } catch (_) {}
+
+    // Only keep prior messages if there are multiple unread messages (> 1)
+    if (effectiveUnread > 1) {
+      for (final item in rawList) {
+        try {
+          final decoded = jsonDecode(item);
+          if (decoded is Map<String, dynamic>) {
+            final time = decoded['time'] as int? ?? 0;
+            if (time > lastReadMs) {
+              messagesJson.add(decoded);
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Keep at most (effectiveUnread - 1) previous unread messages so total equals effectiveUnread
+      final maxPrior = effectiveUnread - 1;
+      if (messagesJson.length > maxPrior) {
+        messagesJson.removeRange(0, messagesJson.length - maxPrior);
+      }
+    } else {
+      // Single unread message: start completely fresh!
+      messagesJson.clear();
     }
 
     // Append new incoming message
@@ -380,7 +435,7 @@ class NotificationService {
       'isMe': false,
     });
 
-    // Keep up to 10 most recent messages (like Instagram)
+    // Keep up to 10 most recent unread messages
     if (messagesJson.length > 10) {
       messagesJson.removeRange(0, messagesJson.length - 10);
     }
@@ -451,14 +506,47 @@ class NotificationService {
   /// Cancels any active notification for a chat and clears its accumulated message history.
   static Future<void> clearChatNotification(String chatId) async {
     if (chatId.isEmpty) return;
+    final notifId = 'chat_$chatId'.hashCode & 0x7FFFFFFF;
+    final notifTag = 'chat_$chatId';
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    // 1. Immediately purge persisted messages and record last read timestamp
     try {
-      final notifTag = 'chat_$chatId';
-      final notifId = notifTag.hashCode & 0x7FFFFFFF;
-      await _localNotifications.cancel(notifId, tag: notifTag);
-      await _localNotifications.cancel(notifId);
       final prefs = await SharedPreferences.getInstance();
+      try {
+        await prefs.reload();
+      } catch (_) {}
       await prefs.remove('notif_msgs_$chatId');
-    } catch (_) {}
+      await prefs.setInt('chat_last_read_$chatId', nowMs);
+    } catch (e) {
+      debugPrint('[NOTIF] Failed to clear prefs for $chatId: $e');
+    }
+
+    // 2. Safely dismiss Android / local notifications (both with and without tag)
+    try {
+      final localNotif = FlutterLocalNotificationsPlugin();
+      await localNotif.cancel(notifId);
+      await localNotif.cancel(notifId, tag: notifTag);
+      await _localNotifications.cancel(notifId);
+      await _localNotifications.cancel(notifId, tag: notifTag);
+      final androidPlugin = localNotif
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      await androidPlugin?.cancel(notifId);
+      await androidPlugin?.cancel(notifId, tag: notifTag);
+
+      // Cancel any active notifications matching this tag or id
+      final active = await androidPlugin?.getActiveNotifications();
+      if (active != null) {
+        for (final n in active) {
+          if (n.tag == notifTag || n.id == notifId || (n.tag?.contains(chatId) ?? false)) {
+            await androidPlugin?.cancel(n.id ?? 0, tag: n.tag);
+            await androidPlugin?.cancel(n.id ?? 0);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[NOTIF] Failed to cancel notifications for $chatId: $e');
+    }
   }
 
   /// Robust timezone initialization with graceful multi-tier fallback.
@@ -876,12 +964,15 @@ class NotificationService {
     });
 
     final StyleInformation styleInformation;
+    final unreadCountStr = (data?['unreadCount'] ?? data?['unread_count'] ?? '').toString();
+    final unreadCount = int.tryParse(unreadCountStr);
     if (isChat && chatId.isNotEmpty) {
       final messageList = await getAccumulatedChatMessages(
         chatId: chatId,
         senderName: senderName,
         senderId: senderId,
         newBody: body,
+        unreadCount: unreadCount,
       );
       const mePerson = Person(
         name: 'Me',
@@ -947,7 +1038,7 @@ class NotificationService {
           enableVibration: true,
           enableLights: true,
           category: isChat ? AndroidNotificationCategory.message : AndroidNotificationCategory.event,
-          tag: notifTag,
+          tag: null,
           groupKey: (isChat && chatId.isNotEmpty) ? 'chat_$chatId' : null,
           color: themeColor,
           actions: actions,
@@ -1002,7 +1093,7 @@ class NotificationService {
           enableVibration: true,
           enableLights: true,
           category: isChat ? AndroidNotificationCategory.message : AndroidNotificationCategory.event,
-          tag: notifTag,
+          tag: null,
           groupKey: (isChat && chatId.isNotEmpty) ? 'chat_$chatId' : null,
           color: themeColor,
           actions: actions,
@@ -1953,13 +2044,6 @@ class NotificationService {
           .toString()
           .trim();
 
-      final senderName = (decoded['senderName'] ??
-              data['senderName'] ??
-              data['sender_name'] ??
-              'Friend')
-          .toString()
-          .trim();
-
       debugPrint('[NOTIF_ACTION] otherUserId=$otherUserId, chatId=$chatId, notifTag=$notifTag');
 
       if (otherUserId.isEmpty) {
@@ -2073,6 +2157,9 @@ class NotificationService {
 
       // ── 6. Handle MARK AS READ action ───────────────────────────────────
       } else if (actionId == 'action_mark_as_read') {
+        if (chatId.isNotEmpty) {
+          unawaited(clearChatNotification(chatId));
+        }
         try {
           final unreadSnap = await chatRef
               .collection('messages')
@@ -2100,14 +2187,23 @@ class NotificationService {
     } finally {
       // ALWAYS dismiss the notification and clear the Android RemoteInput spinner
       try {
+        final localNotif = FlutterLocalNotificationsPlugin();
         final resolvedId = (notificationId != 0)
             ? notificationId
-            : (notifTag.isNotEmpty ? (notifTag.hashCode & 0x7FFFFFFF) : 0);
+            : (chatId.isNotEmpty ? ('chat_$chatId'.hashCode & 0x7FFFFFFF) : 0);
         if (resolvedId != 0) {
+          await localNotif.cancel(resolvedId);
+          await localNotif.cancel(resolvedId, tag: 'chat_$chatId');
           if (notifTag.isNotEmpty) {
-            await _localNotifications.cancel(resolvedId, tag: notifTag);
+            await localNotif.cancel(resolvedId, tag: notifTag);
           }
-          await _localNotifications.cancel(resolvedId);
+          final androidPlugin = localNotif
+              .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+          await androidPlugin?.cancel(resolvedId);
+          await androidPlugin?.cancel(resolvedId, tag: 'chat_$chatId');
+          if (notifTag.isNotEmpty) {
+            await androidPlugin?.cancel(resolvedId, tag: notifTag);
+          }
         }
         if (chatId.isNotEmpty) {
           await clearChatNotification(chatId);
