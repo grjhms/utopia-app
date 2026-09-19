@@ -66,27 +66,32 @@ async function sendPushToUser(recipientId, { title, body, data = {} }, category 
     }
   }
   stringifiedData.click_action = "FLUTTER_NOTIFICATION_CLICK";
+  stringifiedData.title = title || "";
+  stringifiedData.body = resolvedBody || "";
+
+  const isChat = category === "chat" || stringifiedData.type === "chat";
 
   // Compute a deterministic collapse key / notification tag so devices deduplicate multiple deliveries
-  const collapseTag = stringifiedData.messageId ||
-                      stringifiedData.waveId ||
-                      stringifiedData.followDocId ||
-                      stringifiedData.notificationId ||
-                      (stringifiedData.type && stringifiedData.chatId ? `${stringifiedData.type}_${stringifiedData.chatId}` : null) ||
-                      (stringifiedData.type ? `${stringifiedData.type}` : "utopia_general");
+  const collapseTag = (isChat && stringifiedData.chatId)
+    ? `chat_${stringifiedData.chatId}`
+    : (stringifiedData.messageId ||
+       stringifiedData.waveId ||
+       stringifiedData.followDocId ||
+       stringifiedData.notificationId ||
+       (stringifiedData.type ? `${stringifiedData.type}` : "utopia_general"));
 
   const message = {
     tokens,
     notification: {
       title,
-      body,
+      body: resolvedBody,
     },
     data: stringifiedData,
     android: {
       priority: "high",
       collapseKey: collapseTag,
       notification: {
-        channelId: "utopia_high_importance_v3",
+        channelId: isChat ? "utopia_chat_messages_v4" : "utopia_high_importance_v3",
         priority: "high",
         defaultSound: true,
         defaultVibrateTimings: true,
@@ -102,7 +107,7 @@ async function sendPushToUser(recipientId, { title, body, data = {} }, category 
         aps: {
           alert: {
             title,
-            body,
+            body: resolvedBody,
           },
           sound: "default",
           badge: 1,
@@ -186,6 +191,7 @@ exports.onChatMessageCreated = onDocumentCreated(
           messageId,
           senderId,
           senderName,
+          recipientId,
           body: preview,
         },
       },
@@ -325,7 +331,10 @@ exports.onNotificationCreated = onDocumentCreated(
 
     if (!recipientId || !body) return;
 
-    const category = (type === "event" || type === "broadcast" || type === "certificate") ? "events" : null;
+    // Determine notification category for user preference checks
+    const category = type === "chat" ? "chat"
+      : (type === "event" || type === "broadcast" || type === "certificate") ? "events"
+      : null;
 
     await sendPushToUser(
       recipientId,
@@ -337,12 +346,17 @@ exports.onNotificationCreated = onDocumentCreated(
           notificationId: event.params.notificationId,
           chatId: notif.chatId || "",
           senderId: notif.senderId || "",
+          senderName: notif.senderName || title || "",
+          recipientId: recipientId,
+          body: body,
+          messageId: notif.messageId || "",
         },
       },
       category,
     );
   },
 );
+
 
 // ─── TRIGGER 6: Utopia Chat (Global / Campus Community Messages) ───────────
 exports.onUniChatMessageCreated = onDocumentCreated(

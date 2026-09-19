@@ -1738,10 +1738,16 @@ class _ThemeStyleSheetState extends State<_ThemeStyleSheet> {
                           child: _ThemePaletteTile(
                             theme: t,
                             isSelected: isSelected,
-                            onTap: () {
+                            onTap: () async {
                               HapticFeedback.selectionClick();
                               appThemeNotifier.value = t;
-                              Navigator.pop(context, t.key);
+                              try {
+                                final prefs = await SharedPreferences.getInstance();
+                                await prefs.setInt('theme_primary_color_value', t.primary.value);
+                              } catch (_) {}
+                              if (context.mounted) {
+                                Navigator.pop(context, t.key);
+                              }
                             },
                           ),
                         );

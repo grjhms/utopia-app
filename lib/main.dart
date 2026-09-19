@@ -14,6 +14,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:app_links/app_links.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
 
 import 'services/cache_service.dart';
@@ -446,6 +447,19 @@ Future<AppInitializationState> _initializeApp() async {
       unawaited(NotificationService.initialize());
     }
 
+    // Cache current user identity for background notification actions
+    FirebaseAuth.instance.authStateChanges().listen((user) async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        if (user != null) {
+          await prefs.setString('current_user_uid', user.uid);
+          if (user.displayName != null && user.displayName!.isNotEmpty) {
+            await prefs.setString('current_user_name', user.displayName!);
+          }
+        }
+      } catch (_) {}
+    });
+
     // Initialize global Supabase in the background (used by notes, events, etc.)
     unawaited(() async {
       try {
@@ -516,6 +530,10 @@ void main() async {
 
   _initialAccentKey = await _loadInitialAccent();
   U.applyTheme(_initialAccentKey);
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('theme_primary_color_value', appThemeNotifier.value.primary.toARGB32());
+  } catch (_) {}
   await _loadAppToggleSettings();
   appInitialization = _initializeApp();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -595,10 +613,13 @@ class U {
 
   static void applyTheme(String? key) {
     final next = themeForKey(key);
-    if (appThemeNotifier.value.key == next.key) {
-      return;
-    }
     appThemeNotifier.value = next;
+    unawaited(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt('theme_primary_color_value', next.primary.toARGB32());
+      } catch (_) {}
+    }());
   }
 
   static String sanitizeDisplayName(String? name) {

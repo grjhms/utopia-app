@@ -1665,6 +1665,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   value: '${(academic['percentage'] ?? '').toString().trim()}%',
                   color: U.peach,
                 ),
+              if ((academic['activityPoints'] ?? '').toString().trim().isNotEmpty &&
+                  (academic['activityPoints'] ?? '').toString().trim() != '0')
+                _buildSimpleStatPill(
+                  label: 'Activity',
+                  value: '${(academic['activityPoints'] ?? '').toString().trim()} pts',
+                  color: const Color(0xFF6366F1),
+                ),
             ],
           ),
         ],

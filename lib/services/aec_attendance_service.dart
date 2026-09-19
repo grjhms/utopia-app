@@ -2377,6 +2377,13 @@ class AecAttendanceService {
         if (pctMatch != null) percentage = pctMatch.group(1);
       }
 
+      // Check for Activity / AICTE points if present on portal
+      final actMatch = RegExp(
+        r'(?:Activity\s*Points?|AICTE\s*Points?|Activity)\s*[:\s]*([0-9.]+)',
+        caseSensitive: false,
+      ).firstMatch(cleanAll);
+      final activityPoints = actMatch?.group(1);
+
       final semesters = <Map<String, dynamic>>[];
 
       // 2. Restrict to EXTERNAL MARKS section to prevent attendance and internal marks bleed-through
@@ -2496,6 +2503,7 @@ class AecAttendanceService {
         'failed': failedTotal,
         'credits': creditsTotal ?? '',
         'percentage': percentage ?? '',
+        'activityPoints': activityPoints ?? '',
         'result': failedTotal > 0 ? 'Fail' : 'Pass',
         'semesters': semesters,
       };
