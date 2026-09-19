@@ -62,9 +62,11 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     final type = (message.data['type'] ?? '').toString();
     final isChat = type == 'chat';
 
-    // If message contains a standard notification payload and is not a chat message,
-    // Android/Google Play Services and iOS APNs automatically render the system notification banner directly.
-    if (message.notification != null && !isChat) {
+    // If message contains a standard notification payload, Android/Google Play Services
+    // and iOS APNs automatically render the system notification banner directly.
+    // Displaying another notification locally would create a duplicate.
+    if (message.notification != null) {
+      debugPrint('[FCM_BACKGROUND] System tray already displayed notification for id=${message.messageId}');
       return;
     }
 
@@ -84,6 +86,25 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     if (rawBody.isEmpty) {
       return;
     }
+
+    // Deduplicate incoming background messages within 15 seconds
+    try {
+      final rawMsgId = message.messageId;
+      final msgKey = (rawMsgId != null && rawMsgId.isNotEmpty)
+          ? rawMsgId
+          : '${rawTitle}_${rawBody}_${message.data['type']}_${message.data['chatId'] ?? message.data['messageId']}';
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      final lastHandledKey = prefs.getString('last_bg_fcm_handled_key');
+      final lastHandledTime = prefs.getInt('last_bg_fcm_handled_time') ?? 0;
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      if (lastHandledKey == msgKey && (nowMs - lastHandledTime) < 15000) {
+        debugPrint('[FCM_BACKGROUND] Dropped duplicate incoming message: $msgKey');
+        return;
+      }
+      await prefs.setString('last_bg_fcm_handled_key', msgKey);
+      await prefs.setInt('last_bg_fcm_handled_time', nowMs);
+    } catch (_) {}
 
     final title = rawTitle.isNotEmpty ? rawTitle : 'UTOPIA';
     final body = rawBody;
@@ -2092,45 +2113,7 @@ class NotificationService {
         await batch.commit();
         debugPrint('[NOTIF_ACTION] ✔ Message committed atomically to Firestore: "${replyText.length > 30 ? '${replyText.substring(0, 30)}...' : replyText}"');
 
-        // 5b. Get sender display name for notification to friend
-        String myDisplayName = 'Friend';
-        try {
-          final myDoc = await FirebaseFirestore.instance.collection('users').doc(myUid).get();
-          myDisplayName = myDoc.data()?['displayName']?.toString() ??
-              myDoc.data()?['email']?.toString() ??
-              'Friend';
-        } catch (_) {}
-
-        // 5c. Write notification document so friend gets push notification
-        try {
-          final notifDoc = FirebaseFirestore.instance.collection('notifications').doc();
-          await notifDoc.set({
-            'id': notifDoc.id,
-            'recipientId': otherUserId,
-            'senderId': myUid,
-            'senderName': myDisplayName,
-            'type': 'chat',
-            'title': myDisplayName,
-            'body': replyText.length > 120 ? '${replyText.substring(0, 117)}...' : replyText,
-            'chatId': chatId,
-            'messageId': messageRef.id,
-            'data': {
-              'chatId': chatId,
-              'senderId': myUid,
-              'senderName': myDisplayName,
-              'recipientId': otherUserId,
-              'type': 'chat',
-              'body': replyText,
-            },
-            'read': false,
-            'createdAt': FieldValue.serverTimestamp(),
-          });
-          debugPrint('[NOTIF_ACTION] ✔ Notification doc ${notifDoc.id} created for friend $otherUserId');
-        } catch (e) {
-          debugPrint('[NOTIF_ACTION] Non-fatal: notification doc write failed: $e');
-        }
-
-        // 5d. Record sent reply into local message thread
+        // 5b. Record sent reply into local message thread
         await recordSentChatMessage(chatId: chatId, text: replyText);
 
         // 5e. Mark incoming unread messages from other user as read
@@ -2587,7 +2570,7 @@ class NotificationService {
       if (user != null && token.isNotEmpty) {
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
           'fcmToken': token,
-          'fcmTokens': FieldValue.arrayUnion([token]),
+          'fcmTokens': [token],
           'email': user.email,
           'displayName': user.displayName ?? '',
           'tokenUpdatedAt': FieldValue.serverTimestamp(),

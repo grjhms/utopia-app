@@ -43,15 +43,14 @@ async function sendPushToUser(recipientId, { title, body, data = {} }, category 
 
   let tokens = [];
 
-  if (Array.isArray(userData.fcmTokens) && userData.fcmTokens.length > 0) {
-    tokens = [...userData.fcmTokens];
+  if (userData.fcmToken && typeof userData.fcmToken === "string" && userData.fcmToken.trim().length > 0) {
+    tokens = [userData.fcmToken.trim()];
+  } else if (Array.isArray(userData.fcmTokens) && userData.fcmTokens.length > 0) {
+    const valid = userData.fcmTokens.filter((t) => typeof t === "string" && t.trim().length > 0);
+    if (valid.length > 0) {
+      tokens = [valid[valid.length - 1].trim()];
+    }
   }
-  if (userData.fcmToken && typeof userData.fcmToken === "string") {
-    tokens.unshift(userData.fcmToken);
-  }
-
-  // Remove duplicates, empty strings, and limit to recent valid tokens
-  tokens = [...new Set(tokens.filter((t) => typeof t === "string" && t.trim().length > 0))].slice(0, 3);
 
   if (tokens.length === 0) {
     logger.info(`Recipient users/${recipientId} has no registered FCM tokens`);
@@ -337,6 +336,12 @@ exports.onNotificationCreated = onDocumentCreated(
     const type = notif.type || "general";
 
     if (!recipientId || !body) return;
+
+    // Direct chat notifications are handled exclusively by onChatMessageCreated
+    if (type === "chat") {
+      logger.info(`Ignoring direct chat notification doc ${event.params.notificationId} to prevent duplicate pushes`);
+      return;
+    }
 
     // Determine notification category for user preference checks
     const category = type === "chat" ? "chat"
