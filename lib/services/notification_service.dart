@@ -228,7 +228,6 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         actions: actions,
         styleInformation: styleInformation,
         icon: 'ic_notification',
-        actions: actions,
       ),
       iOS: const DarwinNotificationDetails(
         presentAlert: true,
@@ -238,6 +237,22 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         presentList: true,
       ),
     );
+
+    // Cancel any system-generated notification from Google Play Services (which uses id 0 or collapseTag)
+    try {
+      if (notifTag.isNotEmpty) {
+        await androidPlugin?.cancel(0, tag: notifTag);
+      }
+      await androidPlugin?.cancel(0);
+      final active = await androidPlugin?.getActiveNotifications();
+      if (active != null) {
+        for (final n in active) {
+          if (n.id != notifId && (n.tag == notifTag || (isChat && n.tag == 'chat_$chatId'))) {
+            await androidPlugin?.cancel(n.id ?? 0, tag: n.tag);
+          }
+        }
+      }
+    } catch (_) {}
 
     await localNotifications.show(
       notifId,
@@ -943,6 +958,23 @@ class NotificationService {
         ),
         iOS: iosDetails,
       );
+
+      // Cancel any system-generated notification from Google Play Services (which uses id 0 or collapseTag)
+      final androidPlugin = _localNotifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      try {
+        if (notifTag.isNotEmpty) {
+          await androidPlugin?.cancel(0, tag: notifTag);
+        }
+        await androidPlugin?.cancel(0);
+        final active = await androidPlugin?.getActiveNotifications();
+        if (active != null) {
+          for (final n in active) {
+            if (n.id != notifId && (n.tag == notifTag || (isChat && n.tag == 'chat_$chatId'))) {
+              await androidPlugin?.cancel(n.id ?? 0, tag: n.tag);
+            }
+          }
+        }
+      } catch (_) {}
 
       await _localNotifications.show(
         notifId,

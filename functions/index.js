@@ -82,22 +82,26 @@ async function sendPushToUser(recipientId, { title, body, data = {} }, category 
 
   const message = {
     tokens,
-    notification: {
-      title,
-      body: resolvedBody,
-    },
+    ...(!isChat ? {
+      notification: {
+        title,
+        body: resolvedBody,
+      },
+    } : {}),
     data: stringifiedData,
     android: {
       priority: "high",
       collapseKey: collapseTag,
-      notification: {
-        channelId: isChat ? "utopia_chat_messages_v4" : "utopia_high_importance_v3",
-        priority: "high",
-        defaultSound: true,
-        defaultVibrateTimings: true,
-        icon: "ic_notification",
-        tag: collapseTag,
-      },
+      ...(!isChat ? {
+        notification: {
+          channelId: "utopia_high_importance_v3",
+          priority: "high",
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          icon: "ic_notification",
+          tag: collapseTag,
+        },
+      } : {}),
     },
     apns: {
       headers: {
