@@ -476,15 +476,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     ),
                   ),
                 ),
-                title: Text(
-                  displayName,
-                  style: GoogleFonts.outfit(
-                    color: U.text,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                centerTitle: true,
               ),
 
               // ── Main Centered Body ──────────────────────────────────
@@ -846,90 +837,55 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
                       const SizedBox(height: 18),
 
-                      // ── 7. Academic Identity Card (Prominent & Spacious) ─
-                      Container(
-                        constraints: const BoxConstraints(maxWidth: 440),
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(
-                          color: U.card,
-                          borderRadius: M3Shapes.cardRadius,
-                          border: Border.all(color: U.border, width: 0.8),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(Icons.badge_outlined, size: 17, color: U.primary),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'ACADEMIC IDENTITY',
-                                  style: GoogleFonts.outfit(
-                                    color: U.primary,
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 1.1,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 14),
-                            _AcademicInfoRow(
-                              icon: Icons.account_balance_outlined,
-                              label: 'University / Institution',
-                              value: university.isNotEmpty ? university : 'Campus Student',
-                            ),
-                            if (branch.isNotEmpty) ...[
-                              const Divider(height: 20, thickness: 0.6),
-                              _AcademicInfoRow(
-                                icon: Icons.school_outlined,
-                                label: 'Branch / Department',
-                                value: branch,
-                              ),
-                            ],
-                            if (rollNumber.isNotEmpty && (_isOwnProfile || showRollNumber)) ...[
-                              const Divider(height: 20, thickness: 0.6),
-                              _AcademicInfoRow(
-                                icon: Icons.numbers_rounded,
-                                label: 'Student Roll / ID',
-                                value: _isOwnProfile && !showRollNumber
-                                    ? '$rollNumber (Hidden publicly)'
-                                    : rollNumber,
-                              ),
-                            ],
-                            // Theme Accent Swatch if enabled
-                            () {
-                              final showTheme = (userData['showThemeOnProfile'] as bool?) ?? true;
-                              final themeKey = (userData['themeAccent'] ?? '').toString().trim();
-                              if (!showTheme || themeKey.isEmpty) return const SizedBox.shrink();
-                              final userTheme = U.themeForKey(themeKey);
-
-                              return Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                      // ── 7. Academic Identity Card (Branch & Roll Number) ─
+                      if (branch.isNotEmpty || (rollNumber.isNotEmpty && (_isOwnProfile || showRollNumber)))
+                        Container(
+                          constraints: const BoxConstraints(maxWidth: 440),
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(18),
+                          decoration: BoxDecoration(
+                            color: U.card,
+                            borderRadius: M3Shapes.cardRadius,
+                            border: Border.all(color: U.border, width: 0.8),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
                                 children: [
-                                  const Divider(height: 20, thickness: 0.6),
-                                  _AcademicInfoRow(
-                                    icon: Icons.palette_outlined,
-                                    label: 'Theme Accent',
-                                    value: userTheme.label,
-                                    trailing: Container(
-                                      width: 14,
-                                      height: 14,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: userTheme.primary,
-                                        border: Border.all(color: U.border, width: 1),
-                                      ),
+                                  Icon(Icons.badge_outlined, size: 17, color: U.primary),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'ACADEMIC IDENTITY',
+                                    style: GoogleFonts.outfit(
+                                      color: U.primary,
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 1.1,
                                     ),
                                   ),
                                 ],
-                              );
-                            }(),
-                          ],
+                              ),
+                              const SizedBox(height: 14),
+                              if (branch.isNotEmpty)
+                                _AcademicInfoRow(
+                                  icon: Icons.school_outlined,
+                                  label: 'Branch / Department',
+                                  value: branch,
+                                ),
+                              if (rollNumber.isNotEmpty && (_isOwnProfile || showRollNumber)) ...[
+                                if (branch.isNotEmpty) const Divider(height: 20, thickness: 0.6),
+                                _AcademicInfoRow(
+                                  icon: Icons.numbers_rounded,
+                                  label: 'Student Roll / ID',
+                                  value: _isOwnProfile && !showRollNumber
+                                      ? '$rollNumber (Hidden publicly)'
+                                      : rollNumber,
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
-                      ),
 
                       const SizedBox(height: 18),
 
@@ -1480,7 +1436,7 @@ class _AcademicInfoRow extends StatelessWidget {
 }
 
 /// Profile Section displaying projects authored or contributed to by this user.
-class _UserProjectsProfileSection extends StatelessWidget {
+class _UserProjectsProfileSection extends StatefulWidget {
   final String userId;
   final bool isOwnProfile;
 
@@ -1490,19 +1446,34 @@ class _UserProjectsProfileSection extends StatelessWidget {
   });
 
   @override
+  State<_UserProjectsProfileSection> createState() => _UserProjectsProfileSectionState();
+}
+
+class _UserProjectsProfileSectionState extends State<_UserProjectsProfileSection> {
+  late bool _isExpanded;
+
+  @override
+  void initState() {
+    super.initState();
+    // Public view is expanded by default (!isOwnProfile), own profile is collapsed by default
+    _isExpanded = !widget.isOwnProfile;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (userId.isEmpty) return const SizedBox.shrink();
+    if (widget.userId.isEmpty) return const SizedBox.shrink();
 
     return StreamBuilder<List<ProjectModel>>(
-      stream: ProjectService().getUserProjectsStream(userId),
+      stream: ProjectService().getUserProjectsStream(widget.userId),
       builder: (context, snapshot) {
         final projects = snapshot.data ?? [];
 
-        if (projects.isEmpty && !isOwnProfile) {
+        if (projects.isEmpty && !widget.isOwnProfile) {
           return const SizedBox.shrink();
         }
 
-        return Container(
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
           constraints: const BoxConstraints(maxWidth: 440),
           width: double.infinity,
           decoration: BoxDecoration(
@@ -1514,265 +1485,286 @@ class _UserProjectsProfileSection extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
-              Row(
-                children: [
-                  Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      color: U.primary.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(Icons.rocket_launch_rounded, color: U.primary, size: 16),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            'PROJECTS',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.outfit(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 1.1,
-                              color: U.primary,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                          decoration: BoxDecoration(
-                            color: U.primary.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: U.primary.withValues(alpha: 0.28),
-                              width: 0.8,
-                            ),
-                          ),
-                          child: Text(
-                            'BETA',
-                            style: GoogleFonts.robotoFlex(
-                              fontSize: 8,
-                              fontWeight: FontWeight.w800,
-                              color: U.primary,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ),
-                        if (projects.isNotEmpty) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                            decoration: BoxDecoration(
-                              color: U.primary.withValues(alpha: 0.14),
-                              borderRadius: M3Shapes.fullRadius,
-                            ),
-                            child: Text(
-                              '${projects.length}',
-                              style: GoogleFonts.outfit(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w800,
-                                color: U.primary,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  if (isOwnProfile)
-                    TextButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const CreateProjectScreen()),
-                        );
-                      },
-                      icon: const Icon(Icons.add_rounded, size: 15),
-                      label: const Text('Add'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: U.primary,
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        textStyle: GoogleFonts.outfit(fontSize: 11.5, fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 14),
-
-              if (projects.isEmpty)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: U.surfaceContainerLow,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: U.outlineVariant.withValues(alpha: 0.25),
-                      width: 0.8,
-                    ),
-                  ),
-                  child: Column(
+              // Header (Tappable to Expand / Collapse)
+              InkWell(
+                onTap: () {
+                  setState(() {
+                    _isExpanded = !_isExpanded;
+                  });
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
                     children: [
-                      Icon(Icons.lightbulb_outline_rounded, size: 28, color: U.sub),
-                      const SizedBox(height: 6),
-                      Text(
-                        'No projects showcased yet',
-                        style: GoogleFonts.outfit(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w700,
-                          color: U.text,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Publish your academic projects, hackathons, or apps to get recognized.',
-                        style: GoogleFonts.outfit(fontSize: 12, color: U.sub),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                )
-              else
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: projects.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final p = projects[index];
-                    final isOwner = p.ownerId == userId;
-                    final role = isOwner
-                        ? 'Owner & Lead'
-                        : (p.contributors.firstWhere(
-                            (c) => c.userId == userId,
-                            orElse: () => ProjectContributor(userId: userId, name: '', role: 'Contributor'),
-                          ).role ?? 'Contributor');
-
-                    return InkWell(
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => ProjectDetailScreen(projectId: p.id, initialProject: p),
-                          ),
-                        );
-                      },
-                      borderRadius: BorderRadius.circular(16),
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
+                      Container(
+                        width: 30,
+                        height: 30,
                         decoration: BoxDecoration(
-                          color: U.surfaceContainerLow,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: U.border.withValues(alpha: 0.5),
-                            width: 0.8,
-                          ),
+                          color: U.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
                         ),
+                        child: Icon(Icons.rocket_launch_rounded, color: U.primary, size: 16),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
                         child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            // Thumbnail
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: Container(
-                                width: 56,
-                                height: 56,
-                                color: U.surfaceContainerHighest,
-                                child: p.coverImage.isNotEmpty
-                                    ? CachedNetworkImage(
-                                        imageUrl: p.coverImage,
-                                        fit: BoxFit.cover,
-                                        placeholder: (context, url) => Center(
-                                          child: SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: U.primary),
-                                          ),
-                                        ),
-                                        errorWidget: (context, url, error) => Icon(Icons.code_rounded, color: U.sub, size: 24),
-                                      )
-                                    : Icon(Icons.palette_outlined, color: U.sub, size: 24),
+                            Flexible(
+                              child: Text(
+                                'PROJECTS',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.outfit(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.1,
+                                  color: U.primary,
+                                ),
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    p.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: GoogleFonts.outfit(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700,
-                                      color: U.text,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Wrap(
-                                    spacing: 6,
-                                    runSpacing: 4,
-                                    crossAxisAlignment: WrapCrossAlignment.center,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: isOwner
-                                              ? U.primary.withValues(alpha: 0.12)
-                                              : U.peach.withValues(alpha: 0.12),
-                                          borderRadius: M3Shapes.fullRadius,
-                                        ),
-                                        child: Text(
-                                          role,
-                                          style: GoogleFonts.outfit(
-                                            fontSize: 10.5,
-                                            fontWeight: FontWeight.w700,
-                                            color: isOwner ? U.primary : U.peach,
-                                          ),
-                                        ),
-                                      ),
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.schedule_rounded, size: 11, color: U.sub),
-                                          const SizedBox(width: 3),
-                                          Text(
-                                            p.relativeTime,
-                                            style: GoogleFonts.outfit(fontSize: 10.5, color: U.sub, fontWeight: FontWeight.w500),
-                                          ),
-                                        ],
-                                      ),
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.favorite_rounded, size: 12, color: U.red),
-                                          const SizedBox(width: 3),
-                                          Text(
-                                            '${p.likesCount}',
-                                            style: GoogleFonts.outfit(fontSize: 11, color: U.sub, fontWeight: FontWeight.w600),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ],
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: U.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: U.primary.withValues(alpha: 0.28),
+                                  width: 0.8,
+                                ),
+                              ),
+                              child: Text(
+                                'BETA',
+                                style: GoogleFonts.robotoFlex(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w800,
+                                  color: U.primary,
+                                  letterSpacing: 0.5,
+                                ),
                               ),
                             ),
-                            Icon(Icons.arrow_forward_ios_rounded, size: 12, color: U.dim),
+                            if (projects.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: U.primary.withValues(alpha: 0.14),
+                                  borderRadius: M3Shapes.fullRadius,
+                                ),
+                                child: Text(
+                                  '${projects.length}',
+                                  style: GoogleFonts.outfit(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: U.primary,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
-                    );
-                  },
+                      const SizedBox(width: 4),
+                      if (widget.isOwnProfile)
+                        TextButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const CreateProjectScreen()),
+                            );
+                          },
+                          icon: const Icon(Icons.add_rounded, size: 15),
+                          label: const Text('Add'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: U.primary,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            textStyle: GoogleFonts.outfit(fontSize: 11.5, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      const SizedBox(width: 4),
+                      // Expand/Collapse Chevron Icon
+                      Icon(
+                        _isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                        color: U.primary,
+                        size: 22,
+                      ),
+                    ],
+                  ),
                 ),
+              ),
+
+              if (_isExpanded) ...[
+                const SizedBox(height: 14),
+
+                if (projects.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: U.surfaceContainerLow,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: U.outlineVariant.withValues(alpha: 0.25),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(Icons.lightbulb_outline_rounded, size: 28, color: U.sub),
+                        const SizedBox(height: 6),
+                        Text(
+                          'No projects showcased yet',
+                          style: GoogleFonts.outfit(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: U.text,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Publish your academic projects, hackathons, or apps to get recognized.',
+                          style: GoogleFonts.outfit(fontSize: 12, color: U.sub),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: projects.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final p = projects[index];
+                      final isOwner = p.ownerId == widget.userId;
+                      final role = isOwner
+                          ? 'Owner & Lead'
+                          : (p.contributors.firstWhere(
+                              (c) => c.userId == widget.userId,
+                              orElse: () => ProjectContributor(userId: widget.userId, name: '', role: 'Contributor'),
+                            ).role ?? 'Contributor');
+
+                      return InkWell(
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ProjectDetailScreen(projectId: p.id, initialProject: p),
+                            ),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: U.surfaceContainerLow,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: U.border.withValues(alpha: 0.5),
+                              width: 0.8,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              // Thumbnail
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  width: 56,
+                                  height: 56,
+                                  color: U.surfaceContainerHighest,
+                                  child: p.coverImage.isNotEmpty
+                                      ? CachedNetworkImage(
+                                          imageUrl: p.coverImage,
+                                          fit: BoxFit.cover,
+                                          placeholder: (context, url) => Center(
+                                            child: SizedBox(
+                                              width: 16,
+                                              height: 16,
+                                              child: CircularProgressIndicator(strokeWidth: 2, color: U.primary),
+                                            ),
+                                          ),
+                                          errorWidget: (context, url, error) => Icon(Icons.code_rounded, color: U.sub, size: 24),
+                                        )
+                                      : Icon(Icons.palette_outlined, color: U.sub, size: 24),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      p.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.outfit(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: U.text,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Wrap(
+                                      spacing: 6,
+                                      runSpacing: 4,
+                                      crossAxisAlignment: WrapCrossAlignment.center,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: isOwner
+                                                ? U.primary.withValues(alpha: 0.12)
+                                                : U.peach.withValues(alpha: 0.12),
+                                            borderRadius: M3Shapes.fullRadius,
+                                          ),
+                                          child: Text(
+                                            role,
+                                            style: GoogleFonts.outfit(
+                                              fontSize: 10.5,
+                                              fontWeight: FontWeight.w700,
+                                              color: isOwner ? U.primary : U.peach,
+                                            ),
+                                          ),
+                                        ),
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.schedule_rounded, size: 11, color: U.sub),
+                                            const SizedBox(width: 3),
+                                            Text(
+                                              p.relativeTime,
+                                              style: GoogleFonts.outfit(fontSize: 10.5, color: U.sub, fontWeight: FontWeight.w500),
+                                            ),
+                                          ],
+                                        ),
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.favorite_rounded, size: 12, color: U.red),
+                                            const SizedBox(width: 3),
+                                            Text(
+                                              '${p.likesCount}',
+                                              style: GoogleFonts.outfit(fontSize: 11, color: U.sub, fontWeight: FontWeight.w600),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(Icons.arrow_forward_ios_rounded, size: 12, color: U.dim),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+              ],
             ],
           ),
         );

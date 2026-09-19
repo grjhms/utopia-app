@@ -312,15 +312,15 @@ const _slateMonochromeTheme = AppTheme(
 );
 
 const appThemes = [
-  _oledPitchBlackTheme,
   _obsidianDarkTheme,
+  _oledPitchBlackTheme,
   _charcoalTheme,
   _graphiteTheme,
   _slateMonochromeTheme,
 ];
 
 final ValueNotifier<AppTheme> appThemeNotifier = ValueNotifier<AppTheme>(
-  _oledPitchBlackTheme,
+  _obsidianDarkTheme,
 );
 
 
@@ -598,7 +598,7 @@ class U {
         return theme;
       }
     }
-    return _oledPitchBlackTheme;
+    return _obsidianDarkTheme;
   }
 
   static void applyTheme(String? key) {

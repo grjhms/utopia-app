@@ -7,11 +7,13 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../main.dart';
 import '../services/app_update_service.dart';
-import '../services/luna_ai_service.dart';
 import '../services/notification_service.dart';
 import '../services/writer_firestore_service.dart';
 import '../widgets/utopia_snackbar.dart';
 import 'broadcast_screen.dart';
+import 'review_moderation_queue_screen.dart';
+import '../models/university_model.dart';
+import '../services/university_service.dart';
 
 class DeveloperPanelScreen extends StatefulWidget {
   const DeveloperPanelScreen({super.key});
@@ -39,15 +41,11 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
   final _updateMsgController = TextEditingController();
   final _updateUrlController = TextEditingController();
 
-  // ── Luna AI Test controls ──
-  final _lunaTestController =
-      TextEditingController(text: 'Luna, roast people who skip morning class!');
-  bool _lunaTesting = false;
-  String? _lunaTestOutput;
-  int? _lunaTestLatencyMs;
-  bool _lunaPostToChat = false;
-  Map<String, dynamic>? _lunaTestMetrics;
-  bool _lunaShowSystemPrompt = false;
+  // ── Honest Reviews controls ──
+  bool _honestReviewsGlobalEnabled = true;
+  Set<String> _disabledReviewUniIds = {};
+  List<UniversityModel> _allUniversities = [];
+  bool _savingReviewConfig = false;
 
   @override
   void initState() {
@@ -65,7 +63,6 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
     _updateTitleController.dispose();
     _updateMsgController.dispose();
     _updateUrlController.dispose();
-    _lunaTestController.dispose();
     super.dispose();
   }
 
@@ -74,12 +71,15 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
   Future<void> _loadUpdateConfig() async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
+      final unis = await UniversityService().fetchAllUniversities();
+
       if (mounted) {
         setState(() {
           _currentAppVersion = packageInfo.version;
           if (packageInfo.buildNumber.isNotEmpty) {
             _currentAppVersion += '+${packageInfo.buildNumber}';
           }
+          _allUniversities = unis;
         });
       }
 
@@ -90,6 +90,9 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
 
       if (doc.exists) {
         final data = doc.data() ?? {};
+        final globalEnabled = data['honest_reviews_enabled'] as bool? ?? true;
+        final disabledList = List<String>.from(data['disabled_honest_review_unis'] ?? []);
+
         if (mounted) {
           setState(() {
             _updateEnabled = data['update_enabled'] as bool? ?? true;
@@ -104,6 +107,8 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
                 'A new version of UTOPIA is available on Google Play with new features and performance improvements.';
             _updateUrlController.text = data['update_url'] as String? ??
                 AppUpdateService.defaultStoreUrl;
+            _honestReviewsGlobalEnabled = globalEnabled;
+            _disabledReviewUniIds = Set.from(disabledList.map((e) => e.toLowerCase().trim()));
           });
         }
       } else {
@@ -119,6 +124,42 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
         }
       }
     } catch (_) {}
+  }
+
+  Future<void> _saveHonestReviewsConfig() async {
+    setState(() => _savingReviewConfig = true);
+    try {
+      final currentDoc = await FirebaseFirestore.instance
+          .collection('config')
+          .doc('app_config')
+          .get();
+      final data = currentDoc.exists
+          ? (currentDoc.data() ?? {})
+          : <String, dynamic>{};
+
+      data['honest_reviews_enabled'] = _honestReviewsGlobalEnabled;
+      data['disabled_honest_review_unis'] = _disabledReviewUniIds.toList();
+
+      await WriterFirestoreService.updateConfig('app_config', data);
+
+      if (mounted) {
+        setState(() => _savingReviewConfig = false);
+        showUtopiaSnackBar(
+          context,
+          message: 'Honest Reviews visibility settings saved!',
+          tone: UtopiaSnackBarTone.success,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _savingReviewConfig = false);
+        showUtopiaSnackBar(
+          context,
+          message: 'Failed to save review settings: $e',
+          tone: UtopiaSnackBarTone.error,
+        );
+      }
+    }
   }
 
   Future<void> _saveUpdateConfig() async {
@@ -220,89 +261,7 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
     }
   }
 
-  Future<void> _runLunaDeveloperTest() async {
-    final prompt = _lunaTestController.text.trim();
-    if (prompt.isEmpty) return;
 
-    setState(() {
-      _lunaTesting = true;
-      _lunaTestOutput = null;
-      _lunaTestLatencyMs = null;
-      _lunaTestMetrics = null;
-    });
-
-    try {
-      if (_lunaPostToChat) {
-        final stopwatch = Stopwatch()..start();
-        final uniId =
-            U.cachedUniversityId.isNotEmpty ? U.cachedUniversityId : 'support';
-        await LunaAiService().respondToChat(
-          universityId: uniId,
-          userPrompt: prompt,
-          userName:
-              FirebaseAuth.instance.currentUser?.displayName ?? 'Developer',
-          userId: FirebaseAuth.instance.currentUser?.uid,
-        );
-        stopwatch.stop();
-        if (mounted) {
-          setState(() {
-            _lunaTesting = false;
-            _lunaTestLatencyMs = stopwatch.elapsedMilliseconds;
-            _lunaTestOutput = 'Published successfully to Chat to Utopia! 🚀';
-            _lunaTestMetrics = {
-              'target': 'Live Campus Chat',
-              'universityId': uniId,
-              'latencyMs': stopwatch.elapsedMilliseconds,
-              'statusCode': 200,
-            };
-          });
-        }
-      } else {
-        final result = await LunaAiService().testDetailedResponse(
-          userPrompt: prompt,
-          userName:
-              FirebaseAuth.instance.currentUser?.displayName ?? 'Developer',
-        );
-        if (mounted) {
-          setState(() {
-            _lunaTesting = false;
-            _lunaTestLatencyMs = result['latencyMs'] as int?;
-            _lunaTestOutput = result['output'] as String?;
-            _lunaTestMetrics = result;
-          });
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _lunaTesting = false;
-          _lunaTestOutput = 'Error: $e';
-        });
-      }
-    }
-  }
-
-  Widget _lunaQuickChip(String label, {String? promptText}) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return ActionChip(
-      label: Text(label,
-          style: GoogleFonts.outfit(
-              fontSize: 11.5, color: U.text, fontWeight: FontWeight.w500)),
-      backgroundColor: isDark
-          ? Colors.white.withValues(alpha: 0.05)
-          : Colors.black.withValues(alpha: 0.04),
-      side: BorderSide(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.08)
-              : U.border.withValues(alpha: 0.6),
-          width: 0.8),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
-      onPressed: () {
-        _lunaTestController.text =
-            promptText ?? 'Luna, roast people about $label';
-      },
-    );
-  }
 
   Future<void> _loadStats() async {
     try {
@@ -532,6 +491,130 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
     );
   }
 
+  Widget _buildHonestReviewsVisibilitySection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8, bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: U.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.04),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.rate_review_rounded, color: U.peach, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Honest Reviews Card Visibility',
+                  style: GoogleFonts.outfit(
+                    color: U.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Global switch
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              'Global Honest Reviews Feature',
+              style: GoogleFonts.outfit(color: U.text, fontSize: 14, fontWeight: FontWeight.w500),
+            ),
+            subtitle: Text(
+              _honestReviewsGlobalEnabled
+                  ? 'Feature is ENABLED app-wide'
+                  : 'Feature is DISABLED globally across all colleges',
+              style: GoogleFonts.outfit(color: U.sub, fontSize: 12),
+            ),
+            value: _honestReviewsGlobalEnabled,
+            activeTrackColor: U.peach,
+            onChanged: (val) {
+              setState(() => _honestReviewsGlobalEnabled = val);
+            },
+          ),
+          const Divider(height: 20),
+          Text(
+            'Per-University Review Visibility (${_allUniversities.length} Colleges):',
+            style: GoogleFonts.outfit(color: U.text, fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          if (_allUniversities.isEmpty)
+            Text('Loading universities...', style: GoogleFonts.outfit(color: U.sub, fontSize: 12))
+          else
+            Column(
+              children: _allUniversities.map((uni) {
+                final cleanId = uni.id.trim().toLowerCase();
+                final bool isVisibleForUni = _honestReviewsGlobalEnabled && !_disabledReviewUniIds.contains(cleanId);
+
+                return SwitchListTile.adaptive(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                  dense: true,
+                  title: Text(
+                    uni.name,
+                    style: GoogleFonts.outfit(color: U.text, fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
+                  subtitle: Text(
+                    isVisibleForUni ? 'Reviews Card Visible' : 'Reviews Card Hidden',
+                    style: GoogleFonts.outfit(
+                      color: isVisibleForUni ? Colors.green.shade700 : Colors.red.shade700,
+                      fontSize: 11,
+                    ),
+                  ),
+                  value: !_disabledReviewUniIds.contains(cleanId),
+                  activeTrackColor: U.peach,
+                  onChanged: _honestReviewsGlobalEnabled
+                      ? (val) {
+                          setState(() {
+                            if (val) {
+                              _disabledReviewUniIds.remove(cleanId);
+                            } else {
+                              _disabledReviewUniIds.add(cleanId);
+                            }
+                          });
+                        }
+                      : null,
+                );
+              }).toList(),
+            ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton(
+              onPressed: _savingReviewConfig ? null : _saveHonestReviewsConfig,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: U.peach,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: _savingReviewConfig
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    )
+                  : Text(
+                      'Save Review Visibility Settings',
+                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<AppTheme>(
@@ -557,7 +640,17 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
             children: [
               _buildStatsSection(),
               _buildUpdateSection(),
-              _buildLunaAiTestingSection(),
+              _sectionHeader('Community Moderation'),
+              _actionTile(
+                icon: Icons.rate_review_outlined,
+                title: 'Reviews Moderation Queue',
+                subtitle: 'Triage reported and pending college reviews',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ReviewModerationQueueScreen()),
+                ),
+              ),
+              _buildHonestReviewsVisibilitySection(),
               _sectionHeader('Announcements'),
               _actionTile(
                 icon: Icons.campaign_outlined,
@@ -878,720 +971,6 @@ class _DeveloperPanelScreenState extends State<DeveloperPanelScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildLunaAiTestingSection() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final luna = LunaAiService();
-    final keysMasked = luna.loadedKeysMasked;
-    final availableModels = luna.availableModels;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionHeader('Luna AI Developer Studio (Super Controls)'),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: U.card,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.06)
-                  : Colors.black.withValues(alpha: 0.06),
-              width: 1,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Top Header Bar
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: U.primary.withValues(alpha: 0.12),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(Icons.auto_awesome_rounded,
-                            color: U.primary, size: 18),
-                      ),
-                      const SizedBox(width: 10),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Luna AI Console',
-                            style: GoogleFonts.outfit(
-                              color: U.text,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          Text(
-                            'Engine: Groq Cloud • ${luna.totalKeysCount} Keys Connected',
-                            style: GoogleFonts.outfit(
-                              color: U.dim,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'Toggle System Prompt',
-                        icon: Icon(
-                          _lunaShowSystemPrompt
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                          size: 18,
-                          color: U.sub,
-                        ),
-                        onPressed: () {
-                          setState(() =>
-                              _lunaShowSystemPrompt = !_lunaShowSystemPrompt);
-                        },
-                      ),
-                      TextButton.icon(
-                        onPressed: () async {
-                          await luna.reloadKeys();
-                          if (mounted) {
-                            setState(() {});
-                            showUtopiaSnackBar(
-                              context,
-                              message:
-                                  'Reloaded ${luna.totalKeysCount} Groq keys from config/Luna!',
-                              tone: UtopiaSnackBarTone.info,
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.refresh_rounded, size: 14),
-                        label: Text(
-                          'Reload',
-                          style: GoogleFonts.outfit(fontSize: 11),
-                        ),
-                        style: TextButton.styleFrom(
-                          foregroundColor: U.sub,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-
-              // System Prompt Viewer (Accordion)
-              if (_lunaShowSystemPrompt) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.03)
-                        : Colors.black.withValues(alpha: 0.02),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: U.border.withValues(alpha: 0.4),
-                      width: 0.7,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'SYSTEM PROMPT & TELUGU RULES',
-                            style: GoogleFonts.outfit(
-                              color: U.primary,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.8,
-                            ),
-                          ),
-                          GestureDetector(
-                            onTap: () {
-                              Clipboard.setData(ClipboardData(
-                                  text: LunaAiService.systemPrompt));
-                              showUtopiaSnackBar(context,
-                                  message: 'Prompt copied to clipboard!',
-                                  tone: UtopiaSnackBarTone.success);
-                            },
-                            child: Icon(Icons.copy_rounded,
-                                size: 14, color: U.sub),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        LunaAiService.systemPrompt,
-                        style: GoogleFonts.sourceCodePro(
-                          color: U.sub,
-                          fontSize: 10.5,
-                          height: 1.35,
-                        ),
-                        maxLines: 8,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-
-              const SizedBox(height: 14),
-
-              // ── Key Access Selector ──
-              Text(
-                'TARGET API KEY',
-                style: GoogleFonts.outfit(
-                  color: U.sub,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const SizedBox(height: 6),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    ChoiceChip(
-                      label: Text('Auto-Cycle All (${luna.totalKeysCount})',
-                          style: GoogleFonts.outfit(fontSize: 11)),
-                      selected: luna.selectedKeyIndexOverride == null,
-                      onSelected: (sel) {
-                        setState(() => luna.selectedKeyIndexOverride = null);
-                      },
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    const SizedBox(width: 6),
-                    ...keysMasked.entries.map((entry) {
-                      final keyNum = int.tryParse(
-                              entry.key.replaceFirst('API-', '')) ??
-                          1;
-                      final keyIdx = keyNum - 1;
-                      final isSelected =
-                          luna.selectedKeyIndexOverride == keyIdx;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: ChoiceChip(
-                          label: Text('${entry.key} (${entry.value})',
-                              style: GoogleFonts.outfit(fontSize: 11)),
-                          selected: isSelected,
-                          onSelected: (sel) {
-                            setState(() => luna.selectedKeyIndexOverride =
-                                sel ? keyIdx : null);
-                          },
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              // ── Model Selector ──
-              Text(
-                'GROQ MODEL',
-                style: GoogleFonts.outfit(
-                  color: U.sub,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const SizedBox(height: 6),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: availableModels.map((model) {
-                    final isSelected = luna.activeModelName == model;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: ChoiceChip(
-                        label: Text(model,
-                            style: GoogleFonts.outfit(fontSize: 11)),
-                        selected: isSelected,
-                        onSelected: (sel) {
-                          setState(() => luna.selectedModelOverride =
-                              sel ? model : null);
-                        },
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-
-              const SizedBox(height: 14),
-
-              // ── Test Prompt Field ──
-              Text(
-                'CUSTOM TEST PROMPT',
-                style: GoogleFonts.outfit(
-                  color: U.sub,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const SizedBox(height: 6),
-              TextField(
-                controller: _lunaTestController,
-                style: GoogleFonts.outfit(color: U.text, fontSize: 13.5),
-                maxLines: 3,
-                decoration: InputDecoration(
-                  hintText: 'e.g. Luna, roast people who never attend 8am lecture',
-                  hintStyle: GoogleFonts.outfit(color: U.dim, fontSize: 12),
-                  filled: true,
-                  fillColor: isDark
-                      ? Colors.white.withValues(alpha: 0.03)
-                      : Colors.black.withValues(alpha: 0.02),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: U.border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: U.border.withValues(alpha: 0.5)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: U.primary),
-                  ),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // ── Full Quick Test Categories (Visible Wrap Layout) ──
-              Text(
-                'ONE-TAP TEST SCENARIOS (FULL ACCESS)',
-                style: GoogleFonts.outfit(
-                  color: U.sub,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const SizedBox(height: 6),
-
-              // Group 1: Friendly & Casual Convo (Tests natural human chats)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text('💬 Casual:',
-                          style: GoogleFonts.outfit(
-                              fontSize: 11, color: U.dim, fontWeight: FontWeight.w600)),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          _lunaQuickChip('heyy luna',
-                              promptText: 'heyy luna what are you doing rn?'),
-                          _lunaQuickChip('how was your day',
-                              promptText: 'luna how was your day today?'),
-                          _lunaQuickChip('canteen food',
-                              promptText: 'canteen lo samosa tintunna luna, want some?'),
-                          _lunaQuickChip('movie rec',
-                              promptText: 'luna recommend me a fun movie to watch tonight'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Group 2: College Life & Misery (Relatable / empathetic)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text('🎓 Campus:',
-                          style: GoogleFonts.outfit(
-                              fontSize: 11, color: U.dim, fontWeight: FontWeight.w600)),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          _lunaQuickChip('attendance 45%',
-                              promptText: 'attendance is 45% what should I do luna'),
-                          _lunaQuickChip('exhausted by exams',
-                              promptText: 'so tired today, semester exams are killing me'),
-                          _lunaQuickChip('skipped 8am class',
-                              promptText: 'slept through the 8am class again today lol'),
-                          _lunaQuickChip('proxy caught',
-                              promptText: 'faculty caught me giving proxy for my friend'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Group 3: Teasing & Sassy Roasts (When students flex)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text('💅 Teasing:',
-                          style: GoogleFonts.outfit(
-                              fontSize: 11, color: U.dim, fontWeight: FontWeight.w600)),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          _lunaQuickChip('college topper flex',
-                              promptText: 'nenu college topper bro, 9.8 CGPA easy ga vastadi'),
-                          _lunaQuickChip('sleeping 14 hours',
-                              promptText: 'woke up at 3pm today, life is good'),
-                          _lunaQuickChip('gym mirror selfie',
-                              promptText: 'look at my gym gains, rate my mirror selfie luna'),
-                          _lunaQuickChip('single life flex',
-                              promptText: 'everyone is in relationships, but single life is best'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Group 4: Telugu Banter
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text('🇮🇳 Telugu:',
-                          style: GoogleFonts.outfit(
-                              fontSize: 11, color: U.dim, fontWeight: FontWeight.w600)),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          _lunaQuickChip('enti bro idhi',
-                              promptText: 'Enti bro idhi, ma college gurinchi cheppu konchem'),
-                          _lunaQuickChip('pedda thopu',
-                              promptText: 'pedda thopu laga buildup istunnav enti luna'),
-                          _lunaQuickChip('sarle kani',
-                              promptText: 'Sarle kani, 8am class ki vellava leda?'),
-                          _lunaQuickChip('chalu overaction',
-                              promptText: 'chalu le overaction cheyyaku konchem'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Option: Post directly to campus chat
-              Container(
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? Colors.white.withValues(alpha: 0.02)
-                      : Colors.black.withValues(alpha: 0.015),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: U.border.withValues(alpha: 0.35),
-                    width: 0.7,
-                  ),
-                ),
-                child: SwitchListTile(
-                  value: _lunaPostToChat,
-                  onChanged: (val) => setState(() => _lunaPostToChat = val),
-                  title: Text(
-                    'Post reply to Chat to Utopia',
-                    style: GoogleFonts.outfit(
-                      color: U.text,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  subtitle: Text(
-                    _lunaPostToChat
-                        ? 'Live: Message will be posted in student campus chat'
-                        : 'Preview only: Safe on-screen test without posting',
-                    style: GoogleFonts.outfit(color: U.dim, fontSize: 11),
-                  ),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                  dense: true,
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Trigger Button
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _lunaTesting ? null : _runLunaDeveloperTest,
-                  icon: _lunaTesting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.send_rounded, size: 16),
-                  label: Text(
-                    _lunaTesting
-                        ? 'Generating via ${luna.activeModelName}...'
-                        : 'Run Test with Luna AI',
-                    style: GoogleFonts.outfit(
-                        fontWeight: FontWeight.w600, fontSize: 13.5),
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: U.primary,
-                    foregroundColor: U.colorScheme.onPrimary,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ),
-
-              // Output Preview & Metrics Inspector
-              if (_lunaTestOutput != null) ...[
-                const SizedBox(height: 14),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.04)
-                        : Colors.black.withValues(alpha: 0.03),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: U.primary.withValues(alpha: 0.3),
-                      width: 0.8,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Header with Badges
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Luna',
-                                style: GoogleFonts.outfit(
-                                  color: U.primary,
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 4, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: U.primary.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(3),
-                                ),
-                                child: Text(
-                                  'AI',
-                                  style: GoogleFonts.outfit(
-                                    color: U.primary,
-                                    fontSize: 8.5,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (_lunaTestMetrics?['keyLabel'] != null)
-                            _metricBadge(
-                                '🔑 ${_lunaTestMetrics!['keyLabel']}', U.blue),
-                          if (_lunaTestMetrics?['model'] != null)
-                            _metricBadge(
-                                '🤖 ${_lunaTestMetrics!['model']}', U.primary),
-                          if (_lunaTestLatencyMs != null)
-                            _metricBadge(
-                                '⚡ ${_lunaTestLatencyMs}ms', U.green),
-                          if (_lunaTestMetrics?['statusCode'] != null)
-                            _metricBadge(
-                                '📡 ${_lunaTestMetrics!['statusCode']}',
-                                _lunaTestMetrics!['statusCode'] == 200
-                                    ? U.green
-                                    : Colors.orange),
-                        ],
-                      ),
-                      Builder(builder: (context) {
-                        final blocks = (_lunaTestMetrics?['blocks'] as List?)
-                            ?.cast<String>();
-                        if (blocks != null && blocks.length > 1) {
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'HUMAN-LIKE MULTI-BUBBLE DELIVERY (${blocks.length} MESSAGES):',
-                                style: GoogleFonts.outfit(
-                                  color: U.primary,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.8,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              for (int i = 0; i < blocks.length; i++) ...[
-                                if (i > 0) const SizedBox(height: 6),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: isDark
-                                        ? Colors.white.withValues(alpha: 0.04)
-                                        : Colors.black.withValues(alpha: 0.03),
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: U.primary.withValues(alpha: 0.2),
-                                      width: 0.7,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 5, vertical: 1.5),
-                                        decoration: BoxDecoration(
-                                          color:
-                                              U.primary.withValues(alpha: 0.15),
-                                          borderRadius:
-                                              BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          'Bubble ${i + 1}',
-                                          style: GoogleFonts.outfit(
-                                            color: U.primary,
-                                            fontSize: 9.5,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: SelectableText(
-                                          blocks[i],
-                                          style: GoogleFonts.outfit(
-                                            color: U.text,
-                                            fontSize: 13.5,
-                                            height: 1.4,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ],
-                          );
-                        }
-                        return SelectableText(
-                          _lunaTestOutput!,
-                          style: GoogleFonts.outfit(
-                            color: U.text,
-                            fontSize: 14,
-                            height: 1.45,
-                          ),
-                        );
-                      }),
-                      const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton.icon(
-                            onPressed: () {
-                              Clipboard.setData(
-                                  ClipboardData(text: _lunaTestOutput!));
-                              showUtopiaSnackBar(context,
-                                  message: 'Response copied to clipboard!',
-                                  tone: UtopiaSnackBarTone.success);
-                            },
-                            icon: const Icon(Icons.copy_rounded, size: 14),
-                            label: Text('Copy Response',
-                                style: GoogleFonts.outfit(fontSize: 11)),
-                            style: TextButton.styleFrom(
-                              foregroundColor: U.sub,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 2),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _metricBadge(String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.outfit(
-          color: color,
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
     );
   }
 }

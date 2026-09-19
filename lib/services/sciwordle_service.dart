@@ -368,26 +368,70 @@ class SciwordleService {
   Future<void> _refreshUserTitleAfterGame(String uid, int totalScore, int streak) async {
     try {
       final leaderboard = await fetchLeaderboard();
-      int rank = -1;
-      int maxStreak = 0;
-      for (int i = 0; i < leaderboard.length; i++) {
-        if (leaderboard[i].streak > maxStreak) {
-          maxStreak = leaderboard[i].streak;
-        }
-        if (leaderboard[i].uid == uid) {
-          rank = i + 1;
-        }
-      }
-      final title = computeTitle(
-        rank: rank,
-        streak: streak,
-        maxStreak: maxStreak,
-        totalScore: totalScore,
-      );
+      final titles = computeLeaderboardTitles(leaderboard);
+      final title = titles[uid] ?? '';
       await _db.collection('users').doc(uid).set({
-        'sciwordleTitle': title ?? '',
+        'sciwordleTitle': title,
       }, SetOptions(merge: true));
     } catch (_) {}
+  }
+
+  /// Leaderboard-wide title computation ensuring EVERY badge is unique to at most 1 user.
+  static Map<String, String> computeLeaderboardTitles(
+    List<SciwordleLeaderboardEntry> leaderboard,
+  ) {
+    final titles = <String, String>{};
+    if (leaderboard.isEmpty) return titles;
+
+    final validEntries = leaderboard.where((e) => e.totalScore > 0).toList();
+    if (validEntries.isEmpty) return titles;
+
+    final rank1 = validEntries[0];
+
+    // Find the highest streak across all players
+    int maxStreakOverall = 0;
+    for (final e in validEntries) {
+      if (e.streak > maxStreakOverall) {
+        maxStreakOverall = e.streak;
+      }
+    }
+
+    if (maxStreakOverall > 0 && rank1.streak >= maxStreakOverall) {
+      // Rank 1 has both #1 score and #1 streak -> ALPHA
+      titles[rank1.uid] = 'ALPHA';
+      // Since Rank 1 holds the #1 streak crown as ALPHA, no one else gets FIRE
+    } else {
+      // Rank 1 gets PRIME for #1 score
+      titles[rank1.uid] = 'PRIME';
+
+      // The single top streak holder gets FIRE (first entry in sorted score order breaks tie)
+      if (maxStreakOverall > 0) {
+        for (final e in validEntries) {
+          if (e.uid != rank1.uid && e.streak == maxStreakOverall) {
+            titles[e.uid] = 'FIRE';
+            break; // Exactly 1 player receives FIRE
+          }
+        }
+      }
+    }
+
+    // Rank 2 gets TOP 2 (if not already holding FIRE)
+    if (validEntries.length >= 2) {
+      final rank2 = validEntries[1];
+      if (!titles.containsKey(rank2.uid)) {
+        titles[rank2.uid] = 'TOP 2';
+      }
+    }
+
+    // Rank 3 gets TOP 3 (if not already holding FIRE)
+    if (validEntries.length >= 3) {
+      final rank3 = validEntries[2];
+      if (!titles.containsKey(rank3.uid)) {
+        titles[rank3.uid] = 'TOP 3';
+      }
+    }
+
+    return titles;
   }
 
   /// Deterministic title calculation based on rank, streak, and score
@@ -396,15 +440,19 @@ class SciwordleService {
     required int streak,
     required int maxStreak,
     required int totalScore,
+    bool isHighestStreakUser = false,
+    int rank1Streak = 0,
   }) {
     if (totalScore <= 0 || rank <= 0) return null;
     final isMaxStreak = streak > 0 && streak >= maxStreak;
-    if (rank == 1 && isMaxStreak) return 'ALPHA';
-    if (rank == 1) return 'PRIME';
-    if (isMaxStreak) return 'FIRE';
+    if (rank == 1) {
+      return isMaxStreak ? 'ALPHA' : 'PRIME';
+    }
+    if (isHighestStreakUser && isMaxStreak && (rank1Streak < maxStreak)) {
+      return 'FIRE';
+    }
     if (rank == 2) return 'TOP 2';
     if (rank == 3) return 'TOP 3';
-    if (rank <= 10) return 'TOP 10';
     return null;
   }
 

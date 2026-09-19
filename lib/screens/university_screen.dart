@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../widgets/utopia_loader.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -29,6 +30,7 @@ import 'assignments_screen.dart';
 import 'sciwordle_screen.dart'; // ignore: unused_import
 import '../theme/m3_expressive_theme.dart';
 import '../widgets/app_motion.dart';
+import 'honest_reviews_screen.dart';
 
 class UniversityScreen extends StatefulWidget {
   const UniversityScreen({super.key});
@@ -42,12 +44,40 @@ class _UniversityScreenState extends State<UniversityScreen> {
   String _universityName = U.cachedUniversityName;
   bool _isLoading = true;
   int _notificationCount = 0;
+  bool _isHonestReviewsEnabled = true;
+  StreamSubscription? _configSub;
 
   @override
   void initState() {
     super.initState();
     _loadData();
     _loadNotificationCount();
+    _listenConfig();
+  }
+
+  @override
+  void dispose() {
+    _configSub?.cancel();
+    super.dispose();
+  }
+
+  void _listenConfig() {
+    _configSub = FirebaseFirestore.instance
+        .collection('config')
+        .doc('app_config')
+        .snapshots()
+        .listen((doc) {
+      if (doc.exists && doc.data() != null) {
+        final data = doc.data()!;
+        final bool globalEnabled = data['honest_reviews_enabled'] != false;
+        final List disabledUnis = List.from(data['disabled_honest_review_unis'] ?? []);
+        final cleanId = _universityId.trim().toLowerCase();
+        final bool isEnabled = globalEnabled && !disabledUnis.map((e) => e.toString().trim().toLowerCase()).contains(cleanId);
+        if (mounted) {
+          setState(() => _isHonestReviewsEnabled = isEnabled);
+        }
+      }
+    });
   }
 
   Future<void> _loadNotificationCount() async {
@@ -204,6 +234,23 @@ class _UniversityScreenState extends State<UniversityScreen> {
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const EventsScreen()),
+        ),
+      ),
+      if (_isHonestReviewsEnabled)
+        _CardItem(
+          title: 'Honest Reviews',
+        subtitle: 'Student ratings &\ncollege reviews',
+        icon: Icons.rate_review_outlined,
+        color: theme.peach,
+        delay: 110,
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => HonestReviewsScreen(
+              collegeId: _universityId,
+              collegeName: _displayUniversityName,
+            ),
+          ),
         ),
       ),
       if (U.isAdityaCollege(_universityId, _universityName))

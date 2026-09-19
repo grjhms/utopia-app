@@ -472,7 +472,7 @@ class _ChatMediaPickerSheetState extends State<ChatMediaPickerSheet> {
                         child: Text(
                           cat,
                           style: GoogleFonts.outfit(
-                            color: isSelected ? Colors.white : U.sub,
+                            color: isSelected ? U.getContrastColor(U.primary) : U.sub,
                             fontSize: 12,
                             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                           ),
@@ -600,13 +600,13 @@ class _ChatMediaPickerSheetState extends State<ChatMediaPickerSheet> {
               Icon(
                 icon,
                 size: 18,
-                color: isSelected ? Colors.white : U.sub,
+                color: isSelected ? U.getContrastColor(U.primary) : U.sub,
               ),
               const SizedBox(width: 6),
               Text(
                 title,
                 style: GoogleFonts.outfit(
-                  color: isSelected ? Colors.white : U.sub,
+                  color: isSelected ? U.getContrastColor(U.primary) : U.sub,
                   fontSize: 13,
                   fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
                 ),
